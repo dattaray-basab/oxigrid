@@ -1,0 +1,33 @@
+# Rust
+/target/
+**/*.rs.bk
+*.rlib
+**/target/
+**/.cargo_targets/
+/.cargo_targets/
+
+
+# Cargo
+**/Cargo.lock
+
+# IDEs
+.vscode/
+.idea/
+
+# macOS
+.DS_Store
+
+# Linux
+*.swp
+*~
+
+# Windows
+Thumbs.db
+Desktop.ini
+
+.cargo_targets/
+target_align_only/
+target_archive/
+**/target_*/*
+
+
