@@ -13,11 +13,11 @@ use std::f64::consts::PI;
 /// Solar position at a given moment and location.
 #[derive(Debug, Clone, Copy, Serialize, Deserialize)]
 pub struct SolarPosition {
-    /// Solar zenith angle [rad]  (0 = directly overhead)
+    /// Solar zenith angle `rad`  (0 = directly overhead)
     pub zenith: f64,
-    /// Solar elevation angle [rad] = π/2 − zenith
+    /// Solar elevation angle `rad` = π/2 − zenith
     pub elevation: f64,
-    /// Solar azimuth angle [rad] (0 = south, + eastward)
+    /// Solar azimuth angle `rad` (0 = south, + eastward)
     pub azimuth: f64,
     /// Air mass (Kasten–Young formula)
     pub air_mass: f64,
@@ -44,7 +44,7 @@ impl SolarPosition {
     /// # Arguments
     /// - `latitude_deg` — site latitude [°]
     /// - `day_of_year`  — Julian day number (1–365)
-    /// - `hour`         — local solar time [h] (0–24)
+    /// - `hour`         — local solar time `h` (0–24)
     pub fn compute(latitude_deg: f64, day_of_year: u32, hour: f64) -> Self {
         let lat = latitude_deg.to_radians();
         let n = day_of_year as f64;

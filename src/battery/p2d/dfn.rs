@@ -36,17 +36,17 @@ const R_GAS: f64 = 8.314;
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct DfnParams {
     // ── Cell geometry ──
-    /// Anode thickness [m]
+    /// Anode thickness `m`
     pub l_neg: f64,
-    /// Separator thickness [m]
+    /// Separator thickness `m`
     pub l_sep: f64,
-    /// Cathode thickness [m]
+    /// Cathode thickness `m`
     pub l_pos: f64,
-    /// Electrode plate area [m²]
+    /// Electrode plate area `m²`
     pub area: f64,
 
     // ── Solid phase (anode) ──
-    /// Particle radius, anode [m]
+    /// Particle radius, anode `m`
     pub r_neg: f64,
     /// Solid diffusivity at ref. conditions, anode [m²/s]
     pub d_s_neg_ref: f64,
@@ -86,7 +86,7 @@ pub struct DfnParams {
     pub brugg: f64,
 
     // ── Thermal ──
-    /// Cell temperature [K]
+    /// Cell temperature `K`
     pub temperature_k: f64,
 
     // ── OCV parameters ──
@@ -207,11 +207,11 @@ pub struct DfnState {
     pub c_s_pos: Vec<Vec<f64>>,
     /// Electrolyte concentration across all nodes [mol/m³], length n_x_total
     pub c_e: Vec<f64>,
-    /// Elapsed time [s]
+    /// Elapsed time `s`
     pub time_s: f64,
-    /// Terminal voltage [V]
+    /// Terminal voltage `V`
     pub voltage: f64,
-    /// Applied current [A] (positive = discharge)
+    /// Applied current `A` (positive = discharge)
     pub current: f64,
     /// Average anode surface stoichiometry
     pub theta_neg_surf: f64,
@@ -252,9 +252,9 @@ pub struct DfnConfig {
     pub newton_tol: f64,
     /// Maximum Newton iterations per time step
     pub newton_max_iter: usize,
-    /// Minimum terminal voltage [V]
+    /// Minimum terminal voltage `V`
     pub v_min: f64,
-    /// Maximum terminal voltage [V]
+    /// Maximum terminal voltage `V`
     pub v_max: f64,
 }
 
@@ -275,11 +275,11 @@ impl Default for DfnConfig {
 /// Step result from the DFN solver.
 #[derive(Debug, Clone, Copy, Serialize, Deserialize)]
 pub struct DfnStep {
-    /// Terminal voltage [V]
+    /// Terminal voltage `V`
     pub voltage: f64,
-    /// Current [A]
+    /// Current `A`
     pub current: f64,
-    /// Time elapsed [s]
+    /// Time elapsed `s`
     pub time_s: f64,
     /// Average anode stoichiometry
     pub theta_neg: f64,

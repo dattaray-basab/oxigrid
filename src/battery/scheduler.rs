@@ -30,19 +30,19 @@ use serde::{Deserialize, Serialize};
 /// BESS characteristics for scheduling.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct SchedulerBessParams {
-    /// Energy capacity [kWh]
+    /// Energy capacity `kWh`
     pub capacity_kwh: f64,
-    /// Maximum charge power [kW]
+    /// Maximum charge power `kW`
     pub max_charge_kw: f64,
-    /// Maximum discharge power [kW]
+    /// Maximum discharge power `kW`
     pub max_discharge_kw: f64,
-    /// Round-trip efficiency [fraction]
+    /// Round-trip efficiency `fraction`
     pub rte: f64,
-    /// Minimum SOC [fraction]
+    /// Minimum SOC `fraction`
     pub soc_min: f64,
-    /// Maximum SOC [fraction]
+    /// Maximum SOC `fraction`
     pub soc_max: f64,
-    /// Initial SOC [fraction]
+    /// Initial SOC `fraction`
     pub soc_init: f64,
     /// Degradation cost [$/kWh_throughput] (equivalent cost of capacity fade)
     pub deg_cost_per_kwh: f64,
@@ -85,22 +85,22 @@ impl SchedulerBessParams {
         }
     }
 
-    /// Maximum energy that can be stored per charge step [kWh].
+    /// Maximum energy that can be stored per charge step `kWh`.
     pub fn max_charge_energy(&self, dt_h: f64) -> f64 {
         self.max_charge_kw * dt_h
     }
 
-    /// Maximum energy that can be discharged per step [kWh].
+    /// Maximum energy that can be discharged per step `kWh`.
     pub fn max_discharge_energy(&self, dt_h: f64) -> f64 {
         self.max_discharge_kw * dt_h
     }
 
-    /// Usable energy capacity [kWh].
+    /// Usable energy capacity `kWh`.
     pub fn usable_kwh(&self) -> f64 {
         (self.soc_max - self.soc_min) * self.capacity_kwh
     }
 
-    /// Degradation cost for a given throughput [kWh].
+    /// Degradation cost for a given throughput `kWh`.
     pub fn deg_cost(&self, throughput_kwh: f64) -> f64 {
         throughput_kwh * self.deg_cost_per_kwh
     }
@@ -113,7 +113,7 @@ impl SchedulerBessParams {
 /// Configuration for the day-ahead scheduler.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct SchedulerConfig {
-    /// Time step [hours]
+    /// Time step `hours`
     pub dt_h: f64,
     /// Number of SOC discretisation levels
     pub n_soc_levels: usize,
@@ -123,9 +123,9 @@ pub struct SchedulerConfig {
     pub enable_deg_cost: bool,
     /// Final SOC target (None = free)
     pub final_soc_target: Option<f64>,
-    /// Final SOC tolerance [fraction]
+    /// Final SOC tolerance `fraction`
     pub final_soc_tolerance: f64,
-    /// Maximum throughput per day [kWh] (aging budget override, 0 = unlimited)
+    /// Maximum throughput per day `kWh` (aging budget override, 0 = unlimited)
     pub max_daily_throughput_kwh: f64,
 }
 
@@ -164,13 +164,13 @@ pub struct SchedulePeriod {
     pub price_per_kwh: f64,
     /// Action taken
     pub action: ScheduleAction,
-    /// Power setpoint [kW] (positive = discharge, negative = charge)
+    /// Power setpoint `kW` (positive = discharge, negative = charge)
     pub power_kw: f64,
-    /// Energy throughput this period [kWh]
+    /// Energy throughput this period `kWh`
     pub throughput_kwh: f64,
-    /// SOC at start of period [fraction]
+    /// SOC at start of period `fraction`
     pub soc_start: f64,
-    /// SOC at end of period [fraction]
+    /// SOC at end of period `fraction`
     pub soc_end: f64,
     /// Gross revenue this period [$]
     pub revenue: f64,
@@ -191,13 +191,13 @@ pub struct ScheduleResult {
     pub total_deg_cost: f64,
     /// Total net profit [$]
     pub total_net_profit: f64,
-    /// Total energy charged [kWh]
+    /// Total energy charged `kWh`
     pub total_charge_kwh: f64,
-    /// Total energy discharged [kWh]
+    /// Total energy discharged `kWh`
     pub total_discharge_kwh: f64,
     /// Total equivalent full cycles (EFC)
     pub equivalent_full_cycles: f64,
-    /// Aging budget utilised [fraction]
+    /// Aging budget utilised `fraction`
     pub aging_budget_utilised: f64,
     /// Number of charge periods
     pub n_charge_periods: usize,
@@ -214,7 +214,7 @@ impl ScheduleResult {
         self.total_discharge_kwh / self.total_charge_kwh
     }
 
-    /// Simple payback period at average spread [years].
+    /// Simple payback period at average spread `years`.
     pub fn simple_payback_years(&self, replacement_cost: f64, n_days: f64) -> f64 {
         if self.total_net_profit < 1e-6 || n_days < 1e-6 {
             return f64::INFINITY;

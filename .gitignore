@@ -10,6 +10,9 @@
 # Cargo
 **/Cargo.lock
 
+# Claude AI config
+**/.claude/
+
 # IDEs
 .vscode/
 .idea/
@@ -31,3 +34,9 @@ target_archive/
 **/target_*/*
 
 
+
+# Rustc ICE dumps
+rustc-ice-*.txt
+
+# Coverage reports
+coverage/

@@ -155,9 +155,9 @@ impl GridAnomalyDetector {
     ///
     /// Uses the two-sided CUSUM algorithm:
     /// ```text
-    /// S⁺[t] = max(0, S⁺[t-1] + x[t] - μ - k)
-    /// S⁻[t] = max(0, S⁻[t-1] - x[t] + μ - k)
-    /// alarm when S⁺[t] > h  or  S⁻[t] > h
+    /// S⁺`t` = max(0, S⁺[t-1] + x[t] - μ - k)
+    /// S⁻`t` = max(0, S⁻[t-1] - x[t] + μ - k)
+    /// alarm when S⁺`t` > h  or  S⁻`t` > h
     /// ```
     ///
     /// # Returns

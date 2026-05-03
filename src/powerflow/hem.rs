@@ -2,11 +2,11 @@
 ///
 /// The HEM embeds the power flow equations in a complex parameter s:
 ///
-///   V_i(s) = Σ_k V_i^[k] · s^k    (voltage as power series in s)
+///   V_i(s) = Σ_k V_i^`k` · s^k    (voltage as power series in s)
 ///   Y_bus · V(s) = s · I_spec(s)   (scaled injections)
 ///
 /// At s=1 the original power flow is recovered.  The series coefficients
-/// V^[k] are computed recursively from the network equations, then a
+/// V^`k` are computed recursively from the network equations, then a
 /// Padé approximant ℙ[M/N](s) is built and evaluated at s=1.
 ///
 /// Advantages over Newton-Raphson:
@@ -56,7 +56,7 @@ impl Default for HemConfig {
 pub struct HemResult {
     /// Voltage magnitudes at each bus [p.u.]
     pub voltage_magnitude: Vec<f64>,
-    /// Voltage angles [rad]
+    /// Voltage angles `rad`
     pub voltage_angle: Vec<f64>,
     /// Number of series terms used
     pub terms_used: usize,
@@ -172,12 +172,12 @@ pub fn solve_hem(network: &PowerNetwork, config: &HemConfig) -> Result<HemResult
     })
 }
 
-/// Compute the k-th HEM coefficient V^[k] recursively.
+/// Compute the k-th HEM coefficient V^`k` recursively.
 ///
 /// From Y · V(s) = s · I_spec:
-///   Σ_j Y_ij · V_j^[k] = I_i^[k-1]   for k ≥ 1
+///   Σ_j Y_ij · V_j^`k` = I_i^[k-1]   for k ≥ 1
 ///
-/// where I_i^[k] = (S_i / conj(V_i(s)))^[k] coefficient.
+/// where I_i^`k` = (S_i / conj(V_i(s)))^`k` coefficient.
 fn compute_hem_coefficient(
     k: usize,
     v_coeffs: &[CoeffVec],
@@ -204,7 +204,7 @@ fn compute_hem_coefficient(
     solve_ybus_for_coeff(ybus, &i_km1, slack_idx, n)
 }
 
-/// Compute W^[m] where W = 1/conj(V) using the power series division formula.
+/// Compute W^`m` where W = 1/conj(V) using the power series division formula.
 fn compute_reciprocal_conj_coeff(m: usize, v_coeffs: &[CoeffVec]) -> Vec<Complex64> {
     let n = v_coeffs[0].len();
     if m == 0 {

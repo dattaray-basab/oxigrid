@@ -73,15 +73,15 @@ pub struct PvModule {
     pub name: String,
     /// Cell technology type.
     pub technology: PvTechnology,
-    /// Rated peak power at STC [W].
+    /// Rated peak power at STC `W`.
     pub p_stc_w: f64,
-    /// Open-circuit voltage at STC [V].
+    /// Open-circuit voltage at STC `V`.
     pub voc_stc_v: f64,
-    /// Short-circuit current at STC [A].
+    /// Short-circuit current at STC `A`.
     pub isc_stc_a: f64,
-    /// MPP voltage at STC [V].
+    /// MPP voltage at STC `V`.
     pub vmpp_stc_v: f64,
-    /// MPP current at STC [A].
+    /// MPP current at STC `A`.
     pub impp_stc_a: f64,
     /// Power temperature coefficient [% per °C] (typically negative, e.g. −0.40).
     pub temp_coeff_p_pct_per_c: f64,
@@ -91,7 +91,7 @@ pub struct PvModule {
     pub temp_coeff_isc_ma_per_c: f64,
     /// Nominal operating cell temperature [°C] (default 45 °C).
     pub noct_c: f64,
-    /// Module area [m²].
+    /// Module area `m²`.
     pub area_m2: f64,
     /// Nameplate efficiency at STC [%].
     pub efficiency_stc_pct: f64,
@@ -208,7 +208,7 @@ pub struct PvString {
 }
 
 impl PvString {
-    /// DC power from this string [W] after all string-level losses.
+    /// DC power from this string `W` after all string-level losses.
     ///
     /// `P_string = N × P_module × (1 − soiling/100) × (1 − shading/100) × (1 − mismatch/100)`
     pub fn p_max_dc(&self, irradiance: f64, temp_c: f64) -> f64 {
@@ -220,14 +220,14 @@ impl PvString {
         (n * p_mod * loss).max(0.0)
     }
 
-    /// Total open-circuit voltage of the series string [V].
+    /// Total open-circuit voltage of the series string `V`.
     ///
     /// `Voc_string = N × Voc_module`
     pub fn voc_string(&self, temp_c: f64, irr: f64) -> f64 {
         self.n_modules as f64 * self.module.voc_at_conditions(temp_c, irr)
     }
 
-    /// Short-circuit current of the series string [A].
+    /// Short-circuit current of the series string `A`.
     ///
     /// In a series connection the current is the same as a single module's Isc.
     pub fn isc_string(&self, irr: f64, temp_c: f64) -> f64 {
@@ -250,7 +250,7 @@ pub struct PvArray {
     pub azimuth_deg: f64,
     /// DC wiring resistance loss [%]; default 1.5 %.
     pub dc_wiring_loss_pct: f64,
-    /// Age of the installed system [years] for degradation modelling.
+    /// Age of the installed system `years` for degradation modelling.
     pub system_age_years: f64,
 }
 
@@ -265,27 +265,27 @@ pub struct PvInverter {
     pub name: String,
     /// Converter topology.
     pub topology: InverterTopology,
-    /// Rated AC output power [W].
+    /// Rated AC output power `W`.
     pub p_rated_w: f64,
     /// Peak efficiency (CEC/Euro) [%]; default 98.0.
     pub efficiency_pct: f64,
     /// MPPT tracking efficiency [%]; default 99.5.
     pub mppt_efficiency_pct: f64,
-    /// Minimum DC input voltage [V].
+    /// Minimum DC input voltage `V`.
     pub vdc_min_v: f64,
-    /// Maximum DC input voltage [V].
+    /// Maximum DC input voltage `V`.
     pub vdc_max_v: f64,
-    /// Minimum DC voltage in the MPPT window [V].
+    /// Minimum DC voltage in the MPPT window `V`.
     pub vdc_mppt_min_v: f64,
-    /// Maximum DC voltage in the MPPT window [V].
+    /// Maximum DC voltage in the MPPT window `V`.
     pub vdc_mppt_max_v: f64,
-    /// Nominal AC grid voltage [V] (e.g. 400 V three-phase).
+    /// Nominal AC grid voltage `V` (e.g. 400 V three-phase).
     pub ac_voltage_v: f64,
     /// Power factor at rated output (1.0 = unity).
     pub power_factor: f64,
     /// Capable of reactive power export/import.
     pub reactive_power_capable: bool,
-    /// Night-time standby consumption [W].
+    /// Night-time standby consumption `W`.
     pub night_tare_w: f64,
 }
 
@@ -339,15 +339,15 @@ pub struct PvSystem {
 /// Simulation result for a single one-hour timestep.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct PvOutputPoint {
-    /// Hour index or absolute timestamp [h].
+    /// Hour index or absolute timestamp `h`.
     pub timestamp_h: f64,
     /// Plane-of-array irradiance [W m⁻²].
     pub irradiance_w_per_m2: f64,
     /// Representative cell temperature [°C].
     pub cell_temp_c: f64,
-    /// Total DC power from all arrays [W].
+    /// Total DC power from all arrays `W`.
     pub p_dc_w: f64,
-    /// Net AC power exported to grid [W].
+    /// Net AC power exported to grid `W`.
     pub p_ac_w: f64,
     /// System AC efficiency relative to incident irradiance [%].
     pub efficiency_pct: f64,
@@ -369,7 +369,7 @@ impl PvSystemModel {
         Self { system }
     }
 
-    /// Total DC power from all arrays [W].
+    /// Total DC power from all arrays `W`.
     ///
     /// For each array the per-string power is summed, DC wiring losses applied,
     /// and a degradation factor based on `array.system_age_years` is multiplied:
@@ -393,7 +393,7 @@ impl PvSystemModel {
             .max(0.0)
     }
 
-    /// Convert DC power to net AC export power [W] after all AC-side losses.
+    /// Convert DC power to net AC export power `W` after all AC-side losses.
     ///
     /// `P_ac = P_dc × η_inv × η_mppt × (1 − ac_wire/100) × (1 − xfmr/100) × (avail/100)`
     ///
@@ -461,7 +461,7 @@ impl PvSystemModel {
         }
     }
 
-    /// Simulate annual energy yield [MWh] from hourly irradiance and temperature profiles.
+    /// Simulate annual energy yield `MWh` from hourly irradiance and temperature profiles.
     ///
     /// Each element of the input slices represents one hour; slices are zipped so
     /// the shorter one determines the number of hours simulated.

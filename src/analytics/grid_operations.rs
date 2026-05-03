@@ -1274,4 +1274,295 @@ mod tests {
             "high-performing system should have no critical alerts"
         );
     }
+
+    // ── OperationalKpis: non-zero derived metrics ─────────────────────────────
+
+    #[test]
+    fn test_kpis_heat_rate_and_emissions_and_cost() {
+        // Reason: exercises heat_rate_btu_per_kwh, emissions_intensity_kg_per_mwh,
+        // and cost_per_mwh_delivered on non-zero inputs — all three are uncovered.
+        //
+        // heat_rate = 2_000_000 MMBTU * 1e6 / (1_000_000 MWh * 1e3)
+        //           = 2e12 / 1e9 = 2000 BTU/kWh
+        // emissions = 400_000 t * 1000 / 950_000 MWh ≈ 421.053 kg/MWh
+        // cost      = (500_000 + 4_000_000) / 950_000 ≈ 4.7368 $/MWh
+        let k = base_kpis(); // generated=1e6 MWh, delivered=950k MWh, fuel=8e6 MMBTU
+                             // Override fuel to 2e6 for a rounder heat-rate:
+        let k2 = OperationalKpis {
+            fuel_consumed_mmbtu: 2_000_000.0,
+            ..k.clone()
+        };
+        approx::assert_relative_eq!(k2.heat_rate_btu_per_kwh(), 2000.0, epsilon = 1e-6);
+
+        let ei = k.emissions_intensity_kg_per_mwh();
+        approx::assert_relative_eq!(ei, 400_000.0 * 1000.0 / 950_000.0, epsilon = 1e-6);
+
+        let cost = k.cost_per_mwh_delivered();
+        approx::assert_relative_eq!(cost, (500_000.0 + 4_000_000.0) / 950_000.0, epsilon = 1e-6);
+    }
+
+    // ── GeneratorPerformance: heat rate and EOH ───────────────────────────────
+
+    #[test]
+    fn test_generator_average_heat_rate() {
+        // Reason: average_heat_rate is not exercised by any existing test.
+        // 24 h × 80 MWh = 1920 MWh total; 24 h × 800 MMBTU = 19200 MMBTU total
+        // heat_rate = 19200 * 1e6 BTU / (1920 * 1e3 kWh) = 10000 BTU/kWh
+        let g = GeneratorPerformance {
+            unit_id: 5,
+            name: "Gas2".to_string(),
+            fuel_type: GeneratorFuelType::NaturalGas,
+            rated_mw: 100.0,
+            generation_mwh: vec![80.0; 24],
+            fuel_consumed: vec![800.0; 24],
+            starts: vec![false; 24],
+            outage_flags: vec![false; 24],
+        };
+        approx::assert_relative_eq!(g.average_heat_rate(), 10_000.0, epsilon = 1e-6);
+    }
+
+    #[test]
+    fn test_generator_equivalent_operating_hours() {
+        // Reason: equivalent_operating_hours is uncovered.
+        // 3 starts: hot_starts=1, cold_starts=2
+        // run_hours = 7 (outage_flags has 3 trues out of 10)
+        // EOH = 7 + 5*1 + 10*2 = 7 + 5 + 20 = 32
+        let mut starts = vec![false; 10];
+        starts[0] = true;
+        starts[3] = true;
+        starts[7] = true;
+        let mut outage_flags = vec![false; 10];
+        outage_flags[1] = true;
+        outage_flags[5] = true;
+        outage_flags[9] = true;
+        let g = GeneratorPerformance {
+            unit_id: 6,
+            name: "Hydro1".to_string(),
+            fuel_type: GeneratorFuelType::Hydro,
+            rated_mw: 200.0,
+            generation_mwh: vec![150.0; 10],
+            fuel_consumed: vec![0.0; 10],
+            starts,
+            outage_flags,
+        };
+        approx::assert_relative_eq!(g.equivalent_operating_hours(), 32.0, epsilon = 1e-9);
+    }
+
+    // ── CongestionAnalyzer: congested hours and overload cost ─────────────────
+
+    #[test]
+    fn test_congestion_congested_hours_and_cost() {
+        // Reason: congested_hours_per_branch and congestion_cost_per_hour are uncovered.
+        // hour 0: branch0 flow=95 MW on rating=100 → 95% > 90% → congested
+        // hour 1: branch0 flow=80 MW on rating=100 → 80% ≤ 90% → not congested
+        // congestion cost hour 0: overload = max(0, 95-100)=0 → cost=0
+        // hour 2: branch0 flow=120 MW on rating=100 → overload=20 MW, avg_lmp=40 → cost=800
+        let ca = CongestionAnalyzer {
+            branch_ratings_mw: vec![100.0],
+            branch_flows_mw: vec![vec![95.0], vec![80.0], vec![120.0]],
+            branch_names: vec!["TX1".to_string()],
+            lmp_prices: vec![vec![30.0], vec![35.0], vec![40.0]],
+        };
+        let ch = ca.congested_hours_per_branch();
+        assert_eq!(ch.len(), 1);
+        // hour-0: 95/100 = 95% > 90% → congested
+        // hour-1: 80/100 = 80% ≤ 90% → not congested
+        // hour-2: 120/100 = 120% > 90% → congested
+        assert_eq!(
+            ch[0], 2,
+            "hours 0 and 2 should be congested (95% and 120% loading)"
+        );
+
+        let costs = ca.congestion_cost_per_hour(&[]);
+        assert_eq!(costs.len(), 3);
+        approx::assert_relative_eq!(costs[0], 0.0, epsilon = 1e-9); // not overloaded
+        approx::assert_relative_eq!(costs[1], 0.0, epsilon = 1e-9);
+        approx::assert_relative_eq!(costs[2], 20.0 * 40.0, epsilon = 1e-6); // overload=20, lmp=40
+    }
+
+    #[test]
+    fn test_congestion_lmp_spread() {
+        // Reason: lmp_spread_mwh is uncovered.
+        // hour 0: buses [20, 50, 35] → spread = 30
+        // hour 1: buses [45, 45]     → spread = 0
+        let ca = CongestionAnalyzer {
+            branch_ratings_mw: vec![100.0],
+            branch_flows_mw: vec![vec![50.0], vec![50.0]],
+            branch_names: vec!["L1".to_string()],
+            lmp_prices: vec![vec![20.0, 50.0, 35.0], vec![45.0, 45.0]],
+        };
+        let spread = ca.lmp_spread_mwh();
+        assert_eq!(spread.len(), 2);
+        approx::assert_relative_eq!(spread[0], 30.0, epsilon = 1e-9);
+        approx::assert_relative_eq!(spread[1], 0.0, epsilon = 1e-9);
+    }
+
+    // ── RenewableMetrics: capacity factor, storage util, variability ──────────
+
+    #[test]
+    fn test_renewable_capacity_factor_and_storage_util() {
+        // Reason: capacity_factor_pct and storage_utilization_pct are uncovered.
+        // 4 hours, re_capacity=100 MW, re_gen=[60,60,60,60] → CF=60%
+        // storage_discharge=[10,10,10,10] → util = 40/(100*4)*100 = 10%
+        let rm = RenewableMetrics {
+            total_generation_mwh: vec![100.0; 4],
+            renewable_generation_mwh: vec![60.0; 4],
+            curtailed_mwh: vec![0.0; 4],
+            re_capacity_mw: 100.0,
+            storage_charge_mwh: vec![5.0; 4],
+            storage_discharge_mwh: vec![10.0; 4],
+        };
+        approx::assert_relative_eq!(rm.capacity_factor_pct(), 60.0, epsilon = 1e-9);
+        approx::assert_relative_eq!(rm.storage_utilization_pct(), 10.0, epsilon = 1e-9);
+    }
+
+    #[test]
+    fn test_renewable_hours_above_penetration_and_variability() {
+        // Reason: hours_above_penetration and variability_index are uncovered.
+        // 4 hours: penetrations = [0%, 50%, 75%, 100%]
+        // hours above 60% = 2  (hours at 75% and 100%)
+        // re_gen=[0, 50, 75, 100], total=[100,100,100,100]
+        // mean_re=56.25, std_re=sqrt(((56.25^2 + 6.25^2 + 18.75^2 + 43.75^2)/4))
+        // Just verify it is > 0 and ≤ 1 for a sensible series.
+        let rm = RenewableMetrics {
+            total_generation_mwh: vec![100.0; 4],
+            renewable_generation_mwh: vec![0.0, 50.0, 75.0, 100.0],
+            curtailed_mwh: vec![0.0; 4],
+            re_capacity_mw: 100.0,
+            storage_charge_mwh: vec![0.0; 4],
+            storage_discharge_mwh: vec![0.0; 4],
+        };
+        assert_eq!(rm.hours_above_penetration(60.0), 2);
+        let vi = rm.variability_index();
+        assert!(
+            vi > 0.0,
+            "variability index must be positive for non-flat series"
+        );
+        assert!(
+            vi <= 1.0,
+            "variability index should be ≤ 1.0 for this series"
+        );
+    }
+
+    // ── DemandAnalytics: load duration, peak hour, weekday ratio ─────────────
+
+    #[test]
+    fn test_demand_load_duration_curve_and_peak_hour() {
+        // Reason: load_duration_curve and peak_hour_of_year are uncovered.
+        // Profile: [30, 10, 70, 50] — peak is at index 2
+        let da = DemandAnalytics {
+            load_profile_mw: vec![30.0, 10.0, 70.0, 50.0],
+            temperature_c: vec![20.0; 4],
+            day_type: vec![DayType::Weekday; 4],
+        };
+        let ldc = da.load_duration_curve();
+        assert_eq!(ldc.len(), 4, "LDC should have one entry per hour");
+        // LDC is descending: first entry is (1, 70.0)
+        approx::assert_relative_eq!(ldc[0].1, 70.0, epsilon = 1e-9);
+        approx::assert_relative_eq!(ldc[1].1, 50.0, epsilon = 1e-9);
+        assert_eq!(da.peak_hour_of_year(), 2, "peak hour index should be 2");
+    }
+
+    #[test]
+    fn test_demand_weekday_vs_weekend_ratio() {
+        // Reason: weekday_vs_weekend_ratio is uncovered.
+        // 3 weekday hours avg=100, 2 weekend hours avg=60 → ratio = 100/60 ≈ 1.6667
+        let da = DemandAnalytics {
+            load_profile_mw: vec![90.0, 100.0, 110.0, 60.0, 60.0],
+            temperature_c: vec![20.0; 5],
+            day_type: vec![
+                DayType::Weekday,
+                DayType::Weekday,
+                DayType::Weekday,
+                DayType::Saturday,
+                DayType::Sunday,
+            ],
+        };
+        approx::assert_relative_eq!(da.weekday_vs_weekend_ratio(), 100.0 / 60.0, epsilon = 1e-9);
+    }
+
+    #[test]
+    fn test_demand_temperature_sensitivity_edge_cases() {
+        // Reason: the zero-variance and mismatched-length error paths of
+        // temperature_sensitivity_mw_per_c are uncovered.
+        let da_const_temp = DemandAnalytics {
+            load_profile_mw: vec![100.0, 120.0, 110.0],
+            temperature_c: vec![25.0, 25.0, 25.0], // constant T → zero variance
+            day_type: vec![DayType::Weekday; 3],
+        };
+        assert_eq!(
+            da_const_temp.temperature_sensitivity_mw_per_c(),
+            0.0,
+            "constant temperature should yield slope 0.0"
+        );
+
+        let da_mismatch = DemandAnalytics {
+            load_profile_mw: vec![100.0, 120.0],
+            temperature_c: vec![20.0], // length mismatch
+            day_type: vec![DayType::Weekday; 2],
+        };
+        assert_eq!(
+            da_mismatch.temperature_sensitivity_mw_per_c(),
+            0.0,
+            "mismatched lengths should yield slope 0.0"
+        );
+    }
+
+    // ── OperationsReport: curtailment warning band and summary_text ───────────
+
+    #[test]
+    fn test_operations_report_curtailment_warning_and_summary_text() {
+        // Reason: the curtailment Warning band (10 < curtailment ≤ 25) and
+        // summary_text are uncovered.
+        // Set curtailment = 15%: curtailed=15, dispatched=85 → 15/100 = 15%
+        let kpis = OperationalKpis {
+            period_hours: 100.0,
+            total_energy_generated_mwh: 10_000.0,
+            total_energy_delivered_mwh: 9_500.0, // 95% eff → no efficiency alert
+            peak_load_mw: 100.0,
+            average_load_mw: 95.0,
+            fuel_consumed_mmbtu: 50_000.0,
+            co2_emitted_tonnes: 2_000.0,
+            outage_hours: 0.0,
+            outage_customers: 0,
+            maintenance_cost: 0.0,
+            fuel_cost: 0.0,
+        };
+        let congestion = CongestionAnalyzer {
+            branch_ratings_mw: vec![],
+            branch_flows_mw: vec![],
+            branch_names: vec![],
+            lmp_prices: vec![],
+        };
+        let renewables = RenewableMetrics {
+            total_generation_mwh: vec![100.0],
+            renewable_generation_mwh: vec![85.0],
+            curtailed_mwh: vec![15.0], // 15% curtailment → Warning
+            re_capacity_mw: 100.0,
+            storage_charge_mwh: vec![0.0],
+            storage_discharge_mwh: vec![0.0],
+        };
+        let report = OperationsReport::generate(kpis, &congestion, &renewables);
+        // Should have a Warning but no Critical alert
+        assert!(
+            !report.has_critical_alerts(),
+            "15% curtailment is warning, not critical"
+        );
+        let has_curtailment_warn = report
+            .alerts
+            .iter()
+            .any(|a| a.severity == AlertSeverity::Warning && a.message.contains("curtailment"));
+        assert!(has_curtailment_warn, "expected a curtailment Warning alert");
+
+        // Verify summary_text runs without panicking and contains key fields
+        let text = report.summary_text();
+        assert!(
+            text.contains("Operations Report"),
+            "summary should contain header"
+        );
+        assert!(
+            text.contains("RE Penetration"),
+            "summary should mention RE penetration"
+        );
+    }
 }

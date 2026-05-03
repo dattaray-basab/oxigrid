@@ -105,7 +105,7 @@ impl Default for ContingencyConfig {
 /// # Arguments
 /// - `base_flows_pu`  — pre-contingency branch flows [p.u.]
 /// - `limits_pu`      — branch thermal limits [p.u.]
-/// - `lodf_matrix`    — LODF[i][j] = power transfer factor (branch i after loss of branch j)
+/// - `lodf_matrix`    — `LODF[i][j]` = power transfer factor (branch i after loss of branch j)
 /// - `contingencies`  — list of branches to take out
 /// - `config`         — analysis settings
 pub fn run_n1_contingency(

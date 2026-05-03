@@ -129,7 +129,7 @@ pub struct MesNode {
     pub name: String,
     /// Ordered list of energy carriers present at this node.
     pub carriers: Vec<EnergyCarrier>,
-    /// Baseline demand per carrier [MW]; same order as `carriers`.
+    /// Baseline demand per carrier `MW`; same order as `carriers`.
     pub demand_mw: Vec<f64>,
     /// Geographic latitude [°].
     pub latitude: f64,
@@ -138,7 +138,7 @@ pub struct MesNode {
 }
 
 impl MesNode {
-    /// Return the demand [MW] for a specific carrier, or `0.0` if not present.
+    /// Return the demand `MW` for a specific carrier, or `0.0` if not present.
     pub fn demand_for(&self, carrier: &EnergyCarrier) -> f64 {
         self.carriers
             .iter()
@@ -168,7 +168,7 @@ pub struct EnergyConverter {
     pub to_carrier: EnergyCarrier,
     /// Input-to-output conversion efficiency (0–1).
     pub efficiency: f64,
-    /// Rated output capacity [MW].
+    /// Rated output capacity `MW`.
     pub capacity_mw: f64,
     /// Minimum loading fraction (0–1); below this the device cannot operate.
     pub min_loading: f64,
@@ -179,17 +179,17 @@ pub struct EnergyConverter {
 }
 
 impl EnergyConverter {
-    /// Effective maximum output [MW] respecting capacity.
+    /// Effective maximum output `MW` respecting capacity.
     pub fn max_output_mw(&self) -> f64 {
         self.capacity_mw
     }
 
-    /// Minimum dispatchable output [MW] (min_loading × capacity).
+    /// Minimum dispatchable output `MW` (min_loading × capacity).
     pub fn min_output_mw(&self) -> f64 {
         self.min_loading * self.capacity_mw
     }
 
-    /// For CHP: heat output [MW] given electrical output `elec_mw`.
+    /// For CHP: heat output `MW` given electrical output `elec_mw`.
     pub fn chp_heat_output_mw(&self, elec_mw: f64) -> f64 {
         match &self.device_type {
             ConverterType::CombinedHeatPower {
@@ -199,18 +199,12 @@ impl EnergyConverter {
         }
     }
 
-    /// For CHP: gas input [MW] given electrical output `elec_mw`.
+    /// For CHP: gas input `MW` given electrical output `elec_mw`.
     pub fn chp_gas_input_mw(&self, elec_mw: f64) -> f64 {
         match &self.device_type {
             ConverterType::CombinedHeatPower {
                 heat_to_power_ratio,
-            } => {
-                if self.efficiency > 1e-9 {
-                    elec_mw * (1.0 + heat_to_power_ratio) / self.efficiency
-                } else {
-                    0.0
-                }
-            }
+            } if self.efficiency > 1e-9 => elec_mw * (1.0 + heat_to_power_ratio) / self.efficiency,
             _ => 0.0,
         }
     }
@@ -229,11 +223,11 @@ pub struct MesStorage {
     pub node: usize,
     /// Stored energy carrier.
     pub carrier: EnergyCarrier,
-    /// Usable storage capacity [MWh].
+    /// Usable storage capacity `MWh`.
     pub capacity_mwh: f64,
-    /// Maximum charge power [MW].
+    /// Maximum charge power `MW`.
     pub max_charge_rate_mw: f64,
-    /// Maximum discharge power [MW].
+    /// Maximum discharge power `MW`.
     pub max_discharge_rate_mw: f64,
     /// Round-trip energy efficiency (charge × discharge, 0–1).
     pub round_trip_efficiency: f64,
@@ -253,14 +247,14 @@ impl MesStorage {
         self.round_trip_efficiency.max(0.0).sqrt()
     }
 
-    /// Maximum energy that can be stored in the next `dt_h` hours [MWh].
+    /// Maximum energy that can be stored in the next `dt_h` hours `MWh`.
     pub fn headroom_mwh(&self, dt_h: f64) -> f64 {
         ((self.soc_max - self.soc) * self.capacity_mwh)
             .max(0.0)
             .min(self.max_charge_rate_mw * dt_h)
     }
 
-    /// Maximum energy that can be discharged in the next `dt_h` hours [MWh].
+    /// Maximum energy that can be discharged in the next `dt_h` hours `MWh`.
     pub fn available_mwh(&self, dt_h: f64) -> f64 {
         ((self.soc - self.soc_min) * self.capacity_mwh)
             .max(0.0)
@@ -302,15 +296,15 @@ impl Default for CarbonFactors {
 pub struct MesDispatch {
     /// Timestep index (0-based).
     pub time_step: usize,
-    /// Output power [MW] per converter (indexed by converter order in `MesOptimizer`).
+    /// Output power `MW` per converter (indexed by converter order in `MesOptimizer`).
     pub converter_outputs_mw: Vec<f64>,
-    /// Storage power [MW] per storage (+ve = charging, −ve = discharging).
+    /// Storage power `MW` per storage (+ve = charging, −ve = discharging).
     pub storage_power_mw: Vec<f64>,
     /// State-of-charge per storage after this timestep.
     pub storage_soc: Vec<f64>,
-    /// Unmet demand [MW] indexed by [node_index][carrier_index].
+    /// Unmet demand `MW` indexed by `[node_index][carrier_index]`.
     pub unmet_demand_mw: Vec<Vec<f64>>,
-    /// Curtailed renewable generation [MW] (excess beyond consumption + storage).
+    /// Curtailed renewable generation `MW` (excess beyond consumption + storage).
     pub curtailed_re_mw: f64,
     /// Operational cost in this timestep [€].
     pub cost_eur: f64,
@@ -327,7 +321,7 @@ pub struct MesResult {
     pub dispatch: Vec<MesDispatch>,
     /// Total operational cost over the horizon [€].
     pub total_cost_eur: f64,
-    /// Total CO₂ emissions over the horizon [kg].
+    /// Total CO₂ emissions over the horizon `kg`.
     pub total_co2_kg: f64,
     /// System energy efficiency: useful output / total primary input (0–1).
     pub energy_efficiency: f64,
@@ -353,7 +347,7 @@ pub struct MesOptimizer {
     pub storages: Vec<MesStorage>,
     /// Number of optimisation timesteps.
     pub time_steps: usize,
-    /// Duration of each timestep [hours].
+    /// Duration of each timestep `hours`.
     pub dt_hours: f64,
 }
 
@@ -365,7 +359,7 @@ impl MesOptimizer {
     /// * `converters` – conversion devices
     /// * `storages`   – storage devices
     /// * `time_steps` – number of timesteps in the planning horizon
-    /// * `dt_hours`   – length of each timestep [h]
+    /// * `dt_hours`   – length of each timestep `h`
     pub fn new(
         nodes: Vec<MesNode>,
         converters: Vec<EnergyConverter>,
@@ -391,7 +385,7 @@ impl MesOptimizer {
     /// # Arguments
     /// * `electricity_prices`   – spot price [€/MWh] for each timestep
     /// * `gas_prices`           – gas price [€/MWh] for each timestep
-    /// * `renewable_generation` – renewable output [MW] indexed `[timestep][node]`
+    /// * `renewable_generation` – renewable output `MW` indexed `[timestep][node]`
     /// * `carbon_factors`       – CO₂ emission factors
     pub fn optimize(
         &mut self,
@@ -867,7 +861,7 @@ impl MesOptimizer {
     /// * `weights`   – explicit `(cost_weight, co2_weight)` pairs
     /// * `electricity_prices` – base electricity prices [€/MWh]
     /// * `gas_prices`         – base gas prices [€/MWh]
-    /// * `renewable_generation` – renewable output [MW] per timestep per node
+    /// * `renewable_generation` – renewable output `MW` per timestep per node
     /// * `carbon_factors`       – CO₂ emission factors
     pub fn compute_pareto_front(
         &mut self,

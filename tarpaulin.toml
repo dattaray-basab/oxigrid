@@ -1,0 +1,11 @@
+[config]
+all-features = true
+skip-clean = true
+timeout = "600s"
+out = ["Html", "Xml", "Stdout"]
+output-dir = "coverage"
+exclude-files = [
+    "benches/*",
+    "examples/*",
+    "tests/data/*",
+]

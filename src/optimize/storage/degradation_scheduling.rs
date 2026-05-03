@@ -1297,4 +1297,148 @@ mod tests {
         assert!(cycle_deg > 0.0, "combined: cycle component should be > 0");
         assert!(cal_deg > 0.0, "combined: calendar component should be > 0");
     }
+
+    // ── Test 11: Construction rejects zero capacity ────────────────────────────
+
+    #[test]
+    fn test_new_rejects_zero_capacity() {
+        // Reason: validate that the constructor returns an error for zero capacity_mwh.
+        let asset = StorageAsset {
+            asset_id: "bad".into(),
+            capacity_mwh: 0.0,
+            power_mw: 5.0,
+            round_trip_efficiency: 0.92,
+            soc_min: 0.10,
+            soc_max: 0.90,
+            current_soh: 1.0,
+            replacement_cost_per_mwh: 300.0,
+            degradation_physics: DegradationPhysics::rainflow_default(),
+        };
+        let result = DegradationAwareScheduler::new(asset, default_config());
+        assert!(result.is_err(), "zero capacity_mwh must produce an error");
+    }
+
+    // ── Test 12: Construction rejects inverted SoC bounds ─────────────────────
+
+    #[test]
+    fn test_new_rejects_inverted_soc_bounds() {
+        // Reason: validate that soc_min >= soc_max is caught at construction time.
+        let asset = StorageAsset {
+            asset_id: "bad-soc".into(),
+            capacity_mwh: 10.0,
+            power_mw: 5.0,
+            round_trip_efficiency: 0.92,
+            soc_min: 0.90,
+            soc_max: 0.10,
+            current_soh: 1.0,
+            replacement_cost_per_mwh: 300.0,
+            degradation_physics: DegradationPhysics::rainflow_default(),
+        };
+        let result = DegradationAwareScheduler::new(asset, default_config());
+        assert!(
+            result.is_err(),
+            "inverted soc_min/soc_max must produce an error"
+        );
+    }
+
+    // ── Test 13: Degradation report has valid non-negative fields ──────────────
+
+    #[test]
+    fn test_degradation_report_fields() {
+        // Reason: verify that degradation_report produces a struct with all
+        // non-negative fields for a typical operating point.
+        let asset = make_asset_linear();
+        let config = default_config();
+        let scheduler = DegradationAwareScheduler::new(asset, config).expect("valid scheduler");
+
+        let report = scheduler.degradation_report(1e-5);
+
+        assert!(
+            report.current_soh > 0.0 && report.current_soh <= 1.0,
+            "current_soh out of range: {:.4}",
+            report.current_soh
+        );
+        assert!(
+            report.calendar_deg_per_day >= 0.0,
+            "calendar_deg_per_day must be >= 0: {:.6}",
+            report.calendar_deg_per_day
+        );
+        assert!(
+            report.cycle_deg_per_day >= 0.0,
+            "cycle_deg_per_day must be >= 0: {:.6}",
+            report.cycle_deg_per_day
+        );
+        assert!(
+            report.predicted_eol_years > 0.0,
+            "predicted_eol_years must be positive: {:.4}",
+            report.predicted_eol_years
+        );
+        assert!(
+            report.replacement_horizon_months > 0.0,
+            "replacement_horizon_months must be positive: {:.4}",
+            report.replacement_horizon_months
+        );
+    }
+
+    // ── Test 14: Rainflow count on empty / single-element profile ─────────────
+
+    #[test]
+    fn test_rainflow_count_empty_profile() {
+        // Reason: edge-case — empty and length-1 profiles should return empty cycle lists.
+        let asset = make_asset_rainflow();
+        let config = default_config();
+        let scheduler = DegradationAwareScheduler::new(asset, config).expect("valid scheduler");
+
+        let empty = scheduler.rainflow_count(&[]);
+        assert!(empty.is_empty(), "empty profile should produce no cycles");
+
+        let single = scheduler.rainflow_count(&[0.5]);
+        assert!(
+            single.is_empty(),
+            "single-point profile should produce no cycles"
+        );
+    }
+
+    // ── Test 15: optimize_schedule returns error when market data too short ────
+
+    #[test]
+    fn test_optimize_schedule_error_on_short_market_data() {
+        // Reason: verify that the optimizer returns an error when the market
+        // opportunity slice is shorter than horizon_h.
+        let asset = make_asset_rainflow();
+        let config = DegradationSchedulerConfig {
+            horizon_h: 24,
+            ..default_config()
+        };
+        let scheduler = DegradationAwareScheduler::new(asset, config).expect("valid scheduler");
+
+        let short_market = make_market(10); // only 10 hours, horizon is 24
+        let result = scheduler.optimize_schedule(&short_market);
+        assert!(
+            result.is_err(),
+            "optimize_schedule with too-short market data must return an error"
+        );
+    }
+
+    // ── Test 16: optimal_degradation_weight returns value in [0, 1] ───────────
+
+    #[test]
+    fn test_optimal_degradation_weight_range() {
+        // Reason: the sweep result must always lie within the valid [0.0, 1.0] range.
+        let asset = make_asset_linear();
+        let config = default_config();
+        let scheduler = DegradationAwareScheduler::new(asset, config).expect("valid scheduler");
+
+        let market = make_market(24);
+        let replacement_cost = 50_000.0;
+        let weight = scheduler
+            .optimal_degradation_weight(&market, replacement_cost)
+            .expect("optimal weight should succeed");
+
+        assert!(
+            (0.0..=1.0).contains(&weight),
+            "optimal_degradation_weight must be in [0, 1], got {:.3}",
+            weight
+        );
+    }
 }

@@ -1879,4 +1879,116 @@ mod tests {
         let profile = sim.generate_load_profile(8760, &mut rng);
         assert_eq!(profile.len(), 8760);
     }
+
+    // ── run() error paths ─────────────────────────────────────────────────
+
+    // Reason: run() must return InvalidParameter when end_time_s == 0
+    #[test]
+    fn test_run_invalid_end_time() {
+        let mut sim = make_simulator(0.0, 60.0);
+        assert!(sim.run().is_err(), "run() with end_time_s=0 should error");
+    }
+
+    // Reason: run() must return InvalidParameter when dt_s <= 0
+    #[test]
+    fn test_run_invalid_dt() {
+        let mut sim = make_simulator(3600.0, 0.0);
+        assert!(sim.run().is_err(), "run() with dt_s=0 should error");
+    }
+
+    // ── Legacy validate() error paths ─────────────────────────────────────
+
+    // Reason: validate() must catch negative generator capacity
+    #[test]
+    fn test_validate_invalid_gen_capacity() {
+        let config = make_config(24, 0.0, false);
+        let sim = GridOpsSimulator::new(config, -100.0, 800.0);
+        assert!(matches!(
+            sim.simulate(),
+            Err(GridOpsError::InvalidGenCapacity(_))
+        ));
+    }
+
+    // Reason: validate() must catch non-positive dt_minutes
+    #[test]
+    fn test_validate_invalid_timestep() {
+        let config = GridOpsConfig {
+            simulation_hours: 24,
+            dt_minutes: -5.0,
+            ..GridOpsConfig::default()
+        };
+        let sim = GridOpsSimulator::new(config, 1000.0, 800.0);
+        assert!(matches!(
+            sim.simulate(),
+            Err(GridOpsError::InvalidTimeStep(_))
+        ));
+    }
+
+    // ── Storage SoC charging branch ───────────────────────────────────────
+
+    // Reason: update_storage_soc must increase SoC when power_mw is negative (charging)
+    #[test]
+    fn test_storage_soc_charging_increases() {
+        let mut sim = make_simulator(60.0, 60.0);
+        sim.storages[0].power_mw = -4.0; // charging
+        sim.storages[0].soc = 0.3;
+        let initial_soc = sim.storages[0].soc;
+        sim.update_storage_soc(3600.0); // 1 hour
+        assert!(
+            sim.storages[0].soc > initial_soc,
+            "SoC should increase when charging: before={initial_soc} after={}",
+            sim.storages[0].soc
+        );
+    }
+
+    // ── compute_branch_flows distributes net power ─────────────────────────
+
+    // Reason: online branches must carry nonzero flow; offline branches must have zero flow
+    #[test]
+    fn test_compute_branch_flows_online_offline() {
+        let mut sim = make_simulator(3600.0, 60.0);
+        // Gen surplus: 100 MW gen, 40 MW load → +60 MW net
+        sim.generators[0].p_mw = 100.0;
+        sim.generators[1].is_online = false;
+        sim.generators[1].p_mw = 0.0;
+        sim.loads[0].p_mw = 20.0;
+        sim.loads[1].p_mw = 20.0;
+        // Trip branch 1; branch 0 stays online
+        sim.branches[1].is_online = false;
+        sim.compute_branch_flows();
+        assert!(
+            sim.branches[0].current_flow_mw.abs() > 0.0,
+            "Online branch 0 should carry nonzero flow"
+        );
+        assert!(
+            (sim.branches[1].current_flow_mw).abs() < 1e-9,
+            "Offline branch 1 should have zero flow"
+        );
+        assert!(
+            (sim.branches[1].loading_pct).abs() < 1e-9,
+            "Offline branch 1 loading_pct should be zero"
+        );
+    }
+
+    // ── ScenarioBuilder::wind_ramp event count ────────────────────────────
+
+    // Reason: wind_ramp must produce n_steps+1 events spanning the full duration
+    #[test]
+    fn test_scenario_wind_ramp_event_count() {
+        let events = ScenarioBuilder::wind_ramp(1, 10.0, 50.0, 900.0, 0.0);
+        // 900s / 300s = 3 steps → 4 events (indices 0..=3)
+        assert_eq!(
+            events.len(),
+            4,
+            "wind_ramp should produce n_steps+1 events, got {}",
+            events.len()
+        );
+        // First event at t_start=0
+        assert!((events[0].time_s).abs() < 1e-9);
+        // Last event at t_start + n_steps*step_s = 0 + 3*300 = 900
+        assert!(
+            (events.last().map(|e| e.time_s).unwrap_or(-1.0) - 900.0).abs() < 1e-9,
+            "Last wind ramp event should be at t=900 s"
+        );
+    }
 }

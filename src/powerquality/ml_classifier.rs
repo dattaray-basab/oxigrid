@@ -833,7 +833,7 @@ impl PqClassifier {
         v
     }
 
-    /// Normalise a feature vector to [0,1] using training set min/max.
+    /// Normalise a feature vector to `0,1` using training set min/max.
     pub fn normalize_features(&self, features: &PqFeatures) -> Vec<f64> {
         let raw = Self::feature_to_vec(features);
         self.normalize_features_vec(&raw)

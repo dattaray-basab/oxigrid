@@ -1137,4 +1137,209 @@ mod tests {
             );
         }
     }
+
+    // Test 9: VSI-PQ is exactly 1 - V^2 for a PQ bus at known voltage.
+    // Reason: pins the computation formula (1 - V²) for the simplified VSI-PQ index.
+    #[test]
+    fn test_vsi_pq_formula_exact() {
+        let buses = vec![
+            BusStabilityData {
+                bus_id: 0,
+                voltage_pu: 1.0,
+                angle_deg: 0.0,
+                p_mw: 100.0,
+                q_mvar: 0.0,
+                bus_type: BusType::Slack,
+            },
+            BusStabilityData {
+                bus_id: 1,
+                voltage_pu: 0.9,
+                angle_deg: -5.0,
+                p_mw: -50.0,
+                q_mvar: -10.0,
+                bus_type: BusType::PQ,
+            },
+        ];
+        let branches = vec![BranchStabilityData {
+            from_bus: 0,
+            to_bus: 1,
+            r_pu: 0.02,
+            x_pu: 0.08,
+            b_pu: 0.0,
+            p_flow_mw: 50.0,
+            q_flow_mvar: 10.0,
+        }];
+        let y = vec![
+            vec![(2.0, -12.0), (-2.0, 12.0)],
+            vec![(-2.0, 12.0), (2.0, -12.0)],
+        ];
+        let calc = StabilityIndexCalculator::new(StabilityIndicesConfig::default());
+        let result = calc.assess(&buses, &branches, &y).expect("ok");
+        // VSI-PQ for bus with V=0.9 pu: 1 - 0.9² = 1 - 0.81 = 0.19
+        assert_eq!(result.voltage.vsi_pq.len(), 1);
+        approx::assert_relative_eq!(result.voltage.vsi_pq[0], 0.19, epsilon = 1e-9);
+    }
+
+    // Test 10: FVSI scales with reactive power — doubling Q doubles FVSI.
+    // Reason: validates the linear proportionality of FVSI to Q_r (monotonicity/formula).
+    #[test]
+    fn test_fvsi_scales_with_reactive_power() {
+        let make_system = |q_flow_mvar: f64| {
+            let buses = vec![
+                BusStabilityData {
+                    bus_id: 0,
+                    voltage_pu: 1.0,
+                    angle_deg: 0.0,
+                    p_mw: 80.0,
+                    q_mvar: 0.0,
+                    bus_type: BusType::Slack,
+                },
+                BusStabilityData {
+                    bus_id: 1,
+                    voltage_pu: 0.95,
+                    angle_deg: -4.0,
+                    p_mw: -60.0,
+                    q_mvar: -q_flow_mvar,
+                    bus_type: BusType::PQ,
+                },
+            ];
+            let branches = vec![BranchStabilityData {
+                from_bus: 0,
+                to_bus: 1,
+                r_pu: 0.01,
+                x_pu: 0.05,
+                b_pu: 0.0,
+                p_flow_mw: 60.0,
+                q_flow_mvar,
+            }];
+            let y = vec![
+                vec![(4.0, -20.0), (-4.0, 20.0)],
+                vec![(-4.0, 20.0), (4.0, -20.0)],
+            ];
+            (buses, branches, y)
+        };
+
+        let calc = StabilityIndexCalculator::new(StabilityIndicesConfig::default());
+        let (b1, br1, y1) = make_system(20.0);
+        let r1 = calc.assess(&b1, &br1, &y1).expect("ok");
+        let (b2, br2, y2) = make_system(40.0);
+        let r2 = calc.assess(&b2, &br2, &y2).expect("ok");
+
+        let fvsi1 = r1.voltage.fvsi[0];
+        let fvsi2 = r2.voltage.fvsi[0];
+        // FVSI ∝ Q_r: doubling Q should approximately double FVSI
+        approx::assert_relative_eq!(fvsi2, 2.0 * fvsi1, epsilon = 1e-9);
+    }
+
+    // Test 11: StabilityRisk Display trait produces expected strings.
+    // Reason: pins the Display impl for all four risk variants.
+    #[test]
+    fn test_stability_risk_display() {
+        assert_eq!(StabilityRisk::Safe.to_string(), "Safe");
+        assert_eq!(StabilityRisk::Marginal.to_string(), "Marginal");
+        assert_eq!(StabilityRisk::Vulnerable.to_string(), "Vulnerable");
+        assert_eq!(StabilityRisk::Critical.to_string(), "Critical");
+    }
+
+    // Test 12: StabilityIndicesConfig default values are as documented.
+    // Reason: pins construction defaults (base_mva=100, freq=50 Hz, LIndex, EAC).
+    #[test]
+    fn test_config_defaults() {
+        let cfg = StabilityIndicesConfig::default();
+        approx::assert_relative_eq!(cfg.base_mva, 100.0, epsilon = 1e-9);
+        approx::assert_relative_eq!(cfg.frequency_hz, 50.0, epsilon = 1e-9);
+        assert_eq!(cfg.voltage_stability_method, VsMethod::LIndex);
+        assert_eq!(cfg.transient_stability_method, TsMethod::EqualAreaCriterion);
+    }
+
+    // Test 13: Y-bus size mismatch returns Inconsistent error.
+    // Reason: validates error path when Y-bus dimensions don't match bus count.
+    #[test]
+    fn test_y_bus_size_mismatch_error() {
+        let buses = vec![BusStabilityData {
+            bus_id: 0,
+            voltage_pu: 1.0,
+            angle_deg: 0.0,
+            p_mw: 100.0,
+            q_mvar: 0.0,
+            bus_type: BusType::Slack,
+        }];
+        let branches = vec![BranchStabilityData {
+            from_bus: 0,
+            to_bus: 0,
+            r_pu: 0.01,
+            x_pu: 0.05,
+            b_pu: 0.0,
+            p_flow_mw: 0.0,
+            q_flow_mvar: 0.0,
+        }];
+        // Provide a 2×2 Y-bus for a 1-bus system — must error
+        let y_wrong = vec![
+            vec![(1.0, -5.0), (-1.0, 5.0)],
+            vec![(-1.0, 5.0), (1.0, -5.0)],
+        ];
+        let calc = StabilityIndexCalculator::new(StabilityIndicesConfig::default());
+        let result = calc.assess(&buses, &branches, &y_wrong);
+        assert!(
+            matches!(result, Err(StabilityError::Inconsistent(_))),
+            "Mismatched Y-bus must return StabilityError::Inconsistent"
+        );
+    }
+
+    // Test 14: VSI-PQ increases monotonically as PQ bus voltage drops.
+    // Reason: confirms VSI-PQ faithfully tracks deteriorating voltage (monotonicity).
+    #[test]
+    fn test_vsi_pq_monotone_with_falling_voltage() {
+        let make_system = |v_pq: f64| {
+            let buses = vec![
+                BusStabilityData {
+                    bus_id: 0,
+                    voltage_pu: 1.05,
+                    angle_deg: 0.0,
+                    p_mw: 100.0,
+                    q_mvar: 30.0,
+                    bus_type: BusType::Slack,
+                },
+                BusStabilityData {
+                    bus_id: 1,
+                    voltage_pu: v_pq,
+                    angle_deg: -10.0,
+                    p_mw: -80.0,
+                    q_mvar: -25.0,
+                    bus_type: BusType::PQ,
+                },
+            ];
+            let branches = vec![BranchStabilityData {
+                from_bus: 0,
+                to_bus: 1,
+                r_pu: 0.02,
+                x_pu: 0.08,
+                b_pu: 0.0,
+                p_flow_mw: 80.0,
+                q_flow_mvar: 25.0,
+            }];
+            let y = vec![
+                vec![(3.0, -12.0), (-3.0, 12.0)],
+                vec![(-3.0, 12.0), (3.0, -12.0)],
+            ];
+            (buses, branches, y)
+        };
+
+        let calc = StabilityIndexCalculator::new(StabilityIndicesConfig::default());
+        let voltages = [1.0_f64, 0.95, 0.85, 0.75, 0.65];
+        let mut prev_vsi = -1.0_f64;
+        for &v in &voltages {
+            let (b, br, y) = make_system(v);
+            let result = calc.assess(&b, &br, &y).expect("ok");
+            let vsi = result.voltage.vsi_pq[0];
+            // VSI-PQ = 1 - V² must increase as V decreases
+            assert!(
+                vsi > prev_vsi,
+                "VSI-PQ should increase as V drops: V={v:.2} VSI={vsi:.4} prev={prev_vsi:.4}"
+            );
+            prev_vsi = vsi;
+        }
+        // At V=0.65, VSI-PQ should be well above 0 (1 - 0.65² ≈ 0.5775)
+        approx::assert_relative_eq!(prev_vsi, 1.0 - 0.65_f64.powi(2), epsilon = 1e-9);
+    }
 }

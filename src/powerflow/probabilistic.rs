@@ -635,7 +635,7 @@ pub fn run_pem_ppf(
 /// Linear (sensitivity-based) PPF.
 ///
 /// Uses numerical sensitivity ∂V/∂P and ∂F/∂P via one perturbed solve per input.
-/// Variances propagate analytically: Var[y] = Σ_k (∂y/∂P_k)² · Var[ΔP_k].
+/// Variances propagate analytically: `Var[y]` = Σ_k (∂y/∂P_k)² · `Var[ΔP_k]`.
 pub fn run_linear_ppf(
     network: &PowerNetwork,
     injections: &[UncertainInjection],

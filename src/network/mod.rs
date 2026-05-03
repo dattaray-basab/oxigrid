@@ -10,14 +10,35 @@
 //! - [`formats`]    — MATPOWER `.m`, IEEE-CDF, and pandapower JSON parsers
 //! - [`reduction`]  — PTDF/LODF matrices, Ward equivalents, Kron reduction, REI, coherency analysis
 pub mod admittance;
+pub mod advanced_partition;
+pub mod asset_lifecycle;
+pub mod asset_management;
 pub mod branch;
 pub mod bus;
+pub mod congestion;
 pub mod contingency;
+pub mod dlr;
+pub mod energy_flow;
+pub mod extreme_weather;
+pub mod facts;
+pub mod feeder_automation;
+pub mod flisr;
 pub mod formats;
+pub mod hvdc;
+pub mod hvdc_control;
+pub mod impedance_spectroscopy;
 pub mod metrics;
 pub mod partition;
+pub mod reconfiguration;
 pub mod reduction;
+pub mod reliability_assessment;
+pub mod self_healing;
+pub mod smart_transformer;
+pub mod thevenin;
 pub mod topology;
+pub mod topology_optimization;
+pub mod transformer;
+pub mod upfc;
 
 pub use branch::Branch;
 pub use bus::{Bus, BusType};
@@ -53,6 +74,8 @@ pub use offshore_substation::{
     CableType, CollectorArray, ElectricalLossBreakdown, ExportCable, OffshoreElectricalSystem,
     OffshoreSubstation, OffshoreSubstationType, OffshoreSystemDesigner,
 };
+
+pub mod resilience;
 
 pub mod resilience_planning;
 pub use resilience_planning::{

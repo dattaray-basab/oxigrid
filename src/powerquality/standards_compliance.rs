@@ -915,7 +915,7 @@ impl PqEventRecorder {
             entry.1 += 1;
         }
         let mut counts: Vec<(PqEventType2, usize)> = map.into_values().collect();
-        counts.sort_by(|a, b| b.1.cmp(&a.1));
+        counts.sort_by_key(|b| std::cmp::Reverse(b.1));
         counts
     }
 
@@ -1409,5 +1409,141 @@ mod tests {
         assert!(nc[0].contains("IEEE 519"));
         let score = dash.overall_compliance_score();
         assert!((score - 0.0).abs() < 1e-9);
+    }
+
+    // ── 8 new tests ───────────────────────────────────────────────────────────
+
+    #[test]
+    fn en50160_full_compliance_report_all_good() {
+        let checker = En50160Checker::new(0.4, 50.0, 7);
+        let v = vec![1.0_f64; 100];
+        let freq = vec![50.0_f64; 100];
+        let thd = vec![3.0_f64; 100];
+        let plt = vec![0.5_f64; 100];
+        let report = checker.full_compliance_report(&v, &freq, &thd, &plt);
+        assert!(
+            report.fully_compliant,
+            "all-good inputs should be fully compliant"
+        );
+        assert!((report.compliance_score_pct - 100.0).abs() < 1e-9);
+    }
+
+    #[test]
+    fn en50160_full_compliance_report_partial_score() {
+        let checker = En50160Checker::new(0.4, 50.0, 7);
+        let v = vec![1.0_f64; 100];
+        let freq = vec![50.0_f64; 100];
+        // THD too high → fails THD check
+        let thd = vec![10.0_f64; 100];
+        let plt = vec![0.5_f64; 100];
+        let report = checker.full_compliance_report(&v, &freq, &thd, &plt);
+        assert!(
+            !report.fully_compliant,
+            "high THD should cause non-compliance"
+        );
+        // 3 out of 4 checks pass → 75%
+        assert!((report.compliance_score_pct - 75.0).abs() < 1e-9);
+    }
+
+    #[test]
+    fn ieee519_current_thd_limit_varies_with_isc_il_ratio() {
+        // r < 20 → 5%
+        assert!((Ieee519Checker::new(13.8, 10.0).current_thd_limit_pct() - 5.0).abs() < 1e-9);
+        // 20 ≤ r < 50 → 8%
+        assert!((Ieee519Checker::new(13.8, 25.0).current_thd_limit_pct() - 8.0).abs() < 1e-9);
+        // 100 ≤ r < 1000 → 15%
+        assert!((Ieee519Checker::new(13.8, 500.0).current_thd_limit_pct() - 15.0).abs() < 1e-9);
+        // r ≥ 1000 → 20%
+        assert!((Ieee519Checker::new(13.8, 1000.0).current_thd_limit_pct() - 20.0).abs() < 1e-9);
+    }
+
+    #[test]
+    fn ieee519_check_current_harmonics_compliant_for_small_values() {
+        let checker = Ieee519Checker::new(13.8, 10.0); // TDD limit = 5 %
+                                                       // THD = sqrt(1^2 + 1^2) ≈ 1.41 %, well below 5 %
+        let harmonics = vec![(3usize, 1.0_f64), (5, 1.0_f64)];
+        let result = checker.check_current_harmonics(&harmonics);
+        assert!(
+            result.compliant,
+            "small harmonics should pass current check"
+        );
+        assert!(
+            result.exceeding_harmonics.is_empty(),
+            "no individual violations expected"
+        );
+    }
+
+    #[test]
+    fn ieee519_individual_harmonic_voltage_limit_tapers_with_order() {
+        let checker = Ieee519Checker::new(13.8, 20.0); // THD limit = 5%
+                                                       // orders 2–10 → base 5 * 0.6 = 3.0%
+        let lim_5th = checker.individual_harmonic_voltage_limit_pct(5);
+        assert!(
+            (lim_5th - 3.0).abs() < 1e-9,
+            "5th limit should be 3.0%, got {lim_5th}"
+        );
+        // orders 11–20 → 5 * 0.4 = 2.0%
+        let lim_13th = checker.individual_harmonic_voltage_limit_pct(13);
+        assert!(
+            (lim_13th - 2.0).abs() < 1e-9,
+            "13th limit should be 2.0%, got {lim_13th}"
+        );
+        // higher limit for lower order
+        assert!(
+            lim_5th > lim_13th,
+            "lower-order harmonics should have higher limits"
+        );
+    }
+
+    #[test]
+    fn nerc_tpl_loading_limit_increases_with_severity() {
+        let t1 = NercTplChecker::new(TplEventType::Tpl001, 345.0);
+        let t3 = NercTplChecker::new(TplEventType::Tpl003, 345.0);
+        let t4 = NercTplChecker::new(TplEventType::Tpl004, 345.0);
+        assert!((t1.loading_limit_pct() - 100.0).abs() < 1e-9);
+        assert!((t3.loading_limit_pct() - 125.0).abs() < 1e-9);
+        assert!((t4.loading_limit_pct() - 150.0).abs() < 1e-9);
+    }
+
+    #[test]
+    fn nerc_tpl_stability_criteria_escalates_with_tpl_level() {
+        let t1 = NercTplChecker::new(TplEventType::Tpl001, 345.0).stability_criteria();
+        let t2 = NercTplChecker::new(TplEventType::Tpl002, 345.0).stability_criteria();
+        let t4 = NercTplChecker::new(TplEventType::Tpl004, 345.0).stability_criteria();
+        assert!(
+            !t1.transient_stability_required,
+            "TPL-001 needs no stability studies"
+        );
+        assert!(
+            t2.transient_stability_required,
+            "TPL-002 requires transient stability"
+        );
+        assert!(
+            t4.oscillation_damping_required,
+            "TPL-004 requires oscillation damping"
+        );
+    }
+
+    #[test]
+    fn pq_recorder_maifi_counts_only_momentary_interruptions() {
+        let mut rec = PqEventRecorder::new("Feeder-B");
+        // 2 momentary interruptions (< 5 min = 300 s)
+        let mut ev1 = make_event(0.0, PqEventType2::Interruption);
+        ev1.duration_s = 60.0;
+        let mut ev2 = make_event(1.0, PqEventType2::Interruption);
+        ev2.duration_s = 120.0;
+        // 1 sustained interruption (> 5 min)
+        let mut ev3 = make_event(2.0, PqEventType2::Interruption);
+        ev3.duration_s = 600.0;
+        rec.record(ev1);
+        rec.record(ev2);
+        rec.record(ev3);
+        // MAIFI should count only the 2 momentary ones
+        let maifi = rec.maifi_index(1000, 50);
+        // 2 × 50 / 1000 = 0.1
+        assert!(
+            (maifi - 0.1).abs() < 1e-9,
+            "MAIFI should be 0.1, got {maifi}"
+        );
     }
 }

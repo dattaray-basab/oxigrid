@@ -6,6 +6,8 @@
 //!   square-sum superposition, meteorological wind convention
 //! - [`farm`]    — Regular grid wind farm layout with wake-corrected power output
 pub mod farm;
+pub mod layout_optimizer;
+pub mod offshore;
 pub mod plant_ops;
 pub mod spatial;
 pub mod turbine;

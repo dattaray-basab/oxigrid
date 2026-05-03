@@ -114,9 +114,9 @@ pub struct ZipModel {
     pub iq: f64,
     /// Constant power fraction for reactive power (Pq). Constraint: `zq + iq + pq = 1`.
     pub pq: f64,
-    /// Nominal active power [MW].
+    /// Nominal active power `MW`.
     pub p0_mw: f64,
-    /// Nominal reactive power [Mvar].
+    /// Nominal reactive power `Mvar`.
     pub q0_mvar: f64,
 }
 
@@ -208,9 +208,9 @@ impl ZipModel {
 /// where V0 = f0 = 1.0 pu (nominal).
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ExponentialModel {
-    /// Nominal active power [MW].
+    /// Nominal active power `MW`.
     pub p0_mw: f64,
-    /// Nominal reactive power [Mvar].
+    /// Nominal reactive power `Mvar`.
     pub q0_mvar: f64,
     /// Voltage exponent for active power (alpha). Typical: 0.0–2.0.
     pub alpha: f64,
@@ -277,25 +277,25 @@ pub struct InductionMotorModel {
     pub id: usize,
     /// Motor type classification (determines default parameters).
     pub motor_type: MotorLoadType,
-    /// Motor inertia constant H [seconds].
+    /// Motor inertia constant H `seconds`.
     pub h_motor_s: f64,
-    /// Stator resistance [pu].
+    /// Stator resistance `pu`.
     pub rs: f64,
-    /// Stator leakage reactance [pu].
+    /// Stator leakage reactance `pu`.
     pub xs: f64,
-    /// Magnetizing reactance [pu].
+    /// Magnetizing reactance `pu`.
     pub xm: f64,
-    /// Rotor resistance [pu].
+    /// Rotor resistance `pu`.
     pub rr: f64,
-    /// Rotor leakage reactance [pu].
+    /// Rotor leakage reactance `pu`.
     pub xr: f64,
-    /// Rated active power [MW].
+    /// Rated active power `MW`.
     pub p_rated_mw: f64,
     /// Current slip. 0 = synchronous speed, 1 = standstill. Typical: 0.01–0.05.
     pub slip: f64,
-    /// Terminal voltage [pu].
+    /// Terminal voltage `pu`.
     pub v_terminal_pu: f64,
-    /// Voltage threshold below which stall is checked [pu]. Default: 0.6.
+    /// Voltage threshold below which stall is checked `pu`. Default: 0.6.
     pub stall_voltage_pu: f64,
     /// Whether the motor is currently stalled.
     pub stalled: bool,
@@ -467,9 +467,9 @@ pub struct CompositeLoadModel {
     pub motors_b: Vec<InductionMotorModel>,
     /// Type-C motor instances.
     pub motors_c: Vec<InductionMotorModel>,
-    /// Total nominal active power [MW].
+    /// Total nominal active power `MW`.
     pub total_p_mw: f64,
-    /// Total nominal reactive power [Mvar].
+    /// Total nominal reactive power `Mvar`.
     pub total_q_mvar: f64,
 }
 
@@ -561,13 +561,13 @@ impl CompositeLoadModel {
 pub struct LoadState {
     /// Motor slip (0 = synchronous, 1 = standstill).
     pub slip: f64,
-    /// D-axis transient voltage behind reactance [pu].
+    /// D-axis transient voltage behind reactance `pu`.
     pub ed_prime: f64,
-    /// Q-axis transient voltage behind reactance [pu].
+    /// Q-axis transient voltage behind reactance `pu`.
     pub eq_prime: f64,
-    /// Current active power demand [MW].
+    /// Current active power demand `MW`.
     pub p_mw: f64,
-    /// Current reactive power demand [Mvar].
+    /// Current reactive power demand `Mvar`.
     pub q_mvar: f64,
 }
 
@@ -597,9 +597,9 @@ pub struct LoadSimulator {
     pub composite_model: CompositeLoadModel,
     /// Per-motor dynamic state (indexed to match motor ordering A→B→C).
     pub states: Vec<LoadState>,
-    /// Simulation timestep [s]. Default: 0.01 s (one cycle at 50 Hz).
+    /// Simulation timestep `s`. Default: 0.01 s (one cycle at 50 Hz).
     pub dt_s: f64,
-    /// System frequency [pu]. Default: 1.0.
+    /// System frequency `pu`. Default: 1.0.
     pub frequency_pu: f64,
     /// Snapshot of motor slips at construction time (used by `reset`).
     initial_slips: Vec<f64>,
@@ -710,8 +710,8 @@ impl LoadSimulator {
 /// Parameter identification for load models from measurement data.
 ///
 /// # Methods
-/// - [`fit_zip_from_measurements`] — least-squares normal equations for ZIP
-/// - [`fit_exponential_from_measurements`] — log-linear regression for exponential
+/// - [`LoadModelFitter::fit_zip_from_measurements`] — least-squares normal equations for ZIP
+/// - [`LoadModelFitter::fit_exponential_from_measurements`] — log-linear regression for exponential
 pub struct LoadModelFitter;
 
 impl LoadModelFitter {

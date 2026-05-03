@@ -2,7 +2,7 @@
 //!
 //! Implements an extensive-form LP relaxation of the stochastic unit commitment
 //! problem, where:
-//! - **First stage**: commitment decisions `u[h][g]` (binary, relaxed to `[0,1]`)
+//! - **First stage**: commitment decisions `u[h][g]` (binary, relaxed to ``0,1``)
 //! - **Second stage**: dispatch `p[s][h][g]` and load shedding `shed[s][h]` per scenario
 //!
 //! # Algorithm

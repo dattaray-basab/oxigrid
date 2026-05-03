@@ -23,9 +23,9 @@ pub struct GenCost {
     pub b: f64,
     /// Quadratic term [$/MW²h]
     pub c: f64,
-    /// Minimum output [MW]
+    /// Minimum output `MW`
     pub p_min: f64,
-    /// Maximum output [MW]
+    /// Maximum output `MW`
     pub p_max: f64,
 }
 
@@ -52,7 +52,7 @@ impl GenCost {
         }
     }
 
-    /// Marginal cost at output P [MW].
+    /// Marginal cost at output P `MW`.
     pub fn marginal_cost(&self, p: f64) -> f64 {
         self.b + 2.0 * self.c * p
     }
@@ -66,13 +66,13 @@ impl GenCost {
 /// Result of a DC-OPF solve.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct DcOpfResult {
-    /// Optimal generation dispatch [MW] per generator (same order as `costs`)
+    /// Optimal generation dispatch `MW` per generator (same order as `costs`)
     pub p_gen_mw: Vec<f64>,
     /// Total generation cost [$/h]
     pub total_cost: f64,
-    /// Bus voltage angles [rad]
+    /// Bus voltage angles `rad`
     pub voltage_angle: Vec<f64>,
-    /// Branch active power flows [MW]
+    /// Branch active power flows `MW`
     pub branch_flows_mw: Vec<f64>,
     /// Lambda (system marginal price) [$/MWh]
     pub lambda: f64,

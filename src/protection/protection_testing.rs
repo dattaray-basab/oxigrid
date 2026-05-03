@@ -10,7 +10,7 @@
 //! - [`TestReportGenerator`] — statistical analysis and recommendation engine
 //!
 //! # IEC Standard Inverse formula
-//! `t = TDS × 0.14 / ((I/Is)^0.02 − 1)` [seconds]
+//! `t = TDS × 0.14 / ((I/Is)^0.02 − 1)` `seconds`
 
 use serde::{Deserialize, Serialize};
 
@@ -86,17 +86,17 @@ pub struct TestCase {
     pub input_current_a: f64,
     /// Injected voltage at relay terminals [V secondary].
     pub input_voltage_v: f64,
-    /// Injected signal frequency [Hz].
+    /// Injected signal frequency `Hz`.
     pub input_frequency_hz: f64,
-    /// Current-to-voltage angle [degrees] (positive = lagging current).
+    /// Current-to-voltage angle `degrees` (positive = lagging current).
     pub input_angle_deg: f64,
-    /// Expected relay operating time [ms].
+    /// Expected relay operating time `ms`.
     pub expected_operate_time_ms: f64,
-    /// Acceptable timing error [ms] (pass if |actual − expected| ≤ tolerance).
+    /// Acceptable timing error `ms` (pass if |actual − expected| ≤ tolerance).
     pub tolerance_ms: f64,
     /// `true` if the relay is expected to operate (pick up).
     pub expected_pickup: bool,
-    /// Maximum test duration before declaring no-operation [ms].
+    /// Maximum test duration before declaring no-operation `ms`.
     pub test_duration_ms: f64,
     /// Stimulus injection method.
     pub injection_mode: InjectionMode,
@@ -109,11 +109,11 @@ pub struct TestResult {
     pub test_case_id: usize,
     /// Final status after evaluation.
     pub status: TestStatus,
-    /// Measured relay operating time [ms] (0 if no operation).
+    /// Measured relay operating time `ms` (0 if no operation).
     pub actual_operate_time_ms: f64,
     /// Whether the relay actually picked up.
     pub actual_pickup: bool,
-    /// Signed timing error: actual − expected [ms].
+    /// Signed timing error: actual − expected `ms`.
     pub timing_error_ms: f64,
     /// `true` if both pickup criterion and timing criterion are satisfied.
     pub pass_fail: bool,
@@ -134,9 +134,9 @@ pub struct RelayTestConfig {
     pub ct_ratio: f64,
     /// Voltage transformer ratio (primary:secondary).
     pub vt_ratio: f64,
-    /// Rated secondary current [A] (typically 1 A or 5 A).
+    /// Rated secondary current `A` (typically 1 A or 5 A).
     pub rated_current_a: f64,
-    /// Rated secondary voltage [V] (typically 110 V or 220 V).
+    /// Rated secondary voltage `V` (typically 110 V or 220 V).
     pub rated_voltage_v: f64,
     /// Pickup current setting [A secondary].
     pub pickup_setting_a: f64,
@@ -163,7 +163,7 @@ pub struct TestSuite {
     pub pass_count: usize,
     /// Number of test cases that failed.
     pub fail_count: usize,
-    /// Total elapsed simulation time [ms].
+    /// Total elapsed simulation time `ms`.
     pub completion_time_ms: f64,
 }
 
@@ -545,9 +545,9 @@ pub struct TestReport {
     pub pickup_accuracy_pct: f64,
     /// Percentage of timing tests whose error was within the declared tolerance.
     pub timing_accuracy_pct: f64,
-    /// Maximum absolute timing error across all timing tests [ms].
+    /// Maximum absolute timing error across all timing tests `ms`.
     pub max_timing_error_ms: f64,
-    /// Mean signed timing error across all timing tests [ms].
+    /// Mean signed timing error across all timing tests `ms`.
     pub mean_timing_error_ms: f64,
     /// Actionable recommendations based on test findings.
     pub recommendations: Vec<String>,
@@ -656,7 +656,7 @@ impl TestReportGenerator {
         suite.results.iter().filter(|r| !r.pass_fail).collect()
     }
 
-    /// Compute `(mean, std, max)` of timing errors [ms].
+    /// Compute `(mean, std, max)` of timing errors `ms`.
     ///
     /// Only considers results where the relay operated (`actual_pickup == true`).
     /// Returns `(0.0, 0.0, 0.0)` if no such results exist.

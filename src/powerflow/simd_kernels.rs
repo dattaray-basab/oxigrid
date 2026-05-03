@@ -333,6 +333,51 @@ pub mod simd {
         (dp, dq)
     }
 
+    /// In-place AXPY: `y[i]` += alpha * `x[i]` for all i.
+    ///
+    /// Uses AVX2 when available (4 f64 lanes); scalar tail for remainder.
+    pub fn axpy_f64(alpha: f64, x: &[f64], y: &mut [f64]) {
+        assert_eq!(x.len(), y.len(), "axpy_f64: slice length mismatch");
+
+        #[cfg(target_feature = "avx2")]
+        // SAFETY: AVX2 availability is checked at compile time.
+        unsafe {
+            return axpy_avx2(alpha, x, y);
+        }
+
+        #[allow(unreachable_code)]
+        for (yi, &xi) in y.iter_mut().zip(x.iter()) {
+            *yi += alpha * xi;
+        }
+    }
+
+    /// AVX2 AXPY: y[i] += alpha * x[i] using 4-wide f64 SIMD lanes.
+    ///
+    /// # Safety
+    /// Caller must guarantee that the `avx2` target feature is available.
+    #[cfg(target_feature = "avx2")]
+    #[target_feature(enable = "avx2")]
+    unsafe fn axpy_avx2(alpha: f64, x: &[f64], y: &mut [f64]) {
+        use std::arch::x86_64::{
+            __m256d, _mm256_add_pd, _mm256_loadu_pd, _mm256_mul_pd, _mm256_set1_pd,
+            _mm256_storeu_pd,
+        };
+        let n = x.len();
+        let valpha = _mm256_set1_pd(alpha);
+        let chunks = n / 4;
+        for i in 0..chunks {
+            let base = i * 4;
+            let vx: __m256d = _mm256_loadu_pd(x.as_ptr().add(base));
+            let vy: __m256d = _mm256_loadu_pd(y.as_ptr().add(base));
+            let result = _mm256_add_pd(vy, _mm256_mul_pd(valpha, vx));
+            _mm256_storeu_pd(y.as_mut_ptr().add(base), result);
+        }
+        // Scalar tail
+        for i in (chunks * 4)..n {
+            y[i] += alpha * x[i];
+        }
+    }
+
     /// Scalar reference mismatch computation (identical semantics to SIMD path).
     ///
     /// Always uses the scalar power injection kernel regardless of CPU features.

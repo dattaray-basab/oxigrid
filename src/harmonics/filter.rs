@@ -28,11 +28,11 @@ pub struct PassiveFilter {
     pub filter_type: FilterType,
     /// Tuning harmonic order (e.g. 5 for 5th harmonic, 250/300 Hz)
     pub harmonic_order: f64,
-    /// Capacitor reactive power [MVAr] at fundamental
+    /// Capacitor reactive power `MVAr` at fundamental
     pub q_mvar: f64,
-    /// System fundamental frequency [Hz]
+    /// System fundamental frequency `Hz`
     pub fundamental_hz: f64,
-    /// System base voltage [kV]
+    /// System base voltage `kV`
     pub bus_kv: f64,
     /// Quality factor Q = ωₙL/R (sharpness of tuning)
     pub q_factor: f64,
@@ -47,9 +47,9 @@ impl PassiveFilter {
     ///
     /// # Arguments
     /// - `harmonic_order` — harmonic to tune to (e.g. 5.0 for 5th, 4.7 for detuned 5th)
-    /// - `q_mvar`         — capacitor reactive power at fundamental [MVAr]
-    /// - `fundamental_hz` — system fundamental frequency [Hz]
-    /// - `bus_kv`         — system line-to-line voltage [kV]
+    /// - `q_mvar`         — capacitor reactive power at fundamental `MVAr`
+    /// - `fundamental_hz` — system fundamental frequency `Hz`
+    /// - `bus_kv`         — system line-to-line voltage `kV`
     /// - `q_factor`       — quality factor (typically 30–80 for industrial filters)
     pub fn single_tuned(
         harmonic_order: f64,
@@ -107,7 +107,7 @@ impl PassiveFilter {
         filter
     }
 
-    /// Compute filter impedance [Ω] at a given frequency.
+    /// Compute filter impedance `Ω` at a given frequency.
     pub fn impedance(&self, freq_hz: f64) -> Complex64 {
         let omega = 2.0 * std::f64::consts::PI * freq_hz;
         let z_c = Complex64::new(0.0, -1.0 / (omega * self.capacitance_f));
@@ -163,7 +163,7 @@ impl PassiveFilter {
         mitigated
     }
 
-    /// Reactive power supplied at fundamental frequency [MVAr].
+    /// Reactive power supplied at fundamental frequency `MVAr`.
     pub fn reactive_power_mvar(&self) -> f64 {
         let omega = 2.0 * std::f64::consts::PI * self.fundamental_hz;
         let xc = 1.0 / (omega * self.capacitance_f);
@@ -172,12 +172,12 @@ impl PassiveFilter {
         v_ll * v_ll / xc / 1e6
     }
 
-    /// Filter capacitor size [μF].
+    /// Filter capacitor size `μF`.
     pub fn capacitance_uf(&self) -> f64 {
         self.capacitance_f * 1e6
     }
 
-    /// Filter inductor size [mH].
+    /// Filter inductor size `mH`.
     pub fn inductance_mh(&self) -> f64 {
         self.inductance_h * 1e3
     }

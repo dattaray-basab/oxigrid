@@ -166,7 +166,7 @@ fn rainflow_from_peaks(peaks: &[f64]) -> Vec<RainflowCycle> {
 /// Parameters K and β are fit from manufacturer cycle life data.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct WoehlerCurve {
-    /// Scale constant K [cycles]
+    /// Scale constant K `cycles`
     pub k: f64,
     /// Shape exponent β (typical 1.5–3.0)
     pub beta: f64,
@@ -246,7 +246,7 @@ pub struct DegradationMap {
     pub dod_pts: Vec<f64>,
     /// Average SoC breakpoints [0, 1]
     pub soc_pts: Vec<f64>,
-    /// N_f values: cycles_to_failure[dod_idx][soc_idx]
+    /// N_f values: `cycles_to_failure[dod_idx][soc_idx]`
     pub n_f: Vec<Vec<f64>>,
 }
 

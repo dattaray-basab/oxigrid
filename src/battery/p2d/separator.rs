@@ -12,13 +12,13 @@ use serde::{Deserialize, Serialize};
 /// Physical parameters of the separator.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct SeparatorParams {
-    /// Thickness [m]
+    /// Thickness `m`
     pub thickness: f64,
     /// Electrolyte volume fraction (porosity)
     pub porosity: f64,
     /// Bruggeman exponent for effective transport (typ. 1.5)
     pub bruggeman: f64,
-    /// Maximum temperature before thermal runaway risk [K]
+    /// Maximum temperature before thermal runaway risk `K`
     pub t_max_k: f64,
 }
 
@@ -79,7 +79,7 @@ pub struct SeparatorState {
     pub params: SeparatorParams,
     /// Li⁺ concentration at each separator node [mol/m³]
     pub c_e: Vec<f64>,
-    /// Electrolyte potential at each separator node [V]
+    /// Electrolyte potential at each separator node `V`
     pub phi_e: Vec<f64>,
     /// Number of nodes
     pub n_nodes: usize,
@@ -116,7 +116,7 @@ impl SeparatorState {
         self.c_e.iter().sum::<f64>() / self.n_nodes as f64
     }
 
-    /// Ohmic voltage drop across separator [V] for a given current density [A/m²].
+    /// Ohmic voltage drop across separator `V` for a given current density [A/m²].
     pub fn ohmic_drop(&self, current_density_a_m2: f64, kappa_electrolyte: f64) -> f64 {
         current_density_a_m2 * self.params.resistance_area(kappa_electrolyte)
     }

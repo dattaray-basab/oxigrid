@@ -15,9 +15,9 @@ use serde::{Deserialize, Serialize};
 pub struct Unit {
     /// Unit name / identifier
     pub name: String,
-    /// Minimum stable generation [MW]
+    /// Minimum stable generation `MW`
     pub p_min_mw: f64,
-    /// Maximum rated power [MW]
+    /// Maximum rated power `MW`
     pub p_max_mw: f64,
     /// Variable operating cost [$/MWh]
     pub cost_mwh: f64,
@@ -25,9 +25,9 @@ pub struct Unit {
     pub no_load_cost_h: f64,
     /// Start-up cost [$]
     pub startup_cost: f64,
-    /// Minimum up time [hours]
+    /// Minimum up time `hours`
     pub min_up_h: f64,
-    /// Minimum down time [hours]
+    /// Minimum down time `hours`
     pub min_down_h: f64,
     /// Initial commitment status (true = on)
     pub initially_on: bool,
@@ -84,7 +84,7 @@ impl Unit {
 pub struct UnitState {
     /// Is unit committed (online)?
     pub committed: bool,
-    /// Dispatch [MW] (0 if not committed)
+    /// Dispatch `MW` (0 if not committed)
     pub dispatch_mw: f64,
     /// True if unit started this period
     pub start_up: bool,
@@ -116,8 +116,8 @@ impl CommitPeriod {
 ///
 /// # Arguments
 /// - `units`       — generating units
-/// - `demands`     — demand [MW] for each period
-/// - `dt_h`        — period duration [hours]
+/// - `demands`     — demand `MW` for each period
+/// - `dt_h`        — period duration `hours`
 /// - `reserve_pct` — spinning reserve requirement as % of demand (e.g. 15.0)
 pub fn priority_commit(
     units: &[Unit],
@@ -272,7 +272,7 @@ pub fn priority_commit(
 /// Economic dispatch for a fixed set of committed units.
 ///
 /// Uses merit-order dispatch with min/max limits.
-/// Returns dispatch [MW] for each unit (same order as `committed`).
+/// Returns dispatch `MW` for each unit (same order as `committed`).
 fn economic_dispatch_committed(units: &[Unit], committed: &[usize], demand_mw: f64) -> Vec<f64> {
     if committed.is_empty() {
         return vec![];

@@ -44,15 +44,15 @@ use serde::{Deserialize, Serialize};
 pub struct Pss1aParams {
     /// Stabiliser gain [p.u./p.u.]
     pub ks: f64,
-    /// Washout time constant Tw [s]
+    /// Washout time constant Tw `s`
     pub tw: f64,
-    /// Lead-lag 1 numerator time constant T1 [s]
+    /// Lead-lag 1 numerator time constant T1 `s`
     pub t1: f64,
-    /// Lead-lag 1 denominator time constant T2 [s]
+    /// Lead-lag 1 denominator time constant T2 `s`
     pub t2: f64,
-    /// Lead-lag 2 numerator time constant T3 [s]
+    /// Lead-lag 2 numerator time constant T3 `s`
     pub t3: f64,
-    /// Lead-lag 2 denominator time constant T4 [s]
+    /// Lead-lag 2 denominator time constant T4 `s`
     pub t4: f64,
     /// Output limiter [p.u.]
     pub v_smax: f64,
@@ -114,7 +114,7 @@ impl Pss1aState {
 /// PSS1A model: step the stabiliser by one time increment.
 ///
 /// - `input_signal` — Δω [p.u.] or ΔP_e [p.u.] depending on configuration
-/// - `dt`           — integration time step [s]
+/// - `dt`           — integration time step `s`
 /// - Returns output signal v_s [p.u.] to be added to AVR Vref.
 pub fn pss1a_step(params: &Pss1aParams, state: &mut Pss1aState, input_signal: f64, dt: f64) -> f64 {
     // Washout filter (high-pass): y_w = Ks * Tw * (u − x_w) / (Tw + dt)
@@ -186,24 +186,24 @@ pub fn lead_lag_step(state: f64, input: f64, t1: f64, t2: f64, dt: f64) -> (f64,
 pub struct Pss2bParams {
     /// Stabiliser gain Ks [p.u./p.u.]
     pub ks: f64,
-    /// Speed path transducer time constant [s]
+    /// Speed path transducer time constant `s`
     pub t_w1: f64,
-    /// Power path transducer time constant [s]
+    /// Power path transducer time constant `s`
     pub t_w2: f64,
-    /// Speed path washout time constant [s]
+    /// Speed path washout time constant `s`
     pub t_w3: f64,
-    /// Power path washout time constant [s]
+    /// Power path washout time constant `s`
     pub t_w4: f64,
-    /// Speed path lead-lag T1/T2 [s]
+    /// Speed path lead-lag T1/T2 `s`
     pub t1: f64,
     pub t2: f64,
-    /// Speed path lead-lag T3/T4 [s]
+    /// Speed path lead-lag T3/T4 `s`
     pub t3: f64,
     pub t4: f64,
-    /// Power path lead-lag T7/T8 [s]
+    /// Power path lead-lag T7/T8 `s`
     pub t7: f64,
     pub t8: f64,
-    /// Power path lead-lag T9/T10 [s]
+    /// Power path lead-lag T9/T10 `s`
     pub t9: f64,
     pub t10: f64,
     /// Output limiter
@@ -339,7 +339,7 @@ pub fn washout_step(state: f64, input: f64, t: f64, dt: f64) -> (f64, f64) {
     (output, new_state)
 }
 
-/// Frequency response of PSS1A at a given frequency [Hz].
+/// Frequency response of PSS1A at a given frequency `Hz`.
 ///
 /// Returns (magnitude, phase_deg) using the Laplace s = j·2π·f.
 pub fn pss1a_frequency_response(params: &Pss1aParams, freq_hz: f64) -> (f64, f64) {

@@ -25,13 +25,13 @@ pub enum ProtocolType {
 /// Charging configuration (applies to all protocols).
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ChargingConfig {
-    /// Nominal cell capacity [Ah]
+    /// Nominal cell capacity `Ah`
     pub capacity_ah: f64,
-    /// Nominal voltage [V]
+    /// Nominal voltage `V`
     pub v_nominal: f64,
-    /// Minimum cell voltage [V]
+    /// Minimum cell voltage `V`
     pub v_min: f64,
-    /// Maximum cell voltage [V] (cutoff)
+    /// Maximum cell voltage `V` (cutoff)
     pub v_max: f64,
     /// Minimum allowed temperature [°C]
     pub t_min_c: f64,
@@ -39,11 +39,11 @@ pub struct ChargingConfig {
     pub t_max_c: f64,
     /// Maximum C-rate for fast charge (e.g. 2.0 = 2C)
     pub max_c_rate: f64,
-    /// CV phase termination current [A] (typically C/20)
+    /// CV phase termination current `A` (typically C/20)
     pub cv_cutoff_a: f64,
-    /// State-of-health fraction [0,1] — affects allowed C-rate
+    /// State-of-health fraction `0,1` — affects allowed C-rate
     pub soh: f64,
-    /// Internal resistance [Ω] — used for voltage drop estimation
+    /// Internal resistance `Ω` — used for voltage drop estimation
     pub r_internal: f64,
 }
 
@@ -80,7 +80,7 @@ impl ChargingConfig {
         }
     }
 
-    /// Maximum charging current [A] at given SoH and temperature.
+    /// Maximum charging current `A` at given SoH and temperature.
     pub fn max_current_a(&self, temp_c: f64) -> f64 {
         let base = self.capacity_ah * self.max_c_rate * self.soh;
         // Derate by temperature: linear reduction below 15°C and above 35°C
@@ -106,17 +106,17 @@ impl ChargingConfig {
 /// Instantaneous charging state.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ChargingState {
-    /// Current SoC [0,1]
+    /// Current SoC `0,1`
     pub soc: f64,
-    /// Cell voltage [V]
+    /// Cell voltage `V`
     pub voltage: f64,
-    /// Charging current [A]  (positive = charging)
+    /// Charging current `A`  (positive = charging)
     pub current_a: f64,
     /// Cell temperature [°C]
     pub temperature_c: f64,
-    /// Elapsed time [s]
+    /// Elapsed time `s`
     pub time_s: f64,
-    /// Cumulative charge delivered [Ah]
+    /// Cumulative charge delivered `Ah`
     pub charge_ah: f64,
     /// Phase name
     pub phase: ChargingPhase,
@@ -140,13 +140,13 @@ pub enum ChargingPhase {
 pub struct ChargingResult {
     /// Time-series of charging states (sampled at dt_s intervals)
     pub history: Vec<ChargingState>,
-    /// Total charge time [s]
+    /// Total charge time `s`
     pub total_time_s: f64,
-    /// Final SoC achieved [0,1]
+    /// Final SoC achieved `0,1`
     pub final_soc: f64,
-    /// Total energy delivered [Wh]
+    /// Total energy delivered `Wh`
     pub energy_wh: f64,
-    /// Round-trip efficiency [0,1] (energy stored / energy input)
+    /// Round-trip efficiency `0,1` (energy stored / energy input)
     pub efficiency: f64,
     /// True if charging completed successfully to target SoC
     pub completed: bool,
@@ -155,7 +155,7 @@ pub struct ChargingResult {
 }
 
 impl ChargingResult {
-    /// Average charging power [W]
+    /// Average charging power `W`
     pub fn avg_power_w(&self) -> f64 {
         if self.total_time_s < 1e-6 {
             return 0.0;
@@ -171,7 +171,7 @@ impl ChargingResult {
             .fold(f64::NEG_INFINITY, f64::max)
     }
 
-    /// Duration of CC phase [s]
+    /// Duration of CC phase `s`
     pub fn cc_duration_s(&self) -> f64 {
         // Find last CC entry
         self.history
@@ -288,7 +288,7 @@ pub fn run_cc_cv(
 /// Multistep CC-CV: each step has a current and SoC trigger.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ChargingStep {
-    /// Current [A] for this CC step
+    /// Current `A` for this CC step
     pub current_a: f64,
     /// SoC at which to transition to next step (or to CV if last step)
     pub soc_threshold: f64,
@@ -529,7 +529,7 @@ impl FastChargeOptimiser {
         }
     }
 
-    /// Optimal fast-charge current at each SoC level [A].
+    /// Optimal fast-charge current at each SoC level `A`.
     ///
     /// Uses backward DP: cost-to-go = time remaining to reach SoC=1.
     pub fn optimal_current_profile(&self) -> Vec<(f64, f64)> {

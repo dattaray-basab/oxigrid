@@ -22,9 +22,9 @@ pub enum AcBusType {
     PV {
         /// Voltage setpoint [p.u.]
         v_setpoint_pu: f64,
-        /// Minimum reactive generation [MVAr]
+        /// Minimum reactive generation `MVAr`
         q_min_mvar: f64,
-        /// Maximum reactive generation [MVAr]
+        /// Maximum reactive generation `MVAr`
         q_max_mvar: f64,
     },
     /// Load bus — P and Q injections specified, V and θ solved.
@@ -42,9 +42,9 @@ pub struct AcScopfBus {
     pub v_min_pu: f64,
     /// Maximum voltage magnitude [p.u.]
     pub v_max_pu: f64,
-    /// Active load [MW]
+    /// Active load `MW`
     pub p_load_mw: f64,
-    /// Reactive load [MVAr]
+    /// Reactive load `MVAr`
     pub q_load_mvar: f64,
     /// Shunt susceptance [p.u.] (positive = capacitive).
     pub b_shunt_pu: f64,
@@ -55,13 +55,13 @@ pub struct AcScopfBus {
 pub struct AcScopfGenerator {
     /// Bus where the generator is connected.
     pub bus_id: usize,
-    /// Minimum active power output [MW]
+    /// Minimum active power output `MW`
     pub p_min_mw: f64,
-    /// Maximum active power output [MW]
+    /// Maximum active power output `MW`
     pub p_max_mw: f64,
-    /// Minimum reactive power output [MVAr]
+    /// Minimum reactive power output `MVAr`
     pub q_min_mvar: f64,
-    /// Maximum reactive power output [MVAr]
+    /// Maximum reactive power output `MVAr`
     pub q_max_mvar: f64,
     /// Quadratic cost coefficient [$/MW²h]
     pub cost_a: f64,
@@ -88,9 +88,9 @@ pub struct AcScopfBranch {
     pub x_pu: f64,
     /// Total line charging susceptance [p.u.]
     pub b_pu: f64,
-    /// Normal thermal rating [MVA]
+    /// Normal thermal rating `MVA`
     pub rating_mva: f64,
-    /// Post-contingency (emergency) thermal rating [MVA] (typically 120% of normal).
+    /// Post-contingency (emergency) thermal rating `MVA` (typically 120% of normal).
     pub rating_emergency_mva: f64,
 }
 
@@ -129,7 +129,7 @@ pub struct AcScopfConfig {
     pub max_nr_iter: usize,
     /// Power flow convergence tolerance [p.u.] (default 1e-4).
     pub convergence_tol: f64,
-    /// Constraint violation tolerance [MVA] (default 1e-3).
+    /// Constraint violation tolerance `MVA` (default 1e-3).
     pub constraint_tol: f64,
     /// SLP trust-region step limit [fraction of p_max] (default 0.1).
     pub trust_region: f64,
@@ -153,13 +153,13 @@ impl Default for AcScopfConfig {
 /// System operating point (snapshot of voltages and generation).
 #[derive(Debug, Clone)]
 pub struct OperatingPoint {
-    /// Active power generation per generator [MW].
+    /// Active power generation per generator `MW`.
     pub p_gen_mw: Vec<f64>,
-    /// Reactive power generation per generator [MVAr].
+    /// Reactive power generation per generator `MVAr`.
     pub q_gen_mvar: Vec<f64>,
     /// Bus voltage magnitudes [p.u.], indexed by bus position.
     pub v_pu: Vec<f64>,
-    /// Bus voltage angles [rad], indexed by bus position.
+    /// Bus voltage angles `rad`, indexed by bus position.
     pub theta_rad: Vec<f64>,
 }
 
@@ -725,7 +725,7 @@ impl AcScopfProblem {
 
     // ── Internal: Branch flow computation ────────────────────────────────────
 
-    /// Compute apparent power flow on branch `branch_id` [MVA] (π-model).
+    /// Compute apparent power flow on branch `branch_id` `MVA` (π-model).
     fn compute_branch_flow(&self, op: &OperatingPoint, branch_id: usize) -> f64 {
         let branch = match self.branches.iter().find(|b| b.branch_id == branch_id) {
             Some(b) => b,
@@ -1022,7 +1022,7 @@ impl AcScopfProblem {
 
     /// Initial economic dispatch via lambda-iteration (equal-incremental-cost).
     ///
-    /// Returns active power generation [MW] per generator.
+    /// Returns active power generation `MW` per generator.
     fn economic_dispatch(&self) -> Vec<f64> {
         let total_load_mw: f64 = self.buses.iter().map(|b| b.p_load_mw).sum();
         let n_gen = self.generators.len();

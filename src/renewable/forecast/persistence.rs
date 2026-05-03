@@ -6,7 +6,7 @@
 /// Used as a benchmark — any useful model should beat persistence.
 use serde::{Deserialize, Serialize};
 
-/// Naive persistence model: forecast[t+1] = observation[t].
+/// Naive persistence model: `forecast[t+1]` = `observation[t]`.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct PersistenceForecast {
     /// Last observed value

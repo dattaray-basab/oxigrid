@@ -20,13 +20,13 @@ use serde::{Deserialize, Serialize};
 /// Snapshot of the power system state for integration analysis.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct GridSnapshot {
-    /// Total load demand [MW]
+    /// Total load demand `MW`
     pub load_mw: f64,
-    /// Total renewable generation [MW]
+    /// Total renewable generation `MW`
     pub renewable_mw: f64,
-    /// Total conventional generation [MW]
+    /// Total conventional generation `MW`
     pub conventional_mw: f64,
-    /// Curtailed renewable energy [MW]
+    /// Curtailed renewable energy `MW`
     pub curtailment_mw: f64,
     /// Timestamp offset [hours from start]
     pub time_h: f64,
@@ -41,7 +41,7 @@ impl GridSnapshot {
         (self.renewable_mw / self.load_mw).clamp(0.0, 1.0)
     }
 
-    /// Net load [MW] = load - renewable (without curtailment).
+    /// Net load `MW` = load - renewable (without curtailment).
     pub fn net_load_mw(&self) -> f64 {
         (self.load_mw - self.renewable_mw).max(0.0)
     }
@@ -54,7 +54,7 @@ pub struct PenetrationConfig {
     pub min_conventional_fraction: f64,
     /// Maximum instantaneous penetration allowed [fraction 0–1]
     pub max_penetration: f64,
-    /// Minimum load [MW] below which system is considered lightly loaded
+    /// Minimum load `MW` below which system is considered lightly loaded
     pub min_load_mw: f64,
 }
 
@@ -71,7 +71,7 @@ impl Default for PenetrationConfig {
 /// Results from penetration analysis over a time series.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct PenetrationResult {
-    /// Annual energy penetration = ΣE_re / ΣE_load [fraction]
+    /// Annual energy penetration = ΣE_re / ΣE_load `fraction`
     pub annual_energy_penetration: f64,
     /// Instantaneous penetration statistics
     pub max_instantaneous: f64,
@@ -79,7 +79,7 @@ pub struct PenetrationResult {
     pub p95_instantaneous: f64,
     /// Number of hours with penetration > max_penetration threshold
     pub hours_above_limit: f64,
-    /// Curtailment energy [MWh]
+    /// Curtailment energy `MWh`
     pub total_curtailment_mwh: f64,
     /// Curtailment ratio = E_curtailed / E_available
     pub curtailment_ratio: f64,
@@ -165,11 +165,11 @@ pub fn penetration_analysis(
 /// Constraints that limit hosting capacity.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct HostingCapacityConstraints {
-    /// Thermal limit of the feeder/branch [MW]
+    /// Thermal limit of the feeder/branch `MW`
     pub thermal_limit_mw: f64,
     /// Voltage rise limit (ΔV/V_ref) allowed due to RE injection [p.u.]
     pub voltage_rise_limit_pu: f64,
-    /// Minimum load that must always be served by convention [MW]
+    /// Minimum load that must always be served by convention `MW`
     pub min_load_mw: f64,
     /// Feeder impedance (simplified R+jX magnitude) [Ω or p.u.]
     pub feeder_impedance_pu: f64,
@@ -192,17 +192,17 @@ impl Default for HostingCapacityConstraints {
 /// Result of hosting capacity analysis.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct HostingCapacityResult {
-    /// Maximum DER capacity before thermal violation [MW]
+    /// Maximum DER capacity before thermal violation `MW`
     pub thermal_limit_mw: f64,
-    /// Maximum DER capacity before voltage violation [MW]
+    /// Maximum DER capacity before voltage violation `MW`
     pub voltage_limit_mw: f64,
-    /// Maximum DER capacity before stability margin is reduced [MW]
+    /// Maximum DER capacity before stability margin is reduced `MW`
     pub stability_limit_mw: f64,
-    /// Overall hosting capacity = min of all limits [MW]
+    /// Overall hosting capacity = min of all limits `MW`
     pub hosting_capacity_mw: f64,
     /// Binding constraint name
     pub binding_constraint: String,
-    /// Utilisation of hosting capacity with current DER [fraction]
+    /// Utilisation of hosting capacity with current DER `fraction`
     pub current_utilisation: f64,
 }
 
@@ -272,7 +272,7 @@ pub struct RampingRequirement {
     pub p95_down_ramp_mwh: f64,
     /// Mean absolute ramp rate [MW/h]
     pub mean_abs_ramp_mwh: f64,
-    /// Required flexible capacity for 3-hour ramp event [MW]
+    /// Required flexible capacity for 3-hour ramp event `MW`
     pub three_hour_ramp_mw: f64,
     /// Fraction of periods where ramp exceeds conventional flexibility
     pub flexibility_shortage_fraction: f64,
@@ -457,7 +457,7 @@ pub struct FlexibilityResource {
     pub ramp_up_mwh: f64,
     /// Maximum downward ramp [MW/h]
     pub ramp_down_mwh: f64,
-    /// Available flexible capacity [MW]
+    /// Available flexible capacity `MW`
     pub capacity_mw: f64,
 }
 

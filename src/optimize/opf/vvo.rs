@@ -11,10 +11,10 @@
 //! The two stages alternate until voltage convergence or maximum iterations.
 //!
 //! # Units
-//! - Voltages in per-unit [pu]
-//! - Reactive power in [MVAr] unless noted
-//! - Active power in [MW] unless noted
-//! - Tap positions dimensionless [pu] ratio
+//! - Voltages in per-unit `pu`
+//! - Reactive power in `MVAr` unless noted
+//! - Active power in `MW` unless noted
+//! - Tap positions dimensionless `pu` ratio
 
 use crate::error::OxiGridError;
 use std::collections::VecDeque;
@@ -30,22 +30,22 @@ pub enum VvoDevice {
     OltcTransformer {
         /// Connected bus index.
         bus: usize,
-        /// Minimum tap ratio [pu].
+        /// Minimum tap ratio `pu`.
         min_tap: f64,
-        /// Maximum tap ratio [pu].
+        /// Maximum tap ratio `pu`.
         max_tap: f64,
-        /// Tap step size [pu].
+        /// Tap step size `pu`.
         tap_step: f64,
-        /// Current tap ratio [pu].
+        /// Current tap ratio `pu`.
         current_tap: f64,
-        /// Anti-hunting time delay [s].
+        /// Anti-hunting time delay `s`.
         time_delay_s: f64,
     },
     /// Switched capacitor bank — discrete reactive power injection.
     CapacitorBank {
         /// Connected bus index.
         bus: usize,
-        /// Reactive power per step [MVAr].
+        /// Reactive power per step `MVAr`.
         step_size_mvar: f64,
         /// Total number of steps.
         n_steps: usize,
@@ -58,11 +58,11 @@ pub enum VvoDevice {
     StaticVarCompensator {
         /// Connected bus index.
         bus: usize,
-        /// Minimum reactive power [MVAr] (typically negative for absorption).
+        /// Minimum reactive power `MVAr` (typically negative for absorption).
         q_min_mvar: f64,
-        /// Maximum reactive power [MVAr].
+        /// Maximum reactive power `MVAr`.
         q_max_mvar: f64,
-        /// Current reactive output [MVAr].
+        /// Current reactive output `MVAr`.
         current_q_mvar: f64,
         /// Droop coefficient [% voltage change per % reactive change].
         droop_pct: f64,
@@ -71,13 +71,13 @@ pub enum VvoDevice {
     PhotovoltaicInverter {
         /// Connected bus index.
         bus: usize,
-        /// Current active power generation [MW].
+        /// Current active power generation `MW`.
         p_mw: f64,
-        /// Rated apparent power [MVA].
+        /// Rated apparent power `MVA`.
         s_rated_mva: f64,
         /// Minimum power factor (e.g. 0.9).
         power_factor_min: f64,
-        /// Current reactive power output [MVAr].
+        /// Current reactive power output `MVAr`.
         current_q_mvar: f64,
         /// Whether the inverter can absorb reactive power (capacitive mode).
         can_absorb_q: bool,
@@ -86,13 +86,13 @@ pub enum VvoDevice {
     BatteryEss {
         /// Connected bus index.
         bus: usize,
-        /// Current active power [MW] (positive = discharge).
+        /// Current active power `MW` (positive = discharge).
         p_mw: f64,
-        /// Maximum reactive injection [MVAr].
+        /// Maximum reactive injection `MVAr`.
         q_max_mvar: f64,
-        /// Maximum reactive absorption [MVAr] (negative value).
+        /// Maximum reactive absorption `MVAr` (negative value).
         q_min_mvar: f64,
-        /// Current reactive output [MVAr].
+        /// Current reactive output `MVAr`.
         current_q_mvar: f64,
     },
 }
@@ -109,7 +109,7 @@ impl VvoDevice {
         }
     }
 
-    /// Current reactive power output [MVAr]. Positive = reactive injection.
+    /// Current reactive power output `MVAr`. Positive = reactive injection.
     pub fn current_q_mvar(&self) -> f64 {
         match self {
             Self::OltcTransformer { .. } => 0.0,
@@ -124,7 +124,7 @@ impl VvoDevice {
         }
     }
 
-    /// Feasible reactive power range `(q_min, q_max)` [MVAr].
+    /// Feasible reactive power range `(q_min, q_max)` `MVAr`.
     pub fn q_range(&self) -> (f64, f64) {
         match self {
             Self::OltcTransformer { .. } => (0.0, 0.0),
@@ -203,13 +203,13 @@ impl VvoDevice {
 pub struct VvoBus {
     /// Bus index (0-based, must be unique).
     pub id: usize,
-    /// Minimum acceptable voltage [pu] (typically 0.95).
+    /// Minimum acceptable voltage `pu` (typically 0.95).
     pub v_min_pu: f64,
-    /// Maximum acceptable voltage [pu] (typically 1.05).
+    /// Maximum acceptable voltage `pu` (typically 1.05).
     pub v_max_pu: f64,
-    /// Active load at this bus [MW].
+    /// Active load at this bus `MW`.
     pub p_load_mw: f64,
-    /// Reactive load at this bus [MVAr].
+    /// Reactive load at this bus `MVAr`.
     pub q_load_mvar: f64,
     /// `true` for the substation (slack) bus where V = 1.0 pu is enforced.
     pub is_substation: bool,
@@ -222,11 +222,11 @@ pub struct VvoBranch {
     pub from: usize,
     /// Receiving-end bus index.
     pub to: usize,
-    /// Series resistance [Ω].
+    /// Series resistance `Ω`.
     pub r_ohm: f64,
-    /// Series reactance [Ω].
+    /// Series reactance `Ω`.
     pub x_ohm: f64,
-    /// Thermal MVA rating [MVA].
+    /// Thermal MVA rating `MVA`.
     pub rating_mva: f64,
 }
 
@@ -237,13 +237,13 @@ pub struct VvoBranch {
 /// VVO objective function weighting parameters.
 #[derive(Debug, Clone)]
 pub struct VvoObjective {
-    /// Weight applied to real power losses [MW].
+    /// Weight applied to real power losses `MW`.
     pub weight_losses: f64,
     /// Weight applied to sum of squared voltage deviations from reference.
     pub weight_voltage_deviation: f64,
     /// Weight applied to number of discrete device operations (tap changes / cap switches).
     pub weight_device_operations: f64,
-    /// Voltage reference for deviation penalty [pu].
+    /// Voltage reference for deviation penalty `pu`.
     pub v_ref_pu: f64,
 }
 
@@ -263,15 +263,15 @@ impl Default for VvoObjective {
 pub struct VvoConfig {
     /// Number of buses in the network.
     pub n_buses: usize,
-    /// System base apparent power [MVA].
+    /// System base apparent power `MVA`.
     pub base_mva: f64,
-    /// System base voltage [kV] (line-to-line).
+    /// System base voltage `kV` (line-to-line).
     pub base_kv: f64,
     /// Objective function weights and reference voltage.
     pub objective: VvoObjective,
     /// Maximum number of two-stage outer iterations.
     pub max_iterations: usize,
-    /// Convergence tolerance on maximum bus voltage magnitude change [pu].
+    /// Convergence tolerance on maximum bus voltage magnitude change `pu`.
     pub voltage_tolerance: f64,
     /// Number of trials for discrete device search (unused in current greedy impl).
     pub n_discrete_trials: usize,
@@ -302,15 +302,15 @@ pub struct VvoResult {
     pub converged: bool,
     /// Number of outer iterations performed.
     pub iterations: usize,
-    /// Bus voltage magnitudes [pu] indexed by bus id.
+    /// Bus voltage magnitudes `pu` indexed by bus id.
     pub voltage_magnitudes: Vec<f64>,
-    /// Bus voltage angles [rad] (zero for linearised BFS model).
+    /// Bus voltage angles `rad` (zero for linearised BFS model).
     pub voltage_angles: Vec<f64>,
-    /// Reactive power setpoint per device [MVAr] (same order as `devices`).
+    /// Reactive power setpoint per device `MVAr` (same order as `devices`).
     pub device_setpoints: Vec<f64>,
-    /// Total feeder active power losses [MW].
+    /// Total feeder active power losses `MW`.
     pub total_losses_mw: f64,
-    /// RMS voltage deviation from reference across all buses [pu].
+    /// RMS voltage deviation from reference across all buses `pu`.
     pub voltage_deviation_pu: f64,
     /// Number of OLTC tap-change operations performed.
     pub n_tap_operations: usize,
@@ -604,7 +604,7 @@ impl VoltVarOptimizer {
 
     // ── Loss calculation ──────────────────────────────────────────────────────
 
-    /// Real power losses [MW] via DistFlow:
+    /// Real power losses `MW` via DistFlow:
     /// `P_loss = Σ_branches (P_branch² + Q_branch²) / V_from² × R_pu × S_base`
     fn compute_losses(&self, v: &[f64], q_injections: &[f64]) -> f64 {
         let n = self.config.n_buses;
@@ -784,29 +784,25 @@ impl VoltVarOptimizer {
                     min_tap,
                     tap_step,
                     ..
-                } => {
-                    if *bus < n && oltc_idx < tap_positions.len() {
-                        let tap_val = min_tap + tap_positions[oltc_idx] as f64 * tap_step;
-                        // Model OLTC voltage boost as a proportional Q virtual injection.
-                        let bus_q_load = self
-                            .buses
-                            .iter()
-                            .find(|b| b.id == *bus)
-                            .map(|b| b.q_load_mvar)
-                            .unwrap_or(0.0);
-                        q_inj[*bus] += (tap_val - 1.0) * bus_q_load.abs().max(1.0);
-                        oltc_idx += 1;
-                    }
+                } if *bus < n && oltc_idx < tap_positions.len() => {
+                    let tap_val = min_tap + tap_positions[oltc_idx] as f64 * tap_step;
+                    // Model OLTC voltage boost as a proportional Q virtual injection.
+                    let bus_q_load = self
+                        .buses
+                        .iter()
+                        .find(|b| b.id == *bus)
+                        .map(|b| b.q_load_mvar)
+                        .unwrap_or(0.0);
+                    q_inj[*bus] += (tap_val - 1.0) * bus_q_load.abs().max(1.0);
+                    oltc_idx += 1;
                 }
                 VvoDevice::CapacitorBank {
                     bus,
                     step_size_mvar,
                     ..
-                } => {
-                    if *bus < n && cap_idx < cap_steps.len() {
-                        q_inj[*bus] += cap_steps[cap_idx] as f64 * step_size_mvar;
-                        cap_idx += 1;
-                    }
+                } if *bus < n && cap_idx < cap_steps.len() => {
+                    q_inj[*bus] += cap_steps[cap_idx] as f64 * step_size_mvar;
+                    cap_idx += 1;
                 }
                 _ => {}
             }
@@ -964,28 +960,24 @@ impl VoltVarOptimizer {
                     min_tap,
                     tap_step,
                     ..
-                } => {
-                    if *bus < n && oltc_idx < oltc_taps.len() {
-                        let tap_val = min_tap + oltc_taps[oltc_idx] as f64 * tap_step;
-                        let bus_q_load = self
-                            .buses
-                            .iter()
-                            .find(|b| b.id == *bus)
-                            .map(|b| b.q_load_mvar)
-                            .unwrap_or(0.0);
-                        q_inj[*bus] += (tap_val - 1.0) * bus_q_load.abs().max(1.0);
-                        oltc_idx += 1;
-                    }
+                } if *bus < n && oltc_idx < oltc_taps.len() => {
+                    let tap_val = min_tap + oltc_taps[oltc_idx] as f64 * tap_step;
+                    let bus_q_load = self
+                        .buses
+                        .iter()
+                        .find(|b| b.id == *bus)
+                        .map(|b| b.q_load_mvar)
+                        .unwrap_or(0.0);
+                    q_inj[*bus] += (tap_val - 1.0) * bus_q_load.abs().max(1.0);
+                    oltc_idx += 1;
                 }
                 VvoDevice::CapacitorBank {
                     bus,
                     step_size_mvar,
                     ..
-                } => {
-                    if *bus < n && cap_idx < cap_steps_vec.len() {
-                        q_inj[*bus] += cap_steps_vec[cap_idx] as f64 * step_size_mvar;
-                        cap_idx += 1;
-                    }
+                } if *bus < n && cap_idx < cap_steps_vec.len() => {
+                    q_inj[*bus] += cap_steps_vec[cap_idx] as f64 * step_size_mvar;
+                    cap_idx += 1;
                 }
                 _ => {}
             }
@@ -996,7 +988,7 @@ impl VoltVarOptimizer {
 
     // ── Helper utilities ──────────────────────────────────────────────────────
 
-    /// Map per-device setpoints to a per-bus Q injection vector [MVAr].
+    /// Map per-device setpoints to a per-bus Q injection vector `MVAr`.
     ///
     /// Multiple devices on the same bus have their contributions summed.
     pub fn q_setpoints_to_injections(&self, setpoints: &[f64]) -> Vec<f64> {
@@ -1011,7 +1003,7 @@ impl VoltVarOptimizer {
         q_inj
     }
 
-    /// Compute total Q injection per bus from device setpoints [MVAr].
+    /// Compute total Q injection per bus from device setpoints `MVAr`.
     pub fn compute_total_q_injections(&self, setpoints: &[f64]) -> Vec<f64> {
         self.q_setpoints_to_injections(setpoints)
     }

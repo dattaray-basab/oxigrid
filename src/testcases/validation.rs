@@ -89,6 +89,8 @@ pub struct ValidationResult {
     pub max_power_error_mw: f64,
     /// Absolute losses error \[MW\].
     pub losses_error_mw: f64,
+    /// Maximum per-generator reactive power error \[MVAr\].
+    pub max_q_error_mvar: f64,
     /// Whether all quantities are within tolerance.
     pub passed: bool,
     /// Number of buses within tolerance.
@@ -204,8 +206,19 @@ impl ModelValidator {
             }
         }
 
-        // Suppress unused parameter warning — q_gen validation placeholder
-        let _ = computed_q_gen;
+        // --- Reactive power generation comparison ---
+        let n_qgen = case.reference_q_gen_mvar.len().min(computed_q_gen.len());
+        let mut max_q_error_mvar = 0.0_f64;
+        for (&cq, &rq) in computed_q_gen
+            .iter()
+            .zip(case.reference_q_gen_mvar.iter())
+            .take(n_qgen)
+        {
+            let q_err = (cq - rq).abs();
+            if q_err > max_q_error_mvar {
+                max_q_error_mvar = q_err;
+            }
+        }
 
         // --- Losses comparison ---
         let computed_losses: f64 = computed_p_gen.iter().sum::<f64>()
@@ -223,7 +236,8 @@ impl ModelValidator {
         // --- Overall pass/fail ---
         let passed = max_voltage_error <= self.config.tolerance_voltage_pu
             && max_angle_error <= self.config.tolerance_angle_deg
-            && max_power_error <= self.config.tolerance_power_mw;
+            && max_power_error <= self.config.tolerance_power_mw
+            && max_q_error_mvar <= self.config.tolerance_power_mw;
 
         ValidationResult {
             case_name: case.name.clone(),
@@ -231,6 +245,7 @@ impl ModelValidator {
             max_angle_error_deg: max_angle_error,
             max_power_error_mw: max_power_error,
             losses_error_mw: losses_error,
+            max_q_error_mvar,
             passed,
             n_buses_passed,
             n_buses_failed,
@@ -449,6 +464,7 @@ mod tests {
                 max_angle_error_deg: 1e-6,
                 max_power_error_mw: 1e-6,
                 losses_error_mw: 0.01,
+                max_q_error_mvar: 1e-6,
                 passed: true,
                 n_buses_passed: 5,
                 n_buses_failed: 0,
@@ -460,6 +476,7 @@ mod tests {
                 max_angle_error_deg: 1.0,
                 max_power_error_mw: 10.0,
                 losses_error_mw: 2.0,
+                max_q_error_mvar: 5.0,
                 passed: false,
                 n_buses_passed: 3,
                 n_buses_failed: 2,
@@ -516,5 +533,35 @@ mod tests {
         assert!(!results.is_empty(), "must produce at least one result");
         // The result should be valid (either pass or a defined result)
         assert_eq!(results[0].case_name, "IEEE 14-bus (MATPOWER reference)");
+    }
+
+    /// Test 8: Large Q-gen mismatch exceeds tolerance and causes validation failure.
+    #[test]
+    fn test_q_gen_validation_flags_mismatch() {
+        let config = ValidationConfig {
+            tolerance_power_mw: 1.0,
+            ..Default::default()
+        };
+        let validator = ModelValidator::new(config);
+        let case = ValidationCase {
+            name: "qgen_test".into(),
+            n_buses: 1,
+            reference_voltages_pu: vec![1.0],
+            reference_angles_deg: vec![0.0],
+            reference_p_gen_mw: vec![100.0],
+            reference_q_gen_mvar: vec![50.0],
+            reference_losses_mw: 0.0,
+        };
+        // Q-gen mismatch of 10 Mvar >> 1.0 Mvar tolerance
+        let result = validator.validate(&case, &[1.0], &[0.0], &[100.0], &[60.0]);
+        assert!(
+            !result.passed,
+            "large Q-gen mismatch should fail validation"
+        );
+        assert!(
+            result.max_q_error_mvar > 1.0,
+            "max_q_error_mvar should be > tolerance, got {}",
+            result.max_q_error_mvar
+        );
     }
 }

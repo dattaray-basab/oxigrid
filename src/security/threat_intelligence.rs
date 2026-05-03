@@ -1723,4 +1723,170 @@ mod tests {
         );
         assert!(pct < 100.0, "not all standards are implemented yet: {pct}");
     }
+
+    // ── 8 new tests ───────────────────────────────────────────────────────────
+
+    #[test]
+    fn test_iec62443_compliance_level_reflects_score() {
+        // All components encrypted, authenticated, all controls implemented,
+        // ≥3 zones, DMZ present → high score → SL 4.
+        let assessment = ScadaSecurityAssessment {
+            system_name: "HighSecurity".into(),
+            components: vec![ScadaComponent {
+                id: 1,
+                name: "RTU-Secure".into(),
+                protocol: ScadaProtocol::OpcUa,
+                encrypted: true,
+                authenticated: true,
+                last_audit_days: 10,
+            }],
+            network_topology: NetworkTopology {
+                zones: 4,
+                dmz_present: true,
+                unidirectional_gateways: true,
+            },
+            security_controls: vec![ScadaSecurityControl {
+                control_type: ScadaControlType::Firewall,
+                implemented: true,
+                effectiveness: 1.0,
+            }],
+        };
+        let sl = assessment.iec62443_compliance_level();
+        assert_eq!(sl, 4, "high-security SCADA should achieve SL-4, got {sl}");
+    }
+
+    #[test]
+    fn test_iec62443_compliance_level_low_for_bare_system() {
+        let assessment = ScadaSecurityAssessment {
+            system_name: "LowSecurity".into(),
+            components: vec![ScadaComponent {
+                id: 1,
+                name: "OldRTU".into(),
+                protocol: ScadaProtocol::Modbus,
+                encrypted: false,
+                authenticated: false,
+                last_audit_days: 800,
+            }],
+            network_topology: NetworkTopology {
+                zones: 1,
+                dmz_present: false,
+                unidirectional_gateways: false,
+            },
+            security_controls: vec![],
+        };
+        let sl = assessment.iec62443_compliance_level();
+        assert!(
+            sl <= 1,
+            "bare SCADA system should be SL-0 or SL-1, got {sl}"
+        );
+    }
+
+    #[test]
+    fn test_vulnerability_count_includes_modbus_components() {
+        let assessment = make_scada_assessment();
+        // make_scada_assessment: 1 Modbus unauth+unenc, 1 OpcUa enc+auth
+        // vulnerability_count includes: unencrypted OR unauthenticated OR legacy
+        let count = assessment.vulnerability_count();
+        // RTU-1 is Modbus + unencrypted + unauthenticated → counted
+        // HMI-1 is OpcUa + encrypted + authenticated → NOT counted
+        assert_eq!(count, 1, "only RTU-1 should be flagged, got {count}");
+    }
+
+    #[test]
+    fn test_recommended_actions_includes_tls_advice() {
+        let assessment = make_scada_assessment();
+        let actions = assessment.recommended_actions();
+        assert!(!actions.is_empty(), "should produce at least one action");
+        let has_tls = actions
+            .iter()
+            .any(|a| a.contains("TLS") || a.contains("IPSec"));
+        assert!(
+            has_tls,
+            "should recommend enabling TLS/IPSec for unencrypted components"
+        );
+    }
+
+    #[test]
+    fn test_recent_alerts_filters_by_window() {
+        let mut det = ThreatAnomalyDetector::new(3.0);
+        det.add_baseline(make_baseline(1, 100.0, 5.0));
+        // Generate an alert at t = 1000.0
+        det.detect(1, 125.0, 1000.0, 10);
+        // Generate an alert at t = 2000.0
+        det.detect(1, 125.0, 2000.0, 10);
+
+        // Window from t=1500 to t=2500 — only the second alert should appear.
+        let recent = det.recent_alerts(1000.0, 2500.0);
+        assert_eq!(
+            recent.len(),
+            1,
+            "should have exactly 1 recent alert in window, got {}",
+            recent.len()
+        );
+        assert!(
+            (recent[0].timestamp - 2000.0).abs() < 1e-9,
+            "recent alert timestamp should be 2000, got {}",
+            recent[0].timestamp
+        );
+    }
+
+    #[test]
+    fn test_has_native_encryption_only_opcua() {
+        assert!(
+            ScadaProtocol::OpcUa.has_native_encryption(),
+            "OpcUa should have native encryption"
+        );
+        assert!(
+            !ScadaProtocol::Modbus.has_native_encryption(),
+            "Modbus should NOT have native encryption"
+        );
+        assert!(
+            !ScadaProtocol::Dnp3.has_native_encryption(),
+            "Dnp3 should NOT have native encryption"
+        );
+    }
+
+    #[test]
+    fn test_has_native_authentication_opcua_and_dnp3() {
+        assert!(
+            ScadaProtocol::OpcUa.has_native_authentication(),
+            "OpcUa should have native authentication"
+        );
+        assert!(
+            ScadaProtocol::Dnp3.has_native_authentication(),
+            "Dnp3 should have native authentication (SAv5)"
+        );
+        assert!(
+            !ScadaProtocol::Modbus.has_native_authentication(),
+            "Modbus should NOT have native authentication"
+        );
+    }
+
+    #[test]
+    fn test_generate_report_counts_vulnerable_assets_and_critical_vulns() {
+        let scanner = VulnerabilityScanner::new_with_ics_database();
+        // Asset using Modbus (CVE-2024-10001: CVSS=9.8 critical, no patch)
+        let asset_modbus = make_asset(1, ConnectivityLevel::PartialDmz, PatchStatus::Unsupported);
+        let report = scanner.generate_report(&[asset_modbus]);
+        assert_eq!(
+            report.total_assets, 1,
+            "total_assets should be 1, got {}",
+            report.total_assets
+        );
+        assert!(
+            report.vulnerable_assets >= 1,
+            "at least 1 vulnerable asset expected, got {}",
+            report.vulnerable_assets
+        );
+        assert!(
+            report.critical_vulns >= 1,
+            "at least 1 critical vuln expected (CVE-2024-10001 CVSS=9.8), got {}",
+            report.critical_vulns
+        );
+        assert!(
+            report.overall_risk_score > 0.0,
+            "overall_risk_score should be > 0.0, got {}",
+            report.overall_risk_score
+        );
+    }
 }

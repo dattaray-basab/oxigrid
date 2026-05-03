@@ -79,11 +79,11 @@ pub enum StabilityStatus {
 pub struct MachineState {
     /// Generator index (0-based).
     pub id: usize,
-    /// Rotor angle δ [rad].
+    /// Rotor angle δ `rad`.
     pub rotor_angle_rad: f64,
     /// Speed deviation Δω = ω − ω_s [rad/s] (zero at steady state).
     pub rotor_speed_rad_per_s: f64,
-    /// Inertia constant H [s].
+    /// Inertia constant H `s`.
     pub inertia_h_s: f64,
     /// Damping coefficient D [p.u.].
     pub damping_d: f64,
@@ -141,15 +141,15 @@ pub struct TransientEnergyFunction {
 /// Single-Machine Equivalent (SME/SIME) model parameters and results.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct SmeModel {
-    /// Equivalent rotor angle of the critical cluster [rad].
+    /// Equivalent rotor angle of the critical cluster `rad`.
     pub equivalent_angle_rad: f64,
     /// Equivalent speed deviation [rad/s].
     pub equivalent_speed_rad_per_s: f64,
-    /// Equivalent inertia constant H_eq [s].
+    /// Equivalent inertia constant H_eq `s`.
     pub equivalent_inertia: f64,
     /// Maximum accelerating power of the equivalent machine [p.u.].
     pub pa_max: f64,
-    /// Critical clearing time derived from equal-area criterion [s].
+    /// Critical clearing time derived from equal-area criterion `s`.
     pub critical_clearing_time_s: f64,
     /// Stability index `1 − t_cl / t_cct` (positive ⟹ stable).
     pub stability_index: f64,
@@ -172,9 +172,9 @@ pub struct TsmiResult {
     pub energy_function: Option<TransientEnergyFunction>,
     /// SME model, if computed.
     pub sme: Option<SmeModel>,
-    /// Simulated duration [s].
+    /// Simulated duration `s`.
     pub simulation_time_s: f64,
-    /// Wall-clock computation time [ms].
+    /// Wall-clock computation time `ms`.
     pub computation_time_ms: f64,
 }
 
@@ -195,11 +195,11 @@ pub struct TsmiCalculator {
     /// Reduced generator admittance matrix stored as `(G_ij, B_ij)` entries.
     /// Dimensions: `n_gen × n_gen`.  Empty means no inter-machine coupling.
     pub network_admittance: Vec<Vec<(f64, f64)>>,
-    /// Fault clearing time t_cl [s].
+    /// Fault clearing time t_cl `s`.
     pub fault_clearing_time_s: f64,
-    /// Numerical integration step [s] (default 0.01 s).
+    /// Numerical integration step `s` (default 0.01 s).
     pub simulation_step_s: f64,
-    /// Maximum simulation horizon [s] (default 5.0 s).
+    /// Maximum simulation horizon `s` (default 5.0 s).
     pub max_simulation_time_s: f64,
 }
 
@@ -292,7 +292,7 @@ impl TsmiCalculator {
 
     /// Compute the Centre-of-Inertia (COI) angle and speed deviation.
     ///
-    /// Returns `(δ_COI [rad], ω_COI [rad/s])`.
+    /// Returns `(δ_COI `rad`, ω_COI [rad/s])`.
     /// If total inertia is zero, returns `(0.0, 0.0)`.
     pub fn compute_coi(&self) -> (f64, f64) {
         let total_h: f64 = self.machines.iter().map(|m| m.inertia_h_s).sum();
@@ -348,7 +348,7 @@ impl TsmiCalculator {
     /// dω̃/dt = (ω_s / 2H) · (P_m − P_e − D · ω̃)
     /// ```
     ///
-    /// Returns `traj[machine_idx][step_idx] = (δ [rad], Δω [rad/s])`.
+    /// Returns `traj[machine_idx][step_idx] = (δ `rad`, Δω [rad/s])`.
     /// Machine states in `self.machines` are updated to the final values.
     pub fn integrate_swing_equations(&mut self, duration_s: f64) -> Vec<Vec<(f64, f64)>> {
         let n = self.machines.len();

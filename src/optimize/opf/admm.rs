@@ -29,13 +29,13 @@ use serde::{Deserialize, Serialize};
 pub struct AdmmGenerator {
     /// Local bus index within the area.
     pub bus: usize,
-    /// Minimum active power output [MW].
+    /// Minimum active power output `MW`.
     pub p_min_mw: f64,
-    /// Maximum active power output [MW].
+    /// Maximum active power output `MW`.
     pub p_max_mw: f64,
-    /// Minimum reactive power output [Mvar].
+    /// Minimum reactive power output `Mvar`.
     pub q_min_mvar: f64,
-    /// Maximum reactive power output [Mvar].
+    /// Maximum reactive power output `Mvar`.
     pub q_max_mvar: f64,
     /// Quadratic cost coefficient [$/MW²h].
     pub cost_a: f64,
@@ -44,7 +44,7 @@ pub struct AdmmGenerator {
 }
 
 impl AdmmGenerator {
-    /// Marginal cost at active power output `p` [MW].
+    /// Marginal cost at active power output `p` `MW`.
     pub fn marginal_cost(&self, p: f64) -> f64 {
         self.cost_b + 2.0 * self.cost_a * p
     }
@@ -66,14 +66,14 @@ pub struct AdmmArea {
     pub boundary_buses: Vec<usize>,
     /// Generators located in this area.
     pub generators: Vec<AdmmGenerator>,
-    /// Active load per bus [MW], aligned with `bus_indices`.
+    /// Active load per bus `MW`, aligned with `bus_indices`.
     pub loads_mw: Vec<f64>,
-    /// Reactive load per bus [Mvar], aligned with `bus_indices`.
+    /// Reactive load per bus `Mvar`, aligned with `bus_indices`.
     pub loads_mvar: Vec<f64>,
 }
 
 impl AdmmArea {
-    /// Total active load in this area [MW].
+    /// Total active load in this area `MW`.
     pub fn total_load_mw(&self) -> f64 {
         self.loads_mw.iter().sum()
     }
@@ -150,15 +150,15 @@ pub struct AdmmState {
 pub struct AdmmAreaDispatch {
     /// Area identifier.
     pub area_id: usize,
-    /// Optimal generator active dispatch [MW].
+    /// Optimal generator active dispatch `MW`.
     pub generator_dispatch_mw: Vec<f64>,
-    /// Optimal generator reactive dispatch [Mvar].
+    /// Optimal generator reactive dispatch `Mvar`.
     pub generator_dispatch_mvar: Vec<f64>,
-    /// Per-bus voltage magnitude [pu] (flat-start 1.0 for DC approximation).
+    /// Per-bus voltage magnitude `pu` (flat-start 1.0 for DC approximation).
     pub bus_voltages: Vec<f64>,
     /// Area generation cost [$/h].
     pub area_cost_per_h: f64,
-    /// Net power exchange per boundary bus [MW]; positive = export.
+    /// Net power exchange per boundary bus `MW`; positive = export.
     pub import_export_mw: Vec<f64>,
 }
 
@@ -171,7 +171,7 @@ pub struct AdmmResult {
     pub iterations: usize,
     /// Per-area dispatch results.
     pub area_dispatches: Vec<AdmmAreaDispatch>,
-    /// Consensus voltage magnitude at each boundary bus [pu].
+    /// Consensus voltage magnitude at each boundary bus `pu`.
     pub boundary_voltages: Vec<f64>,
     /// System-wide total generation cost [$/h].
     pub total_cost_per_h: f64,

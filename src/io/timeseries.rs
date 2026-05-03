@@ -33,7 +33,7 @@ pub struct Channel {
     pub name: String,
     /// Physical unit string (e.g. "kV", "MW", "A")
     pub unit: String,
-    /// Nominal sample interval [s] (0 = irregular)
+    /// Nominal sample interval `s` (0 = irregular)
     pub dt_s: f64,
     /// Description
     pub description: String,

@@ -92,7 +92,7 @@ pub struct EcmParameters {
     pub r2_ohm: f64,
     /// RC-pair 2 capacitance \[F\].
     pub c2_f: f64,
-    /// OCV-SoC look-up table: sorted `(SoC ∈ [0,1], OCV \[V\])` pairs.
+    /// OCV-SoC look-up table: sorted `(SoC ∈ `0,1`, OCV \[V\])` pairs.
     pub ocv_soc_table: Vec<(f64, f64)>,
 }
 

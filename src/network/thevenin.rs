@@ -461,7 +461,7 @@ fn conj_c(a: CNum) -> CNum {
 mod tests {
     use super::*;
 
-    /// Build a 2-bus Y-bus for Z_12 = r + j*x [pu].
+    /// Build a 2-bus Y-bus for Z_12 = r + j*x `pu`.
     #[allow(dead_code)]
     fn two_bus_ybus(r: f64, x: f64) -> Vec<Vec<(f64, f64)>> {
         let z2 = r * r + x * x;

@@ -495,7 +495,7 @@ impl HierarchicalMgControl {
 
     /// Advance the secondary control integrator by one time-step.
     ///
-    /// Returns `(dV_correction [pu], df_correction [Hz])` to be applied to
+    /// Returns `(dV_correction `pu`, df_correction `Hz`)` to be applied to
     /// DER voltage/frequency references.
     pub fn step_secondary(&mut self, v_meas_pu: f64, f_meas_hz: f64, dt_s: f64) -> (f64, f64) {
         let v_err = self.secondary.v_ref_pu - v_meas_pu;
@@ -1597,6 +1597,196 @@ mod tests {
         assert!(
             (0.0..=100.0).contains(&ss),
             "self-sufficiency must be in [0, 100]: got {ss}"
+        );
+    }
+
+    // ── 8 new tests ───────────────────────────────────────────────────────────
+
+    #[test]
+    fn test_solve_resilience_optimal_higher_soc_than_cost_optimal() {
+        let opt = make_optimizer(12);
+        let cost_sched = opt.solve_cost_optimal();
+        let resilience_sched = opt.solve_resilience_optimal();
+        // Resilience-optimal must prioritise battery charging; final SoC ≥ cost-optimal
+        assert!(
+            resilience_sched.islanding_reserve_mwh >= cost_sched.islanding_reserve_mwh - 1e-6,
+            "resilience-optimal reserve ({:.4}) must be ≥ cost-optimal reserve ({:.4})",
+            resilience_sched.islanding_reserve_mwh,
+            cost_sched.islanding_reserve_mwh,
+        );
+    }
+
+    #[test]
+    fn test_value_of_stochastic_solution_is_finite() {
+        let mut sbd = ScenarioBasedDispatch::new(make_resources(4), 2);
+        for i in 0..2 {
+            sbd.add_scenario(MgScenario {
+                id: i,
+                renewable_mw: vec![1.0; 4],
+                load_mw: vec![2.0; 4],
+                price_mwh: vec![100.0; 4],
+                probability: 0.5,
+            });
+        }
+        let vss = sbd.value_of_stochastic_solution();
+        assert!(vss.is_finite(), "VSS must be finite, got {vss}");
+    }
+
+    #[test]
+    fn test_expected_cost_weighted_average() {
+        let mut sbd = ScenarioBasedDispatch::new(make_resources(2), 2);
+        // Scenario A: high load → needs diesel
+        sbd.add_scenario(MgScenario {
+            id: 0,
+            renewable_mw: vec![0.0; 2],
+            load_mw: vec![4.0; 2],
+            price_mwh: vec![100.0; 2],
+            probability: 0.5,
+        });
+        // Scenario B: low load, all renewable
+        sbd.add_scenario(MgScenario {
+            id: 1,
+            renewable_mw: vec![4.0; 2],
+            load_mw: vec![1.0; 2],
+            price_mwh: vec![50.0; 2],
+            probability: 0.5,
+        });
+        let schedule = sbd.solve_here_and_now();
+        let ec = sbd.expected_cost(&schedule);
+        assert!(ec >= 0.0, "expected cost must be non-negative, got {ec}");
+    }
+
+    #[test]
+    fn test_surplus_sharing_sums_to_total_savings() {
+        let mut market = P2pEnergyMarket::new(0.20, 0.05);
+        market.add_participant(MgParticipant {
+            id: 0,
+            name: "Solar".into(),
+            generation_kw: 8.0,
+            consumption_kw: 0.0,
+            bid_price_per_kwh: 0.10,
+            role: ParticipantRole::Producer,
+        });
+        market.add_participant(MgParticipant {
+            id: 1,
+            name: "Home".into(),
+            generation_kw: 0.0,
+            consumption_kw: 5.0,
+            bid_price_per_kwh: 0.18,
+            role: ParticipantRole::Consumer,
+        });
+        let clearing = market.clear_market();
+        let shares = market.surplus_sharing(&clearing);
+        let total_shares: f64 = shares.iter().map(|(_, s)| s).sum();
+        let total_savings = clearing.buyer_savings + clearing.seller_earnings;
+        assert!(
+            (total_shares - total_savings).abs() < 1e-9,
+            "sum of shares ({total_shares:.6}) must equal total savings ({total_savings:.6})"
+        );
+    }
+
+    #[test]
+    fn test_apply_tertiary_setpoint_inserts_and_updates() {
+        let mut ctrl = HierarchicalMgControl::new_standard();
+        let sp1 = EconomicSetpoint {
+            resource_id: 5,
+            p_setpoint_kw: 100.0,
+            q_setpoint_kvar: 20.0,
+            valid_until_min: 15.0,
+        };
+        ctrl.apply_tertiary_setpoint(sp1);
+        assert_eq!(ctrl.tertiary.economic_setpoints.len(), 1, "should insert");
+
+        // Update same resource_id
+        let sp2 = EconomicSetpoint {
+            resource_id: 5,
+            p_setpoint_kw: 200.0,
+            q_setpoint_kvar: 30.0,
+            valid_until_min: 15.0,
+        };
+        ctrl.apply_tertiary_setpoint(sp2);
+        assert_eq!(
+            ctrl.tertiary.economic_setpoints.len(),
+            1,
+            "should not duplicate"
+        );
+        assert!(
+            (ctrl.tertiary.economic_setpoints[0].p_setpoint_kw - 200.0).abs() < 1e-9,
+            "setpoint should be updated to 200 kW"
+        );
+    }
+
+    #[test]
+    fn test_autonomy_estimate_h_with_and_without_diesel() {
+        let mut ctrl = IslandingController::new(0.5, true);
+        ctrl.load_mw = 2.0;
+        ctrl.renewable_mw = 0.0;
+        ctrl.battery_mwh = 4.0;
+        ctrl.non_critical_load_fraction = 0.0;
+        ctrl.diesel_mw_max = 2.0;
+        ctrl.diesel_endurance_h = 8.0;
+
+        let with_diesel = ctrl.autonomy_estimate_h();
+
+        ctrl.diesel_available = false;
+        let without_diesel = ctrl.autonomy_estimate_h();
+
+        assert!(
+            with_diesel > without_diesel,
+            "autonomy with diesel ({with_diesel:.2} h) must exceed without ({without_diesel:.2} h)"
+        );
+    }
+
+    #[test]
+    fn test_step_islanded_transitions_preisland_to_islanded() {
+        let mut ctrl = IslandingController::new(0.8, true);
+        ctrl.load_mw = 1.0;
+        ctrl.renewable_mw = 0.5;
+        ctrl.battery_mwh = 4.0;
+        ctrl.non_critical_load_fraction = 0.3;
+        // Put into PreIsland state
+        ctrl.initiate_islanding().expect("islanding should succeed");
+        assert!(
+            matches!(ctrl.transition_state, TransitionState::PreIsland { .. }),
+            "should be in PreIsland after initiate"
+        );
+        // Step > 5 s → should transition to Islanded
+        ctrl.step_islanded(6.0, 0.5, 1.0);
+        assert!(
+            matches!(ctrl.transition_state, TransitionState::Islanded { .. }),
+            "should transition to Islanded after 6 s preparation"
+        );
+    }
+
+    #[test]
+    fn test_kpi_grid_dependency_and_co2_avoided() {
+        let sched = MgDispatchSchedule {
+            battery_mw: vec![0.0],
+            diesel_mw: vec![0.0],
+            grid_import_mw: vec![1.0], // 1 MW imported
+            grid_export_mw: vec![0.0],
+            soc_trajectory: vec![0.5, 0.5],
+            total_cost: 100.0,
+            total_carbon_g: 0.0,
+            islanding_reserve_mwh: 2.0,
+        };
+        let dashboard = MicrogridKpiDashboard {
+            simulation_hours: 1,
+            schedules: vec![sched],
+            load_mw: vec![2.0],
+            renewable_available_mw: vec![1.0],
+        };
+        // grid_dependency = 1 MW import / 2 MW load = 50 %
+        let dep = dashboard.grid_dependency_pct();
+        assert!(
+            (dep - 50.0).abs() < 1e-6,
+            "expected 50% grid dependency, got {dep}"
+        );
+        // co2_avoided: local_gen = (2.0 - 1.0).max(0) = 1.0 MWh; ×1000 kWh × 300 g/kWh /1000 = 300 kg
+        let co2 = dashboard.co2_avoided_kg(300.0);
+        assert!(
+            (co2 - 300.0).abs() < 1e-6,
+            "expected 300 kg CO2 avoided, got {co2}"
         );
     }
 }

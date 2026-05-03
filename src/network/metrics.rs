@@ -23,7 +23,7 @@ use serde::{Deserialize, Serialize};
 /// An interruption event at a distribution feeder.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct InterruptionEvent {
-    /// Duration of the interruption [minutes]
+    /// Duration of the interruption `minutes`
     pub duration_min: f64,
     /// Number of customers affected
     pub customers_affected: u64,
@@ -75,7 +75,7 @@ impl ReliabilityIndices1366 {
     /// # Arguments
     /// - `events`          — all interruption events during the reporting period
     /// - `total_customers` — total customers served in the system
-    /// - `period_hours`    — reporting period length [hours] (8760 for annual)
+    /// - `period_hours`    — reporting period length `hours` (8760 for annual)
     pub fn compute(events: &[InterruptionEvent], total_customers: u64, period_hours: f64) -> Self {
         let n = total_customers as f64;
         if n < 1.0 || period_hours <= 0.0 {

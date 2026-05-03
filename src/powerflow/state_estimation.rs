@@ -101,7 +101,7 @@ impl Measurement {
 /// DC state estimation result.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct DcSeResult {
-    /// Estimated bus voltage angles θ [rad]
+    /// Estimated bus voltage angles θ `rad`
     pub theta: Vec<f64>,
     /// Measurement residuals z − H·θ
     pub residuals: Vec<f64>,

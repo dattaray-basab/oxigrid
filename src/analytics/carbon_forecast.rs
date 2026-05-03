@@ -266,7 +266,7 @@ impl CarbonIntensityForecaster {
     ///
     /// Formula:
     /// ```text
-    /// CI_avg = Σ_i (dispatch_i [MW] × co2_rate_i [kg/MWh]) / Σ_i dispatch_i [MW]
+    /// CI_avg = Σ_i (dispatch_i `MW` × co2_rate_i [kg/MWh]) / Σ_i dispatch_i `MW`
     /// ```
     ///
     /// # Arguments

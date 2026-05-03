@@ -19,9 +19,9 @@ use serde::{Deserialize, Serialize};
 /// Configuration for one dispatchable generator.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct DieselGen {
-    /// Maximum rated power [kW]
+    /// Maximum rated power `kW`
     pub p_max_kw: f64,
-    /// Minimum stable load [kW]
+    /// Minimum stable load `kW`
     pub p_min_kw: f64,
     /// Fuel cost slope [$/kWh]
     pub fuel_cost: f64,
@@ -54,9 +54,9 @@ impl DieselGen {
 /// Battery storage configuration for the EMS.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct EmsBattery {
-    /// Usable energy capacity [kWh]
+    /// Usable energy capacity `kWh`
     pub capacity_kwh: f64,
-    /// Maximum charge/discharge power [kW]
+    /// Maximum charge/discharge power `kW`
     pub p_max_kw: f64,
     /// Round-trip efficiency (0–1)
     pub eta: f64,
@@ -80,21 +80,21 @@ impl EmsBattery {
         }
     }
 
-    /// Maximum charge power available [kW] (limited by SoC and P_max).
+    /// Maximum charge power available `kW` (limited by SoC and P_max).
     pub fn max_charge_kw(&self, dt_h: f64) -> f64 {
         let energy_room = (self.soc_max - self.soc) * self.capacity_kwh;
         let p_lim = energy_room / (dt_h * self.eta);
         p_lim.min(self.p_max_kw).max(0.0)
     }
 
-    /// Maximum discharge power available [kW].
+    /// Maximum discharge power available `kW`.
     pub fn max_discharge_kw(&self, dt_h: f64) -> f64 {
         let energy_avail = (self.soc - self.soc_min) * self.capacity_kwh;
         let p_lim = energy_avail * self.eta / dt_h;
         p_lim.min(self.p_max_kw).max(0.0)
     }
 
-    /// Apply a charge (+) or discharge (−) action. Returns actual power [kW].
+    /// Apply a charge (+) or discharge (−) action. Returns actual power `kW`.
     pub fn apply(&mut self, p_kw: f64, dt_h: f64) -> f64 {
         if p_kw >= 0.0 {
             // Charging

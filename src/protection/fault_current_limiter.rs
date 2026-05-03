@@ -148,8 +148,8 @@ pub enum FclState {
 /// FCL device model.
 ///
 /// Represents a single FCL installed on a network branch.
-/// Call [`update_state`] each time step during a transient simulation,
-/// then query [`effective_impedance`] to modify branch admittance.
+/// Call [`FaultCurrentLimiter::update_state`] each time step during a transient simulation,
+/// then query [`FaultCurrentLimiter::effective_impedance`] to modify branch admittance.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct FaultCurrentLimiter {
     /// Unique device identifier
@@ -625,7 +625,7 @@ impl FclSizing {
     /// Run the full FCL sizing calculation and return a [`FclSizingResult`].
     ///
     /// # Errors
-    /// Propagates errors from [`compute_required_impedance`].
+    /// Propagates errors from [`FclSizing::compute_required_impedance`].
     pub fn size(&self) -> Result<FclSizingResult> {
         let (r_ohm, x_ohm) = self.compute_required_impedance()?;
 

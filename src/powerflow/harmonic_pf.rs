@@ -336,7 +336,7 @@ pub struct HarmonicLoad {
 
 /// Configuration for harmonic power flow analysis (legacy full-system solver).
 ///
-/// For the new `HarmonicPfProblem`-based API use [`HarmonicPfConfig`] instead.
+/// For the new `HarmonicPfProblem`-based API use `HarmonicPfConfig` instead.
 #[derive(Debug, Clone)]
 pub struct HarmonicPfConfigV1 {
     /// System base MVA.
@@ -406,7 +406,7 @@ pub struct IeeComplianceResult {
 
 /// Complete harmonic power flow result (legacy full-system solver).
 ///
-/// For the new `HarmonicPfProblem`-based API use [`HarmonicPfResult`] instead.
+/// For the new `HarmonicPfProblem`-based API use `HarmonicPfResult` instead.
 #[derive(Debug, Clone)]
 pub struct HarmonicPfResultV1 {
     /// Fundamental voltage magnitudes (pu) per bus.

@@ -6,7 +6,7 @@
 /// # State variables
 /// - E'_q: q-axis transient EMF [p.u.]
 /// - E'_d: d-axis transient EMF [p.u.]
-/// - δ:   rotor angle [rad]
+/// - δ:   rotor angle `rad`
 /// - ω:   rotor speed [p.u.] (1.0 = synchronous)
 ///
 /// # Differential equations
@@ -22,7 +22,7 @@ use serde::{Deserialize, Serialize};
 /// Subtransient generator parameters (4th-order two-axis model).
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct DetailedGenParams {
-    /// Inertia constant H [s]
+    /// Inertia constant H `s`
     pub h: f64,
     /// Damping coefficient D [p.u.]
     pub d: f64,
@@ -34,11 +34,11 @@ pub struct DetailedGenParams {
     pub x_q: f64,
     /// q-axis transient reactance X'_q [p.u.]
     pub x_q_prime: f64,
-    /// d-axis open-circuit transient time constant T'_d0 [s]
+    /// d-axis open-circuit transient time constant T'_d0 `s`
     pub t_d0_prime: f64,
-    /// q-axis open-circuit transient time constant T'_q0 [s]
+    /// q-axis open-circuit transient time constant T'_q0 `s`
     pub t_q0_prime: f64,
-    /// Nominal frequency [Hz]
+    /// Nominal frequency `Hz`
     pub freq_hz: f64,
     /// Ra armature resistance [p.u.]
     pub ra: f64,
@@ -95,13 +95,13 @@ pub struct DetailedGenState {
     pub e_q_prime: f64,
     /// d-axis transient EMF E'_d [p.u.]
     pub e_d_prime: f64,
-    /// Rotor angle δ [rad]
+    /// Rotor angle δ `rad`
     pub delta: f64,
     /// Rotor speed ω [p.u.] (1.0 = synchronous)
     pub omega: f64,
     /// Electrical torque T_e [p.u.]
     pub t_e: f64,
-    /// Simulation time [s]
+    /// Simulation time `s`
     pub time_s: f64,
 }
 
@@ -127,7 +127,7 @@ pub struct DetailedGenerator {
 impl DetailedGenerator {
     /// Create at a given operating point.
     ///
-    /// `delta0` — initial rotor angle [rad]
+    /// `delta0` — initial rotor angle `rad`
     /// `omega0` — initial speed [p.u.], typically 1.0
     /// `e_q0`   — initial q-axis transient EMF [p.u.]
     /// `e_d0`   — initial d-axis transient EMF [p.u.]
@@ -284,7 +284,7 @@ impl DetailedGenerator {
         self.t_m = t_m.max(0.0);
     }
 
-    /// Terminal power factor angle [rad].
+    /// Terminal power factor angle `rad`.
     pub fn power_factor_angle(&self, alg: &GenAlgebraic) -> f64 {
         let p_e = self.state.e_q_prime * alg.i_q;
         let q_e = self.state.e_q_prime * alg.i_d;

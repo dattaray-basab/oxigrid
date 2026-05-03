@@ -39,13 +39,13 @@ pub struct DrResource {
     pub id: usize,
     pub name: String,
     pub resource_type: DrResourceType,
-    /// Baseline load [kW]
+    /// Baseline load `kW`
     pub baseline_kw: f64,
-    /// Maximum curtailable power [kW]
+    /// Maximum curtailable power `kW`
     pub max_curtail_kw: f64,
-    /// Minimum curtail duration [h] per event
+    /// Minimum curtail duration `h` per event
     pub min_event_h: f64,
-    /// Maximum curtail duration [h] per event
+    /// Maximum curtail duration `h` per event
     pub max_event_h: f64,
     /// Maximum events per day
     pub max_events_per_day: usize,
@@ -119,7 +119,7 @@ impl DrResource {
         self.incentive_per_kwh - self.discomfort_per_kwh
     }
 
-    /// Price-responsive load reduction given current price [kW].
+    /// Price-responsive load reduction given current price `kW`.
     pub fn price_response_kw(&self, price_kwh: f64) -> f64 {
         if price_kwh <= self.price_trigger {
             return 0.0;
@@ -137,19 +137,19 @@ impl DrResource {
 pub struct DrEmsPeriod {
     /// Period index
     pub period: usize,
-    /// Renewable generation [kW]
+    /// Renewable generation `kW`
     pub renewable_kw: f64,
-    /// DR curtailment per resource [kW]
+    /// DR curtailment per resource `kW`
     pub dr_curtail_kw: Vec<f64>,
-    /// Total DR reduction [kW]
+    /// Total DR reduction `kW`
     pub total_dr_kw: f64,
-    /// Battery discharge [kW] (net)
+    /// Battery discharge `kW` (net)
     pub battery_net_kw: f64,
-    /// Generator output [kW]
+    /// Generator output `kW`
     pub gen_kw: f64,
-    /// Residual load [kW]
+    /// Residual load `kW`
     pub residual_load_kw: f64,
-    /// Load shedding [kW]
+    /// Load shedding `kW`
     pub load_shed_kw: f64,
     /// Electricity price [$/kWh]
     pub price_kwh: f64,
@@ -164,27 +164,27 @@ pub struct DrEmsPeriod {
 /// Configuration for the DR-EMS optimiser.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct DrEmsConfig {
-    /// Time step [h]
+    /// Time step `h`
     pub dt_h: f64,
     /// Electricity prices [$/kWh] per period
     pub prices: Vec<f64>,
-    /// Baseline load [kW] per period
+    /// Baseline load `kW` per period
     pub load_kw: Vec<f64>,
-    /// Renewable forecast [kW] per period (PV + wind combined)
+    /// Renewable forecast `kW` per period (PV + wind combined)
     pub renewable_kw: Vec<f64>,
-    /// Battery capacity [kWh]
+    /// Battery capacity `kWh`
     pub battery_kwh: f64,
-    /// Battery max power [kW]
+    /// Battery max power `kW`
     pub battery_p_max_kw: f64,
     /// Battery round-trip efficiency
     pub battery_eta: f64,
     /// Battery initial SOC
     pub soc_init: f64,
-    /// Generator max power [kW]
+    /// Generator max power `kW`
     pub gen_p_max_kw: f64,
     /// Generator cost [$/kWh]
     pub gen_cost_kwh: f64,
-    /// Generator min load [kW]
+    /// Generator min load `kW`
     pub gen_p_min_kw: f64,
 }
 
@@ -386,11 +386,11 @@ fn battery_dispatch(
 /// DR event verification: compares actual consumption vs. adjusted baseline.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct DrMvResult {
-    /// Verified load reduction [kWh]
+    /// Verified load reduction `kWh`
     pub verified_reduction_kwh: f64,
-    /// Adjusted baseline [kWh]
+    /// Adjusted baseline `kWh`
     pub baseline_kwh: f64,
-    /// Actual consumption during event [kWh]
+    /// Actual consumption during event `kWh`
     pub actual_kwh: f64,
     /// Performance factor (actual / committed)
     pub performance_factor: f64,
@@ -403,11 +403,11 @@ pub struct DrMvResult {
 /// Verify a DR event using the IPMVP Option A (metered baseline) approach.
 ///
 /// # Arguments
-/// - `baseline` — pre-event average load [kW] per period
-/// - `actual`   — measured consumption during event [kW] per period
-/// - `committed_reduction_kw` — contracted reduction [kW]
+/// - `baseline` — pre-event average load `kW` per period
+/// - `actual`   — measured consumption during event `kW` per period
+/// - `committed_reduction_kw` — contracted reduction `kW`
 /// - `incentive_per_kwh` — payment rate [$/kWh]
-/// - `dt_h` — period duration [h]
+/// - `dt_h` — period duration `h`
 pub fn verify_dr_event(
     baseline: &[f64],
     actual: &[f64],

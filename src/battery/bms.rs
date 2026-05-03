@@ -21,13 +21,13 @@ use serde::{Deserialize, Serialize};
 /// BMS protection thresholds for a single cell type.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct BmsThresholds {
-    /// Over-voltage trip level [V]
+    /// Over-voltage trip level `V`
     pub ov_trip_v: f64,
-    /// Over-voltage release level [V] (hysteresis)
+    /// Over-voltage release level `V` (hysteresis)
     pub ov_release_v: f64,
-    /// Under-voltage trip level [V]
+    /// Under-voltage trip level `V`
     pub uv_trip_v: f64,
-    /// Under-voltage release level [V]
+    /// Under-voltage release level `V`
     pub uv_release_v: f64,
     /// Over-temperature trip [°C]
     pub ot_trip_c: f64,
@@ -35,11 +35,11 @@ pub struct BmsThresholds {
     pub ot_release_c: f64,
     /// Under-temperature (charge inhibit) [°C]
     pub ut_charge_inhibit_c: f64,
-    /// Over-current (discharge) trip [A]
+    /// Over-current (discharge) trip `A`
     pub oc_discharge_trip_a: f64,
-    /// Over-current (charge) trip [A]
+    /// Over-current (charge) trip `A`
     pub oc_charge_trip_a: f64,
-    /// Short-circuit detection threshold [A] (instantaneous)
+    /// Short-circuit detection threshold `A` (instantaneous)
     pub sc_trip_a: f64,
 }
 
@@ -195,17 +195,17 @@ pub struct BmsEvaluation {
     pub mode: BmsMode,
     pub faults: FaultFlags,
     pub command: BmsCommand,
-    /// Recommended charge current limit [A] (after derating)
+    /// Recommended charge current limit `A` (after derating)
     pub charge_current_limit_a: f64,
-    /// Recommended discharge current limit [A]
+    /// Recommended discharge current limit `A`
     pub discharge_current_limit_a: f64,
-    /// Min cell voltage seen [V]
+    /// Min cell voltage seen `V`
     pub v_min: f64,
-    /// Max cell voltage seen [V]
+    /// Max cell voltage seen `V`
     pub v_max: f64,
     /// Max cell temperature [°C]
     pub t_max: f64,
-    /// Cell imbalance (Vmax - Vmin) [mV]
+    /// Cell imbalance (Vmax - Vmin) `mV`
     pub imbalance_mv: f64,
 }
 
@@ -354,9 +354,9 @@ pub struct BalancingDecision {
     pub cell_id: usize,
     /// Enable shunt resistor bypass for this cell
     pub shunt_enable: bool,
-    /// Estimated balancing current [A] (through shunt)
+    /// Estimated balancing current `A` (through shunt)
     pub balance_current_a: f64,
-    /// Energy dissipated in shunt [W] (heat)
+    /// Energy dissipated in shunt `W` (heat)
     pub shunt_power_w: f64,
 }
 
@@ -368,8 +368,8 @@ pub struct BalancingDecision {
 ///
 /// # Arguments
 /// - `cell_voltages` — slice of (cell_id, voltage_v) pairs
-/// - `threshold_mv`  — minimum imbalance to trigger balancing [mV]
-/// - `shunt_r_ohm`   — bypass shunt resistance [Ω]
+/// - `threshold_mv`  — minimum imbalance to trigger balancing `mV`
+/// - `shunt_r_ohm`   — bypass shunt resistance `Ω`
 pub fn passive_balance(
     cell_voltages: &[(usize, f64)],
     threshold_mv: f64,
@@ -437,8 +437,8 @@ pub fn active_balance_pairs(
 /// SoH_capacity = Q_measured / Q_nominal × 100%
 ///
 /// # Arguments
-/// - `q_measured_ah` — measured capacity during full charge/discharge [Ah]
-/// - `q_nominal_ah`  — original rated capacity [Ah]
+/// - `q_measured_ah` — measured capacity during full charge/discharge `Ah`
+/// - `q_nominal_ah`  — original rated capacity `Ah`
 pub fn soh_capacity(q_measured_ah: f64, q_nominal_ah: f64) -> f64 {
     if q_nominal_ah <= 0.0 {
         return 0.0;
@@ -453,9 +453,9 @@ pub fn soh_capacity(q_measured_ah: f64, q_nominal_ah: f64) -> f64 {
 /// where R_EOL is the resistance at end-of-life (typically 2× BOL).
 ///
 /// # Arguments
-/// - `r_now_ohm`  — current DC internal resistance [Ω]
-/// - `r_bol_ohm`  — beginning-of-life resistance [Ω]
-/// - `r_eol_ohm`  — end-of-life resistance threshold [Ω]
+/// - `r_now_ohm`  — current DC internal resistance `Ω`
+/// - `r_bol_ohm`  — beginning-of-life resistance `Ω`
+/// - `r_eol_ohm`  — end-of-life resistance threshold `Ω`
 pub fn soh_resistance(r_now_ohm: f64, r_bol_ohm: f64, r_eol_ohm: f64) -> f64 {
     if (r_eol_ohm - r_bol_ohm).abs() < 1e-12 {
         return 100.0;
@@ -498,15 +498,15 @@ pub fn remaining_useful_life_cycles(
 /// Pre-charge state for capacitive load soft-start.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct PrechargeState {
-    /// Time elapsed in pre-charge [s]
+    /// Time elapsed in pre-charge `s`
     pub elapsed_s: f64,
-    /// Target bus voltage [V]
+    /// Target bus voltage `V`
     pub v_target: f64,
-    /// Current bus voltage [V]
+    /// Current bus voltage `V`
     pub v_bus: f64,
-    /// Pre-charge resistance [Ω]
+    /// Pre-charge resistance `Ω`
     pub r_precharge_ohm: f64,
-    /// Bus capacitance [F]
+    /// Bus capacitance `F`
     pub c_bus_f: f64,
     /// Completion threshold: fraction of v_target (e.g. 0.95)
     pub completion_threshold: f64,
@@ -523,7 +523,7 @@ impl PrechargeState {
         self.v_bus >= self.v_target * self.completion_threshold
     }
 
-    /// Pre-charge inrush current [A] at current v_bus.
+    /// Pre-charge inrush current `A` at current v_bus.
     pub fn inrush_current_a(&self) -> f64 {
         (self.v_target - self.v_bus) / self.r_precharge_ohm
     }

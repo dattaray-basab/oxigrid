@@ -5,7 +5,7 @@
 ///   SoC(k+1) = SoC(k) − I·Δt / (3600·Q_n·η)
 ///
 /// # Extended Kalman Filter (EKF)
-/// State: x = [SoC]
+/// State: x = `SoC`
 /// Process model (Rint):
 ///   SoC(k+1) = SoC(k) − I·Δt / (3600·Q_n)
 /// Measurement model:
@@ -54,9 +54,9 @@ impl CoulombCounter {
 
 /// Single-state EKF for SoC estimation using a Rint battery model.
 ///
-/// State vector x = [SoC]  (scalar)
-/// Input u = current [A]
-/// Measurement z = terminal voltage [V]
+/// State vector x = `SoC`  (scalar)
+/// Input u = current `A`
+/// Measurement z = terminal voltage `V`
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct EkfSocEstimator {
     pub ocv_curve: OcvSocCurve,

@@ -14,7 +14,7 @@ const RHO_STD: f64 = 1.225; // Standard air density [kg/m³] at 15°C, sea level
 pub struct TurbineState {
     /// Hub-height wind speed [m/s]
     pub wind_speed: f64,
-    /// Electrical power output [kW]
+    /// Electrical power output `kW`
     pub power_kw: f64,
     /// Power coefficient Cp (≤ 0.593 Betz limit)
     pub cp: f64,
@@ -25,11 +25,11 @@ pub struct TurbineState {
 /// Wind turbine specification and power model.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct WindTurbine {
-    /// Rated power [kW]
+    /// Rated power `kW`
     pub rated_power_kw: f64,
-    /// Rotor diameter [m]
+    /// Rotor diameter `m`
     pub rotor_diameter_m: f64,
-    /// Hub height [m]
+    /// Hub height `m`
     pub hub_height_m: f64,
     /// Cut-in wind speed [m/s]
     pub v_cut_in: f64,
@@ -68,7 +68,7 @@ impl WindTurbine {
         }
     }
 
-    /// Rotor swept area [m²].
+    /// Rotor swept area `m²`.
     pub fn rotor_area(&self) -> f64 {
         std::f64::consts::PI * (self.rotor_diameter_m / 2.0).powi(2)
     }
@@ -153,10 +153,10 @@ pub fn air_density(altitude_m: f64, temp_celsius: f64) -> f64 {
 
 /// Wind speed at hub height using logarithmic wind profile.
 ///
-/// - `v_ref`      — reference wind speed [m/s] at `z_ref` [m]
-/// - `z_hub`      — hub height [m]
-/// - `z_ref`      — reference height [m] (typically 10 m met mast)
-/// - `z_roughness`— surface roughness length [m] (0.03 = open farmland)
+/// - `v_ref`      — reference wind speed [m/s] at `z_ref` `m`
+/// - `z_hub`      — hub height `m`
+/// - `z_ref`      — reference height `m` (typically 10 m met mast)
+/// - `z_roughness`— surface roughness length `m` (0.03 = open farmland)
 pub fn log_wind_profile(v_ref: f64, z_ref: f64, z_hub: f64, z_roughness: f64) -> f64 {
     let z0 = z_roughness.max(1e-3);
     v_ref * (z_hub / z0).ln() / (z_ref / z0).ln()

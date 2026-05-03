@@ -12,13 +12,13 @@ use serde::{Deserialize, Serialize};
 /// Inverter parameters for the CEC/Sandia model.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct InverterParams {
-    /// Rated AC output power [W] at reference conditions
+    /// Rated AC output power `W` at reference conditions
     pub p_ac_rated: f64,
-    /// DC input power at which efficiency is rated [W]
+    /// DC input power at which efficiency is rated `W`
     pub p_dc_rated: f64,
-    /// Reference DC voltage [V]
+    /// Reference DC voltage `V`
     pub v_dc_ref: f64,
-    /// Self-consumption / minimum operating power [W]
+    /// Self-consumption / minimum operating power `W`
     pub p_self: f64,
     /// Efficiency curve coefficient: quadratic term for power deviation
     pub c0: f64,
@@ -61,7 +61,7 @@ impl InverterParams {
         }
     }
 
-    /// Compute AC output power [W] for given DC input.
+    /// Compute AC output power `W` for given DC input.
     ///
     /// Returns 0.0 if `p_dc` is below the self-consumption threshold.
     pub fn ac_power(&self, p_dc: f64, v_dc: f64) -> f64 {
@@ -125,7 +125,7 @@ impl InverterParams {
 
 /// Simulate an inverter over a time series of DC power values.
 ///
-/// Returns AC power output at each timestep [W].
+/// Returns AC power output at each timestep `W`.
 pub fn simulate_inverter(params: &InverterParams, p_dc_series: &[f64], v_dc: f64) -> Vec<f64> {
     p_dc_series
         .iter()
@@ -133,7 +133,7 @@ pub fn simulate_inverter(params: &InverterParams, p_dc_series: &[f64], v_dc: f64
         .collect()
 }
 
-/// Compute daily energy yield [Wh] from DC power series.
+/// Compute daily energy yield `Wh` from DC power series.
 ///
 /// `dt_h` is the time step in hours.
 pub fn daily_yield_wh(params: &InverterParams, p_dc_series: &[f64], v_dc: f64, dt_h: f64) -> f64 {

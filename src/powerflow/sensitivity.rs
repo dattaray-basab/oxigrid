@@ -78,7 +78,7 @@ impl LodfMatrix {
 
     /// Post-contingency flow on branch `l` [p.u.] given base flows.
     ///
-    /// Post flow = base_flow[l] + LODF[l,k] * base_flow[k]
+    /// Post flow = `base_flow[l]` + `LODF[l,k]` * `base_flow[k]`
     pub fn post_contingency_flow(
         &self,
         base_flows: &[f64],

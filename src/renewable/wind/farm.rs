@@ -11,7 +11,7 @@ use serde::{Deserialize, Serialize};
 pub struct WindFarm {
     /// Turbines in this farm (all assumed identical)
     pub turbine: WindTurbine,
-    /// Hub positions in Cartesian coordinates [m]
+    /// Hub positions in Cartesian coordinates `m`
     pub positions: Vec<TurbinePosition>,
     /// Thrust coefficient at rated operating point
     pub ct_rated: f64,
@@ -24,9 +24,9 @@ pub struct WindFarm {
 pub struct FarmState {
     /// Wind speed at each turbine after wake interactions [m/s]
     pub hub_speeds: Vec<f64>,
-    /// Power at each turbine [kW]
+    /// Power at each turbine `kW`
     pub turbine_powers_kw: Vec<f64>,
-    /// Total farm power [kW]
+    /// Total farm power `kW`
     pub total_power_kw: f64,
     /// Wake loss fraction (0 = no losses)
     pub wake_loss_fraction: f64,
@@ -69,7 +69,7 @@ impl WindFarm {
         self.positions.len()
     }
 
-    /// Total installed capacity [kW].
+    /// Total installed capacity `kW`.
     pub fn rated_power_kw(&self) -> f64 {
         self.turbine.rated_power_kw * self.n_turbines() as f64
     }

@@ -582,7 +582,7 @@ impl DistanceZoneSettings {
         }
 
         let mut sorted_zones = self.zones.clone();
-        sorted_zones.sort_by(|a, b| a.zone_number.cmp(&b.zone_number));
+        sorted_zones.sort_by_key(|a| a.zone_number);
 
         for zone in &sorted_zones {
             let reach_z = (zone.reach_pct / 100.0) * z_line_mag;

@@ -63,7 +63,7 @@ pub struct ThermalRunawayConfig {
     pub t_runaway_c: f64,
     /// Maximum safe dT/dt [°C/s]
     pub dt_dt_max: f64,
-    /// Thermal runaway heat release [J] (determines propagation energy)
+    /// Thermal runaway heat release `J` (determines propagation energy)
     pub runaway_energy_j: f64,
     /// Cell thermal mass [J/K]
     pub thermal_mass_jk: f64,
@@ -122,9 +122,9 @@ pub struct CellSafetyState {
     pub dt_dt: f64,
     /// Runaway state
     pub state: CellState,
-    /// Energy released (during runaway) [J]
+    /// Energy released (during runaway) `J`
     pub energy_released_j: f64,
-    /// Time since onset of runaway [s] (0 if not in runaway)
+    /// Time since onset of runaway `s` (0 if not in runaway)
     pub runaway_time_s: f64,
 }
 
@@ -224,9 +224,9 @@ impl ThermalRunawayMonitor {
 
     /// Update the monitor by one time step.
     ///
-    /// - `heat_gen_w`: external heat generation per cell [W]
+    /// - `heat_gen_w`: external heat generation per cell `W`
     /// - `t_ambient_c`: ambient temperature [°C]
-    /// - `dt`: time step [s]
+    /// - `dt`: time step `s`
     pub fn step(&mut self, heat_gen_w: &[f64], t_ambient_c: f64, dt: f64) {
         let n = self.cells.len();
         let mut new_temps = vec![0.0f64; n];
@@ -386,9 +386,9 @@ impl EarlyWarningIndex {
     /// - `t_current_c`  — current cell temperature [°C]
     /// - `t_baseline_c` — expected temperature [°C]
     /// - `dt_dt`        — temperature rate [°C/s]
-    /// - `v_anom_v`     — voltage anomaly (|V_measured - V_expected|) [V]
+    /// - `v_anom_v`     — voltage anomaly (|V_measured - V_expected|) `V`
     /// - `r_increase`   — relative resistance increase (R/R0 - 1) [0,∞)
-    /// - `soc`          — state of charge [0,1]
+    /// - `soc`          — state of charge `0,1`
     pub fn compute(
         &self,
         t_current_c: f64,
@@ -439,11 +439,11 @@ impl EarlyWarningIndex {
 /// The fault is detected by monitoring the isolation resistance R_iso ≥ R_min.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct IsolationMonitor {
-    /// Minimum acceptable isolation resistance [Ω]
+    /// Minimum acceptable isolation resistance `Ω`
     pub r_iso_min: f64,
-    /// Current isolation resistance estimate [Ω]
+    /// Current isolation resistance estimate `Ω`
     pub r_iso: f64,
-    /// Pack voltage [V] (for leakage current calculation)
+    /// Pack voltage `V` (for leakage current calculation)
     pub v_pack: f64,
 }
 
@@ -456,7 +456,7 @@ impl IsolationMonitor {
         }
     }
 
-    /// Leakage current to chassis [A].
+    /// Leakage current to chassis `A`.
     pub fn leakage_current_a(&self) -> f64 {
         if self.r_iso < 1.0 {
             return self.v_pack;

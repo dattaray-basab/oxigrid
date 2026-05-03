@@ -11,11 +11,11 @@ use serde::{Deserialize, Serialize};
 /// Battery parameters for arbitrage optimisation.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ArbitrageBattery {
-    /// Energy capacity [kWh]
+    /// Energy capacity `kWh`
     pub capacity_kwh: f64,
-    /// Maximum charge power [kW]
+    /// Maximum charge power `kW`
     pub p_charge_max_kw: f64,
-    /// Maximum discharge power [kW]
+    /// Maximum discharge power `kW`
     pub p_discharge_max_kw: f64,
     /// Round-trip efficiency (0–1)
     pub efficiency_rt: f64,
@@ -55,7 +55,7 @@ impl ArbitrageBattery {
 /// Schedule for one interval.
 #[derive(Debug, Clone, Copy, Serialize, Deserialize)]
 pub struct DispatchInterval {
-    /// Power [kW]: positive = charge, negative = discharge
+    /// Power `kW`: positive = charge, negative = discharge
     pub power_kw: f64,
     /// SoC at end of interval (0–1)
     pub soc_end: f64,
@@ -70,9 +70,9 @@ pub struct ArbitrageResult {
     pub schedule: Vec<DispatchInterval>,
     /// Total profit [currency units]
     pub total_profit: f64,
-    /// Total energy charged [kWh]
+    /// Total energy charged `kWh`
     pub energy_charged_kwh: f64,
-    /// Total energy discharged [kWh]
+    /// Total energy discharged `kWh`
     pub energy_discharged_kwh: f64,
     /// Number of equivalent full cycles
     pub cycles: f64,
@@ -83,7 +83,7 @@ pub struct ArbitrageResult {
 /// # Arguments
 /// - `battery`  — battery specification
 /// - `prices`   — electricity prices for each interval [$/kWh]
-/// - `dt_h`     — time step duration [hours]
+/// - `dt_h`     — time step duration `hours`
 ///
 /// # Algorithm
 /// Greedy: rank intervals by price; charge at cheapest N intervals,

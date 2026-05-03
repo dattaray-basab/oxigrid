@@ -28,7 +28,7 @@ impl CsvColumn {
 
 /// Write a single time-series to a CSV string.
 ///
-/// Output: "time_s,<name>\n{t},{v}\n..."
+/// Output: "time_s,`<name>`\n{t},{v}\n..."
 pub fn time_series_to_csv(name: &str, times: &[f64], values: &[f64]) -> String {
     let mut out = String::new();
     let _ = writeln!(out, "time_s,{name}");

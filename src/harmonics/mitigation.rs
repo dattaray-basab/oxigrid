@@ -25,7 +25,7 @@ use crate::error::OxiGridError;
 
 // ─── Base frequency ────────────────────────────────────────────────────────
 
-/// Default power-system fundamental frequency [Hz].
+/// Default power-system fundamental frequency `Hz`.
 const F1: f64 = 60.0;
 
 /// Default quality factor for single-tuned filters (X_L / R).
@@ -181,23 +181,23 @@ pub struct PassiveFilterDesigner {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct PassiveFilterParameters {
     pub filter_type: PassiveFilterType,
-    /// Inductance per phase [H].
+    /// Inductance per phase `H`.
     pub l_henry: f64,
-    /// Capacitance per phase [F].
+    /// Capacitance per phase `F`.
     pub c_farad: f64,
-    /// Series resistance per phase [Ω] (damping).
+    /// Series resistance per phase `Ω` (damping).
     pub r_ohm: f64,
-    /// Rated current [A].
+    /// Rated current `A`.
     pub rated_current_a: f64,
-    /// Reactive power at fundamental [MVAr] (capacitive, positive).
+    /// Reactive power at fundamental `MVAr` (capacitive, positive).
     pub reactive_power_mvar: f64,
-    /// Tuned frequency [Hz].
+    /// Tuned frequency `Hz`.
     pub tuned_frequency_hz: f64,
     /// Quality factor Q = ω_n·L / R.
     pub quality_factor: f64,
-    /// Insertion loss at tuned frequency [dB].
+    /// Insertion loss at tuned frequency `dB`.
     pub insertion_loss_db: f64,
-    /// 3 dB bandwidth [Hz].
+    /// 3 dB bandwidth `Hz`.
     pub bandwidth_hz: f64,
 }
 
@@ -224,13 +224,13 @@ impl PassiveFilterDesigner {
         self.system_voltage_kv * 1_000.0
     }
 
-    /// Base impedance [Ω] = V_LL² / (base_mva × 1e6).
+    /// Base impedance `Ω` = V_LL² / (base_mva × 1e6).
     fn z_base_ohm(&self) -> f64 {
         let v = self.v_ll_v();
         v * v / (self.base_mva * 1e6)
     }
 
-    /// Source impedance [Ω] from per-unit value.
+    /// Source impedance `Ω` from per-unit value.
     fn z_source_ohm(&self) -> f64 {
         self.source_impedance_pu * self.z_base_ohm()
     }
@@ -244,9 +244,9 @@ impl PassiveFilterDesigner {
     ///
     /// # Derivation
     /// ```text
-    /// C = Q / (V_LL² · ω₁)           [F]
-    /// L = 1 / (C · (h_n · ω₁)²)     [H]
-    /// R = (h_n · ω₁ · L) / Q_factor  [Ω]
+    /// C = Q / (V_LL² · ω₁)           `F`
+    /// L = 1 / (C · (h_n · ω₁)²)     `H`
+    /// R = (h_n · ω₁ · L) / Q_factor  `Ω`
     /// ```
     pub fn design_single_tuned(
         &self,
@@ -398,13 +398,13 @@ impl PassiveFilterDesigner {
         })
     }
 
-    /// Compute harmonic attenuation [dB] provided by the shunt filter at a given order.
+    /// Compute harmonic attenuation `dB` provided by the shunt filter at a given order.
     ///
     /// A shunt filter attenuates the harmonic bus voltage by providing a low-impedance
     /// path to ground.  The bus voltage reduction ratio is:
     /// ```text
     /// V_h_after / V_h_before = Z_filter(h) / (Z_source + Z_filter(h))
-    /// Attenuation [dB] = 20·log10(|Z_filter(h)| / |Z_source + Z_filter(h)|)
+    /// Attenuation `dB` = 20·log10(|Z_filter(h)| / |Z_source + Z_filter(h)|)
     /// ```
     /// At resonance Z_filter ≈ R → ratio ≈ 0 → large negative dB (strong attenuation).
     /// Far from resonance Z_filter >> Z_source → ratio ≈ 1 → 0 dB (no attenuation).
@@ -707,7 +707,7 @@ pub struct MitigationOption {
     pub achieved_thd_v_pct: f64,
     pub achieved_thd_i_pct: f64,
     pub meets_ieee519: bool,
-    /// Net capacitive reactive power benefit [MVAr].
+    /// Net capacitive reactive power benefit `MVAr`.
     pub reactive_power_benefit_mvar: f64,
     /// Installation complexity on a 1–5 scale.
     pub installation_complexity: f64,
@@ -952,7 +952,7 @@ pub struct HarmonicsMitigator {
 pub struct HarmonicSource {
     /// Network bus identifier.
     pub bus_id: usize,
-    /// Harmonic current spectrum: (harmonic_order, magnitude [pu]).
+    /// Harmonic current spectrum: (harmonic_order, magnitude `pu`).
     pub harmonic_currents: Vec<(u32, f64)>,
     /// Descriptive type string (e.g. "VFD", "rectifier", "arc furnace").
     pub source_type: String,
@@ -961,13 +961,13 @@ pub struct HarmonicSource {
 /// Configuration parameters for the harmonic mitigation study.
 #[derive(Debug, Clone)]
 pub struct MitigationConfig {
-    /// Nominal system voltage [kV].
+    /// Nominal system voltage `kV`.
     pub system_voltage_kv: f64,
     /// System base MVA.
     pub base_mva: f64,
     /// Target total harmonic distortion [%] (IEEE 519 default: 5 %).
     pub target_thd_pct: f64,
-    /// Per-harmonic voltage limits: (order, max [pu]).
+    /// Per-harmonic voltage limits: (order, max `pu`).
     pub harmonic_limits: Vec<(u32, f64)>,
     /// Harmonic order range over which to scan for parallel resonances.
     pub resonance_scan_range: (u32, u32),

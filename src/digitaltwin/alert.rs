@@ -338,7 +338,7 @@ impl AlertEngine {
     /// Return active alerts sorted descending by severity (Emergency first).
     pub fn active_by_severity(&self) -> Vec<&TwinAlert> {
         let mut refs: Vec<&TwinAlert> = self.active_alerts.iter().collect();
-        refs.sort_by(|a, b| b.severity.cmp(&a.severity));
+        refs.sort_by_key(|b| std::cmp::Reverse(b.severity));
         refs
     }
 

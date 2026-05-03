@@ -9,6 +9,7 @@
 //! | 2RC   | [`TwoRcModel`] | OCV(SoC), R₀, R₁, C₁, R₂, C₂ |
 //!
 //! All models support temperature-dependent R₀ and capacity derating.
+mod lbfgs;
 pub mod parameter;
 pub mod parameter_id;
 pub mod rc;

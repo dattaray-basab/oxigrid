@@ -16,7 +16,7 @@
 //!
 //! # Units
 //! - Power: MW / MVAr
-//! - Voltage: per-unit [pu]
+//! - Voltage: per-unit `pu`
 //! - Cost: USD
 
 use serde::{Deserialize, Serialize};
@@ -76,19 +76,19 @@ pub struct ReactivePowerSource {
     pub bus_id: usize,
     /// Technology type of this reactive source.
     pub source_type: ReactiveSource,
-    /// Minimum reactive power output [MVAr] (negative = absorption).
+    /// Minimum reactive power output `MVAr` (negative = absorption).
     pub q_min_mvar: f64,
-    /// Maximum reactive power output [MVAr].
+    /// Maximum reactive power output `MVAr`.
     pub q_max_mvar: f64,
-    /// Current reactive power setpoint [MVAr].
+    /// Current reactive power setpoint `MVAr`.
     pub q_current_mvar: f64,
     /// Operating cost [USD/MVArh].
     pub cost_usd_per_mvarh: f64,
-    /// Response time [s] — for scheduling priority.
+    /// Response time `s` — for scheduling priority.
     pub response_time_s: f64,
     /// True if device operates in discrete steps (e.g., capacitor bank).
     pub discrete: bool,
-    /// Step size [MVAr] for discrete devices; ignored if `discrete = false`.
+    /// Step size `MVAr` for discrete devices; ignored if `discrete = false`.
     pub step_size_mvar: f64,
 }
 
@@ -113,24 +113,24 @@ impl ReactivePowerSource {
 pub struct LossMinBusData {
     /// Bus index.
     pub id: usize,
-    /// Current bus voltage magnitude [pu].
+    /// Current bus voltage magnitude `pu`.
     pub v_pu: f64,
-    /// Active load at this bus [MW].
+    /// Active load at this bus `MW`.
     pub p_load_mw: f64,
-    /// Reactive load at this bus [MVAr].
+    /// Reactive load at this bus `MVAr`.
     pub q_load_mvar: f64,
-    /// Active generation at this bus [MW].
+    /// Active generation at this bus `MW`.
     pub p_gen_mw: f64,
-    /// Reactive generation at this bus [MVAr].
+    /// Reactive generation at this bus `MVAr`.
     pub q_gen_mvar: f64,
-    /// Minimum generator reactive output [MVAr].
+    /// Minimum generator reactive output `MVAr`.
     pub q_min_mvar: f64,
-    /// Maximum generator reactive output [MVAr].
+    /// Maximum generator reactive output `MVAr`.
     pub q_max_mvar: f64,
 }
 
 impl LossMinBusData {
-    /// Net reactive injection at this bus [MVAr] = q_gen - q_load.
+    /// Net reactive injection at this bus `MVAr` = q_gen - q_load.
     pub fn q_net_mvar(&self) -> f64 {
         self.q_gen_mvar - self.q_load_mvar
     }
@@ -145,20 +145,20 @@ pub struct LossMinBranchData {
     pub from_bus: usize,
     /// Receiving-end bus index.
     pub to_bus: usize,
-    /// Series resistance [pu].
+    /// Series resistance `pu`.
     pub r_pu: f64,
-    /// Series reactance [pu].
+    /// Series reactance `pu`.
     pub x_pu: f64,
-    /// Thermal rating [MVA].
+    /// Thermal rating `MVA`.
     pub rating_mva: f64,
-    /// Active power flow (from→to) [MW].
+    /// Active power flow (from→to) `MW`.
     pub p_flow_mw: f64,
-    /// Reactive power flow (from→to) [MVAr].
+    /// Reactive power flow (from→to) `MVAr`.
     pub q_flow_mvar: f64,
 }
 
 impl LossMinBranchData {
-    /// Active power loss on this branch [MW].
+    /// Active power loss on this branch `MW`.
     ///
     /// Uses: `P_loss = (P² + Q²) / V² * R`  with V evaluated at from_bus.
     pub fn compute_loss(&self, v_from_pu: f64) -> f64 {
@@ -175,17 +175,17 @@ impl LossMinBranchData {
 pub struct LossReductionResult {
     /// Optimal reactive dispatch: `(source_id, q_setpoint_mvar)` pairs.
     pub q_dispatch: Vec<(usize, f64)>,
-    /// Total system active power losses before optimization [MW].
+    /// Total system active power losses before optimization `MW`.
     pub total_losses_mw_before: f64,
-    /// Total system active power losses after optimization [MW].
+    /// Total system active power losses after optimization `MW`.
     pub total_losses_mw_after: f64,
-    /// Absolute loss reduction [MW].
+    /// Absolute loss reduction `MW`.
     pub loss_reduction_mw: f64,
     /// Relative loss reduction [%].
     pub loss_reduction_pct: f64,
-    /// Voltage deviation before optimization: Σ |V_i − 1.0|² [pu²].
+    /// Voltage deviation before optimization: Σ |V_i − 1.0|² `pu²`.
     pub voltage_deviation_before: f64,
-    /// Voltage deviation after optimization: Σ |V_i − 1.0|² [pu²].
+    /// Voltage deviation after optimization: Σ |V_i − 1.0|² `pu²`.
     pub voltage_deviation_after: f64,
     /// Reactive compensation operating cost [USD/h].
     pub reactive_compensation_cost_usd: f64,
@@ -216,7 +216,7 @@ pub struct LossMinimizationProblem {
     pub reactive_sources: Vec<ReactivePowerSource>,
     /// Selected optimization algorithm.
     pub method: LossMinimizationMethod,
-    /// System MVA base [MVA].
+    /// System MVA base `MVA`.
     pub base_mva: f64,
     /// Energy price used for economic evaluation [USD/MWh].
     pub energy_price_usd_per_mwh: f64,
@@ -224,7 +224,7 @@ pub struct LossMinimizationProblem {
     pub operating_hours_per_year: f64,
     /// Maximum number of outer iterations.
     pub max_iterations: usize,
-    /// Convergence criterion on loss change between iterations [MW].
+    /// Convergence criterion on loss change between iterations `MW`.
     pub convergence_tolerance_mw: f64,
 }
 
@@ -248,7 +248,7 @@ impl LossMinimizationProblem {
         }
     }
 
-    /// Compute total active power losses [MW].
+    /// Compute total active power losses `MW`.
     ///
     /// `P_loss = Σ_branches (P² + Q²) / V_from² * R`
     pub fn compute_losses(&self) -> f64 {
@@ -261,7 +261,7 @@ impl LossMinimizationProblem {
             .sum()
     }
 
-    /// Compute total voltage deviation [pu²]: `Σ_i |V_i − 1.0|²`.
+    /// Compute total voltage deviation `pu²`: `Σ_i |V_i − 1.0|²`.
     pub fn compute_voltage_deviation(&self) -> f64 {
         self.buses
             .iter()
@@ -500,13 +500,14 @@ impl LossMinimizationProblem {
     ///
     /// `≈ R_branch * Q_flow / V_from²`
     ///
-    /// Returns 0 if the bus is not electrically adjacent to the branch.
+    /// Returns 0 if the bus is not electrically adjacent to the branch, or if
+    /// `branch_idx` is out of range.
     #[allow(non_snake_case)]
-    pub fn compute_flow_sensitivity_dP_dQ(branch_idx: usize, bus_idx: usize) -> f64 {
-        // Static version for external use without branch data — returns placeholder.
-        // The actual computation is done in the internal static helper.
-        let _ = (branch_idx, bus_idx);
-        0.0
+    pub fn compute_flow_sensitivity_dP_dQ(&self, branch_idx: usize, bus_idx: usize) -> f64 {
+        match self.branches.get(branch_idx) {
+            Some(br) => Self::compute_flow_sensitivity_dP_dQ_static(branch_idx, bus_idx, br),
+            None => 0.0,
+        }
     }
 
     // ── private helpers ──────────────────────────────────────────────────────
@@ -1006,5 +1007,39 @@ mod tests {
         prob.method = LossMinimizationMethod::SwarmOptimization;
         let result = prob.solve();
         assert!(result.total_losses_mw_after >= 0.0);
+    }
+
+    // ── 23. flow sensitivity returns non-zero for adjacent bus ───────────
+    #[test]
+    fn test_flow_sensitivity_returns_nonzero_for_adjacent_bus() {
+        // One branch: from bus 0, to bus 1, r_pu = 0.1, q_flow_mvar = 10.0.
+        // helper returns: r_pu * q_flow_mvar / v2 = 0.1 * 10.0 / 1.0 = 1.0
+        let buses = vec![make_bus(0, 1.0, 0.0), make_bus(1, 1.0, 0.0)];
+        let branches = vec![make_branch(0, 0, 1, 0.1, 5.0, 10.0)];
+        let solver = LossMinimizationProblem::new(buses, branches, vec![]);
+
+        // Adjacent bus (from_bus = 0): should return r_pu * q_flow / 1.0 = 1.0
+        let sens_adjacent = solver.compute_flow_sensitivity_dP_dQ(0, 0);
+        assert!(
+            (sens_adjacent - 1.0).abs() < 1e-9,
+            "expected 1.0 for adjacent bus 0, got {}",
+            sens_adjacent
+        );
+
+        // Non-adjacent bus (bus 99 not in branch): should return 0.0
+        let sens_nonadjacent = solver.compute_flow_sensitivity_dP_dQ(0, 99);
+        assert!(
+            sens_nonadjacent.abs() < 1e-12,
+            "expected 0.0 for non-adjacent bus 99, got {}",
+            sens_nonadjacent
+        );
+
+        // Out-of-range branch index: should return 0.0
+        let sens_oob = solver.compute_flow_sensitivity_dP_dQ(99, 0);
+        assert!(
+            sens_oob.abs() < 1e-12,
+            "expected 0.0 for out-of-bounds branch 99, got {}",
+            sens_oob
+        );
     }
 }

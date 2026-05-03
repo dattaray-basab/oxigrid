@@ -31,11 +31,11 @@ use serde::{Deserialize, Serialize};
 pub struct FlickermeterConfig {
     /// Nominal voltage [V rms]
     pub v_nominal: f64,
-    /// Nominal frequency [Hz]
+    /// Nominal frequency `Hz`
     pub f_nominal: f64,
-    /// Sample rate [Hz]
+    /// Sample rate `Hz`
     pub fs: f64,
-    /// Short-term window length [s] (IEC: 600 s)
+    /// Short-term window length `s` (IEC: 600 s)
     pub t_short_s: f64,
     /// Number of P_st values used for P_lt (IEC: 12 for 2h)
     pub n_pst_for_plt: usize,
@@ -72,7 +72,7 @@ pub struct PstResult {
     pub p_st: f64,
     /// Percentile values used: P0.1, P1, P3, P10, P50
     pub p_levels: [f64; 5],
-    /// Duration of observation [s]
+    /// Duration of observation `s`
     pub duration_s: f64,
     /// Compliant with IEC 61000-3-3? (P_st ≤ 1.0)
     pub iec_compliant: bool,
@@ -173,7 +173,7 @@ struct Iir1 {
 }
 
 impl Iir1 {
-    /// Butterworth-equivalent 1st-order LP: fc = cutoff [Hz], fs [Hz]
+    /// Butterworth-equivalent 1st-order LP: fc = cutoff `Hz`, fs `Hz`
     fn new_lp(fc: f64, fs: f64) -> Self {
         let wc = 2.0 * std::f64::consts::PI * fc / fs;
         let alpha = wc / (wc + 1.0);
@@ -247,13 +247,13 @@ pub struct En50160Report {
     pub mean_voltage_deviation_pu: f64,
     /// Fraction of 10-min intervals where Vrms is within ±10% of nominal
     pub voltage_within_10pct_fraction: f64,
-    /// Mean frequency [Hz]
+    /// Mean frequency `Hz`
     pub mean_frequency_hz: f64,
     /// Fraction of time frequency is within ±0.5 Hz (50 Hz system)
     pub frequency_within_band_fraction: f64,
-    /// Voltage THD at 95th percentile [fraction]
+    /// Voltage THD at 95th percentile `fraction`
     pub thd_p95: f64,
-    /// Voltage unbalance factor at 95th percentile [fraction]
+    /// Voltage unbalance factor at 95th percentile `fraction`
     pub unbalance_p95: f64,
     /// Number of voltage dips (< 90% nominal) observed per week
     pub dips_per_week: f64,
@@ -268,23 +268,23 @@ pub struct En50160Report {
 /// EN 50160 measurement data for one observation period.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct En50160Data {
-    /// 10-minute mean rms voltage samples [V]
+    /// 10-minute mean rms voltage samples `V`
     pub v_rms_10min: Vec<f64>,
-    /// 10-second mean frequency samples [Hz]
+    /// 10-second mean frequency samples `Hz`
     pub frequency_10s: Vec<f64>,
-    /// 10-minute THD samples [fraction]
+    /// 10-minute THD samples `fraction`
     pub thd_10min: Vec<f64>,
-    /// 10-minute voltage unbalance factor samples [fraction]
+    /// 10-minute voltage unbalance factor samples `fraction`
     pub unbalance_10min: Vec<f64>,
     /// Number of voltage dips observed
     pub n_dips: usize,
     /// Number of short interruptions
     pub n_short_interruptions: usize,
-    /// Observation duration [weeks]
+    /// Observation duration `weeks`
     pub observation_weeks: f64,
-    /// Nominal voltage [V]
+    /// Nominal voltage `V`
     pub v_nominal: f64,
-    /// Nominal frequency [Hz]
+    /// Nominal frequency `Hz`
     pub f_nominal: f64,
 }
 

@@ -41,7 +41,7 @@ pub struct FaultResult {
     pub v_prefault: Complex64,
     /// Fault current magnitude [p.u.]
     pub i_fault_pu: f64,
-    /// Fault current magnitude [kA] (requires base values)
+    /// Fault current magnitude `kA` (requires base values)
     pub i_fault_ka: Option<f64>,
     /// 3-phase fault MVA
     pub fault_mva: f64,
@@ -245,9 +245,9 @@ impl SequenceCurrents {
     /// Convert sequence currents to phase currents (a, b, c).
     ///
     /// Uses the symmetrical component transformation:
-    ///   [Ia]   [1  1  1 ] [I0]
-    ///   [Ib] = [1  a² a ] [I1]
-    ///   [Ic]   [1  a  a²] [I2]
+    ///   `Ia`   [1  1  1 ] `I0`
+    ///   `Ib` = [1  a² a ] `I1`
+    ///   `Ic`   [1  a  a²] `I2`
     ///
     /// where a = e^(j2π/3) (the Fortescue operator)
     pub fn to_phase_currents(&self) -> [Complex64; 3] {
@@ -829,5 +829,281 @@ mod tests {
             i2: Complex64::new(1.5, 0.0),
         };
         assert!((negative_sequence_current_pu(&seq_i) - 1.5).abs() < 1e-10);
+    }
+
+    // ── NEW TESTS (Round 27) ─────────────────────────────────────────────────
+
+    #[test]
+    fn test_three_phase_fault_out_of_range_bus_returns_error() {
+        // Reason: fault_bus >= n must return Err, not panic.
+        let y = two_bus_ybus();
+        let z = compute_zbus(&y).expect("zbus should succeed");
+        let v = vec![Complex64::new(1.0, 0.0); 2];
+        let res = three_phase_fault(&z, &v, 99, 100.0, None);
+        assert!(res.is_err(), "out-of-range bus index must return Err");
+    }
+
+    #[test]
+    fn test_compute_zbus_singular_ybus_returns_error() {
+        // Reason: a fully zero Y-bus is singular; compute_zbus must return Err.
+        let y = vec![
+            vec![Complex64::new(0.0, 0.0), Complex64::new(0.0, 0.0)],
+            vec![Complex64::new(0.0, 0.0), Complex64::new(0.0, 0.0)],
+        ];
+        let res = compute_zbus(&y);
+        assert!(res.is_err(), "singular Y-bus must return Err");
+    }
+
+    #[test]
+    fn test_three_phase_fault_nonzero_current_load_bus() {
+        // Reason: fault at load bus (bus 1) must also yield |I_fault| > 0.
+        let y = two_bus_ybus();
+        let z = compute_zbus(&y).expect("zbus should succeed");
+        let v = vec![Complex64::new(1.0, 0.0); 2];
+        let res = three_phase_fault(&z, &v, 1, 100.0, None).expect("fault at bus 1 should succeed");
+        assert!(
+            res.i_fault_pu > 0.0,
+            "fault current at load bus must be positive"
+        );
+    }
+
+    #[test]
+    fn test_three_phase_fault_xr_ratio_correct() {
+        // Reason: xr_ratio() must equal Im(Z_th)/Re(Z_th) for a bus with finite, positive R.
+        // Use a 2-bus Y-bus with series R+jX line plus a shunt (for non-singularity).
+        let r = 0.01_f64;
+        let x = 0.2_f64;
+        let z_line = Complex64::new(r, x);
+        let y_line = Complex64::new(1.0, 0.0) / z_line;
+        // Add a small shunt to bus 0 to make the matrix non-singular (grounded slack)
+        let y_shunt = Complex64::new(0.0, 5.0); // j5 p.u. shunt
+        let y = vec![
+            vec![y_line + y_shunt, -y_line],
+            vec![-y_line, y_line + y_shunt],
+        ];
+        let z = compute_zbus(&y).expect("zbus should succeed");
+        let v = vec![Complex64::new(1.0, 0.0); 2];
+        let res = three_phase_fault(&z, &v, 0, 100.0, None).expect("fault should succeed");
+        let z_th = res.z_thevenin;
+        assert!(z_th.re > 1e-10, "Z_th must have positive Re for R-X line");
+        let expected_xr = z_th.im / z_th.re;
+        let got_xr = res.xr_ratio();
+        assert!(
+            (got_xr - expected_xr).abs() < 1e-10,
+            "xr_ratio mismatch: expected {expected_xr:.6}, got {got_xr:.6}"
+        );
+    }
+
+    #[test]
+    fn test_slg_fault_with_nonzero_fault_impedance_reduces_current() {
+        // Reason: adding fault impedance Z_f must reduce |I1| relative to bolted fault.
+        let seq = typical_seq();
+        let v_f = Complex64::new(1.0, 0.0);
+        let bolted = slg_fault(v_f, &seq, Complex64::new(0.0, 0.0));
+        let with_zf = slg_fault(v_f, &seq, Complex64::new(0.0, 0.1));
+        assert!(
+            with_zf.i1.norm() < bolted.i1.norm(),
+            "non-zero Z_f must reduce SLG fault current"
+        );
+    }
+
+    #[test]
+    fn test_ll_fault_with_nonzero_fault_impedance_reduces_current() {
+        // Reason: adding Z_f must reduce |I1| for LL fault.
+        let seq = typical_seq();
+        let v_f = Complex64::new(1.0, 0.0);
+        let bolted = ll_fault(v_f, &seq, Complex64::new(0.0, 0.0));
+        let with_zf = ll_fault(v_f, &seq, Complex64::new(0.0, 0.1));
+        assert!(
+            with_zf.i1.norm() < bolted.i1.norm(),
+            "non-zero Z_f must reduce LL fault current"
+        );
+    }
+
+    #[test]
+    fn test_dlg_fault_with_nonzero_z_ground_reduces_i0() {
+        // Reason: ground impedance Z_g limits zero-sequence current I0.
+        let seq = typical_seq();
+        let v_f = Complex64::new(1.0, 0.0);
+        let bolted = dlg_fault(
+            v_f,
+            &seq,
+            Complex64::new(0.0, 0.0),
+            Complex64::new(0.0, 0.0),
+        );
+        let with_zg = dlg_fault(
+            v_f,
+            &seq,
+            Complex64::new(0.0, 0.0),
+            Complex64::new(0.0, 0.5),
+        );
+        assert!(
+            with_zg.i0.norm() < bolted.i0.norm(),
+            "non-zero Z_g must reduce DLG zero-sequence current I0"
+        );
+    }
+
+    #[test]
+    fn test_ll_fault_phase_currents_sum_is_zero() {
+        // Reason: for an LL fault (I0=0), the sum Ia+Ib+Ic = 3*I0 = 0 (KCL).
+        let seq = typical_seq();
+        let v_f = Complex64::new(1.0, 0.0);
+        let seq_i = ll_fault(v_f, &seq, Complex64::new(0.0, 0.0));
+        let [ia, ib, ic] = seq_i.to_phase_currents();
+        let sum = ia + ib + ic;
+        assert!(
+            sum.norm() < 1e-10,
+            "Ia+Ib+Ic must be 0 for LL fault (no ground path): |sum|={:.2e}",
+            sum.norm()
+        );
+    }
+
+    #[test]
+    fn test_slg_fault_ia_equals_3i0() {
+        // Reason: for SLG on phase A, Ia = I0+I1+I2 = 3*I0 (since I0=I1=I2).
+        let seq = typical_seq();
+        let v_f = Complex64::new(1.0, 0.0);
+        let seq_i = slg_fault(v_f, &seq, Complex64::new(0.0, 0.0));
+        let [ia, _ib, _ic] = seq_i.to_phase_currents();
+        let three_i0 = seq_i.i0 * 3.0;
+        assert!(
+            (ia - three_i0).norm() < 1e-10,
+            "Ia must equal 3*I0 for SLG: diff={:.2e}",
+            (ia - three_i0).norm()
+        );
+    }
+
+    #[test]
+    fn test_neutral_current_equals_three_times_i0() {
+        // Reason: neutral_current() must return exactly 3*I0 matching ground_current().
+        let seq_i = SequenceCurrents {
+            i0: Complex64::new(0.5, -0.3),
+            i1: Complex64::new(1.0, 0.0),
+            i2: Complex64::new(0.5, 0.0),
+        };
+        let neutral = neutral_current(&seq_i);
+        let expected = seq_i.i0 * 3.0;
+        assert!(
+            (neutral - expected).norm() < 1e-10,
+            "neutral_current must equal 3*I0"
+        );
+    }
+
+    #[test]
+    fn test_unbalanced_fault_ll_via_unified_api() {
+        // Reason: unified unbalanced_fault must work correctly for LL fault type.
+        let seq = typical_seq();
+        let v_f = Complex64::new(1.0, 0.0);
+        let res = unbalanced_fault(
+            seq,
+            v_f,
+            FaultType::LineLine,
+            1,
+            100.0,
+            Complex64::new(0.0, 0.0),
+        );
+        assert!(res.is_ok(), "LL fault from unbalanced_fault must succeed");
+        let r = res.expect("already checked is_ok");
+        assert_eq!(r.fault_type, FaultType::LineLine);
+        assert!(
+            r.ground_current_pu < 1e-10,
+            "LL fault has no ground current"
+        );
+        assert!(r.fault_mva > 0.0);
+    }
+
+    #[test]
+    fn test_unbalanced_fault_dlg_via_unified_api() {
+        // Reason: unified unbalanced_fault must work correctly for DLG fault type.
+        let seq = typical_seq();
+        let v_f = Complex64::new(1.0, 0.0);
+        let res = unbalanced_fault(
+            seq,
+            v_f,
+            FaultType::DoubleLineGround,
+            2,
+            100.0,
+            Complex64::new(0.0, 0.0),
+        );
+        assert!(res.is_ok(), "DLG fault from unbalanced_fault must succeed");
+        let r = res.expect("already checked is_ok");
+        assert_eq!(r.fault_type, FaultType::DoubleLineGround);
+        assert!(
+            r.ground_current_pu > 0.0,
+            "DLG fault must have ground current"
+        );
+    }
+
+    #[test]
+    fn test_max_phase_current_pu_for_dlg() {
+        // Reason: max_phase_current_pu() must return the maximum of the three phase magnitudes.
+        let seq = typical_seq();
+        let v_f = Complex64::new(1.0, 0.0);
+        let res = unbalanced_fault(
+            seq,
+            v_f,
+            FaultType::DoubleLineGround,
+            0,
+            100.0,
+            Complex64::new(0.0, 0.0),
+        )
+        .expect("DLG fault must succeed");
+        let max_from_method = res.max_phase_current_pu();
+        let max_from_array = res.phase_magnitudes.iter().cloned().fold(0.0_f64, f64::max);
+        assert!(
+            (max_from_method - max_from_array).abs() < 1e-10,
+            "max_phase_current_pu must equal max of phase_magnitudes array"
+        );
+    }
+
+    #[test]
+    fn test_sequence_impedances_from_zbus_diagonal() {
+        // Reason: from_zbus must extract diagonal elements Z[f][f] from each sequence matrix.
+        let n = 3;
+        let make_zbus = |val: f64| -> Vec<Vec<Complex64>> {
+            (0..n)
+                .map(|i| {
+                    (0..n)
+                        .map(|j| {
+                            if i == j {
+                                Complex64::new(val, val * 2.0)
+                            } else {
+                                Complex64::new(0.0, 0.0)
+                            }
+                        })
+                        .collect()
+                })
+                .collect()
+        };
+        let z1_bus = make_zbus(0.1);
+        let z2_bus = make_zbus(0.2);
+        let z0_bus = make_zbus(0.3);
+        let seq = SequenceImpedances::from_zbus(&z1_bus, &z2_bus, &z0_bus, 2)
+            .expect("from_zbus at bus 2 must succeed");
+        assert!(
+            (seq.z1 - Complex64::new(0.1, 0.2)).norm() < 1e-10,
+            "Z1 must be the diagonal of z1_bus at fault_bus"
+        );
+        assert!(
+            (seq.z2 - Complex64::new(0.2, 0.4)).norm() < 1e-10,
+            "Z2 must be the diagonal of z2_bus at fault_bus"
+        );
+        assert!(
+            (seq.z0 - Complex64::new(0.3, 0.6)).norm() < 1e-10,
+            "Z0 must be the diagonal of z0_bus at fault_bus"
+        );
+    }
+
+    #[test]
+    fn test_sequence_impedances_from_zbus_out_of_range_returns_error() {
+        // Reason: fault_bus >= n must return Err from from_zbus.
+        let n = 2;
+        let make_zbus =
+            |_val: f64| -> Vec<Vec<Complex64>> { vec![vec![Complex64::new(0.1, 0.1); n]; n] };
+        let z1_bus = make_zbus(0.1);
+        let z2_bus = make_zbus(0.1);
+        let z0_bus = make_zbus(0.1);
+        let res = SequenceImpedances::from_zbus(&z1_bus, &z2_bus, &z0_bus, 99);
+        assert!(res.is_err(), "out-of-range fault_bus must return Err");
     }
 }

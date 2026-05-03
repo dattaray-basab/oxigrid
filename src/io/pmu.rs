@@ -570,7 +570,7 @@ impl Default for PmuDataset {
     }
 }
 
-/// Linear interpolation between two frames at fractional position `alpha ∈ [0,1]`.
+/// Linear interpolation between two frames at fractional position `alpha ∈ `0,1``.
 fn interpolate_frames(f0: &PmuFrame, f1: &PmuFrame, alpha: f64, ts: i64) -> PmuFrame {
     let lerp = |a: f64, b: f64| a + alpha * (b - a);
     let interp_phasor = |pa: &Phasor, pb: &Phasor| {

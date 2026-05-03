@@ -14,8 +14,8 @@
 //!    resulting overload is reported as a `ContingencyViolation`.
 //!
 //! # Units
-//! All power quantities in `[MW]`, reactances in `[pu]` on 100 MVA base,
-//! costs in `[M$]` or `[$/MWh]`, energy in `[MWh]`.
+//! All power quantities in ``MW``, reactances in ``pu`` on 100 MVA base,
+//! costs in `[M$]` or `[$/MWh]`, energy in ``MWh``.
 //!
 //! # References
 //! * Latorre, G. et al. (2003) IEEE Trans. Power Syst. 18(2).
@@ -34,9 +34,9 @@ pub struct CandidateLine {
     pub from_bus: usize,
     /// Receiving-end bus index (0-based).
     pub to_bus: usize,
-    /// Series reactance `[pu]`.
+    /// Series reactance ``pu``.
     pub reactance_pu: f64,
-    /// Thermal capacity `[MW]`.
+    /// Thermal capacity ``MW``.
     pub capacity_mw: f64,
     /// Capital cost `[M$]`.
     pub cost_million_usd: f64,
@@ -51,9 +51,9 @@ pub struct ExistingLine {
     pub from_bus: usize,
     /// Receiving-end bus index (0-based).
     pub to_bus: usize,
-    /// Series reactance `[pu]`.
+    /// Series reactance ``pu``.
     pub reactance_pu: f64,
-    /// Thermal capacity `[MW]`.
+    /// Thermal capacity ``MW``.
     pub capacity_mw: f64,
 }
 
@@ -95,9 +95,9 @@ impl Default for ScTepConfig {
 pub struct GeneratorData {
     /// Bus at which the generator is connected (0-based).
     pub bus: usize,
-    /// Maximum active output `[MW]`.
+    /// Maximum active output ``MW``.
     pub pmax_mw: f64,
-    /// Minimum stable generation `[MW]`.
+    /// Minimum stable generation ``MW``.
     pub pmin_mw: f64,
     /// Marginal (variable) cost `[$/MWh]`.
     pub cost_per_mwh: f64,
@@ -114,7 +114,7 @@ pub struct ScTepSolver {
     pub candidate_lines: Vec<CandidateLine>,
     /// Generators available for dispatch.
     pub generators: Vec<GeneratorData>,
-    /// Base-year load per bus `[MW]` (length = `num_buses`).
+    /// Base-year load per bus ``MW`` (length = `num_buses`).
     pub load_mw: Vec<f64>,
     /// Solver configuration.
     pub config: ScTepConfig,
@@ -127,11 +127,11 @@ pub struct ScTepSolver {
 pub struct SubproblemResult {
     /// Objective function value `[$/h]`.
     pub objective: f64,
-    /// Total load shed `[MW]`.
+    /// Total load shed ``MW``.
     pub load_shed_mw: f64,
-    /// Dispatch per generator `[MW]`.
+    /// Dispatch per generator ``MW``.
     pub generation_dispatch: Vec<f64>,
-    /// Active power flow per line `[MW]` (existing then candidate order).
+    /// Active power flow per line ``MW`` (existing then candidate order).
     pub line_flows_mw: Vec<f64>,
     /// Dual variables (shadow prices) per bus power-balance constraint.
     pub dual_vars: Vec<f64>,
@@ -144,7 +144,7 @@ pub struct ContingencyViolation {
     pub outaged_line: usize,
     /// Index of the line carrying the overload (existing then candidate).
     pub violated_line: usize,
-    /// Magnitude of overload `[MW]`.
+    /// Magnitude of overload ``MW``.
     pub overload_mw: f64,
 }
 
@@ -155,9 +155,9 @@ pub struct AnnualPlan {
     pub year: usize,
     /// IDs of candidate lines commissioned this year.
     pub new_lines: Vec<String>,
-    /// Total system load for this year `[MW]`.
+    /// Total system load for this year ``MW``.
     pub total_load_mw: f64,
-    /// Expected load shed for this year `[MWh]` (annualised at 8 760 h/yr).
+    /// Expected load shed for this year ``MWh`` (annualised at 8 760 h/yr).
     pub expected_load_shed_mwh: f64,
 }
 

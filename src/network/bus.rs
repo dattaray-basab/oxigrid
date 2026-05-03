@@ -29,15 +29,15 @@ pub struct Bus {
     pub name: String,
     /// Bus classification for power flow (Slack / PV / PQ).
     pub bus_type: BusType,
-    /// Nominal base voltage [kV] (stored as `Voltage` with inner value in kV).
+    /// Nominal base voltage `kV` (stored as `Voltage` with inner value in kV).
     pub base_kv: Voltage,
     /// Initial / solved voltage magnitude [p.u.].
     pub vm: f64,
-    /// Initial / solved voltage angle [radians].
+    /// Initial / solved voltage angle `radians`.
     pub va: f64,
-    /// Real power demand (load) [MW].
+    /// Real power demand (load) `MW`.
     pub pd: Power,
-    /// Reactive power demand (load) [MVAr].
+    /// Reactive power demand (load) `MVAr`.
     pub qd: ReactivePower,
     /// Shunt conductance [MW at V = 1.0 p.u.].
     pub gs: f64,

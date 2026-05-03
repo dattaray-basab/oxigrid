@@ -1310,9 +1310,143 @@ mod tests {
         assert!((s.total_budget - 1_000_000.0).abs() < 1e-6);
         assert_eq!(s.expansion_planner.budget_per_year.len(), 5);
     }
-}
 
-// Extended capacity-planning API
-#[path = "distribution_planner.rs"]
-pub mod distribution_planner;
-pub use distribution_planner::*;
+    // ── 8 new tests ───────────────────────────────────────────────────────────
+
+    #[test]
+    fn test_forecast_energy_mwh_grows_with_years() {
+        let fc = sample_forecast();
+        let e5 = fc.forecast_energy_mwh(0, 5).expect("forecast_energy_mwh");
+        let e10 = fc.forecast_energy_mwh(0, 10).expect("forecast_energy_mwh");
+        assert!(
+            e10 > e5,
+            "energy forecast at year 10 ({e10:.1}) should exceed year 5 ({e5:.1})"
+        );
+    }
+
+    #[test]
+    fn test_age_years_reflects_installation_year() {
+        let asset = sample_asset(1, 2000, 40);
+        let assessor = AssetConditionAssessor {
+            assets: vec![asset.clone()],
+        };
+        assert_eq!(
+            assessor.age_years(&asset, 2025),
+            25,
+            "age should be 25 in 2025"
+        );
+        assert_eq!(
+            assessor.age_years(&asset, 2000),
+            0,
+            "age should be 0 in install year"
+        );
+    }
+
+    #[test]
+    fn test_total_replacement_cost_within_horizon_includes_near_end_assets() {
+        // Asset installed 1985, life 40 years → expired by 2025, remaining_life ≈ 0.
+        let old_asset = DistributionAsset {
+            id: 1,
+            asset_type: DistAssetType::Transformer,
+            installation_year: 1985,
+            expected_life_years: 40,
+            condition_score: 50.0,
+            failure_rate_per_year: 0.10,
+            replacement_cost: 300_000.0,
+            criticality: 0.9,
+        };
+        let assessor = AssetConditionAssessor {
+            assets: vec![old_asset],
+        };
+        // within 5 years from 2025 → should include the expired asset
+        let cost = assessor.total_replacement_cost_within_horizon(5, 2025);
+        assert!(
+            (cost - 300_000.0).abs() < 1e-6,
+            "expired asset should be included, got {cost}"
+        );
+    }
+
+    #[test]
+    fn test_risk_reduction_from_maintenance_half_of_failure_cost() {
+        let asset = sample_asset(1, 2000, 40); // failure_rate=0.05
+        let rcm = RcmAnalyzer {
+            assets: vec![asset.clone()],
+            maintenance_budget: 20_000.0,
+            failure_consequence: 200_000.0,
+        };
+        let rr = rcm.risk_reduction_from_maintenance(&asset);
+        // 0.05 * 0.5 * 200_000 = 5_000
+        assert!(
+            (rr - 5_000.0).abs() < 1e-6,
+            "risk_reduction should be 5_000, got {rr}"
+        );
+    }
+
+    #[test]
+    fn test_maintenance_plan_length_equals_asset_count() {
+        let rcm = RcmAnalyzer {
+            assets: vec![sample_asset(1, 2000, 40), sample_asset(2, 2010, 40)],
+            maintenance_budget: 50_000.0,
+            failure_consequence: 300_000.0,
+        };
+        let plan = rcm.maintenance_plan();
+        assert_eq!(
+            plan.len(),
+            2,
+            "maintenance_plan should have one entry per asset, got {}",
+            plan.len()
+        );
+    }
+
+    #[test]
+    fn test_optimize_maintenance_budget_within_budget() {
+        let rcm = RcmAnalyzer {
+            assets: vec![sample_asset(1, 2000, 40), sample_asset(2, 2010, 40)],
+            maintenance_budget: 5_000.0,
+            failure_consequence: 300_000.0,
+        };
+        let plan = rcm.optimize_maintenance_budget();
+        assert!(
+            plan.total_cost <= rcm.maintenance_budget + 1e-6,
+            "total maintenance cost ({:.2}) must not exceed budget ({:.2})",
+            plan.total_cost,
+            rcm.maintenance_budget
+        );
+        assert!(
+            plan.risk_reduction_pct >= 0.0 && plan.risk_reduction_pct <= 100.0,
+            "risk_reduction_pct out of range: {}",
+            plan.risk_reduction_pct
+        );
+    }
+
+    #[test]
+    fn test_prioritize_candidates_sorted_descending() {
+        let planner = sample_der_planner();
+        let ranked = planner.prioritize_candidates();
+        assert_eq!(ranked.len(), 2, "should rank all 2 candidates");
+        // First ranked candidate should have a score >= second
+        if ranked.len() >= 2 {
+            assert!(
+                ranked[0].1 >= ranked[1].1,
+                "candidates should be in descending score order: {:.4} >= {:.4}",
+                ranked[0].1,
+                ranked[1].1
+            );
+        }
+    }
+
+    #[test]
+    fn test_total_capex_requirements_sums_all_project_costs() {
+        let mut strategy = LongTermStrategy::new(10, 1_000_000.0);
+        strategy.projects = vec![
+            sample_project(1, 100_000.0, 2025),
+            sample_project(2, 200_000.0, 2026),
+            sample_project(3, 50_000.0, 2027),
+        ];
+        let total = strategy.total_capex_requirements();
+        assert!(
+            (total - 350_000.0).abs() < 1e-6,
+            "total CAPEX should be 350_000, got {total}"
+        );
+    }
+}

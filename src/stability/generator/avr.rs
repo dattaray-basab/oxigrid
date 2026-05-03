@@ -19,15 +19,15 @@ use serde::{Deserialize, Serialize};
 pub struct Avr1Params {
     /// Voltage regulator gain KA [p.u./p.u.]
     pub ka: f64,
-    /// Voltage regulator time constant TA [s]
+    /// Voltage regulator time constant TA `s`
     pub ta: f64,
     /// Exciter gain KE [p.u.]
     pub ke: f64,
-    /// Exciter time constant TE [s]
+    /// Exciter time constant TE `s`
     pub te: f64,
     /// Rate feedback gain KF [p.u.]
     pub kf: f64,
-    /// Rate feedback time constant TF [s]
+    /// Rate feedback time constant TF `s`
     pub tf: f64,
     /// Maximum regulator output Vrmax [p.u.]
     pub vr_max: f64,
@@ -94,7 +94,7 @@ pub struct Avr1State {
     pub rf: f64,
     /// Voltage reference Vref [p.u.]
     pub vref: f64,
-    /// Current simulation time [s]
+    /// Current simulation time `s`
     pub time_s: f64,
 }
 

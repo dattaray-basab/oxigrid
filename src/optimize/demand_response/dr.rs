@@ -50,11 +50,11 @@ pub struct DrParticipant {
     pub id: usize,
     /// Bus ID in the network
     pub bus_id: usize,
-    /// Base (uncontrolled) load [MW]
+    /// Base (uncontrolled) load `MW`
     pub base_load_mw: f64,
-    /// Maximum curtailable load [MW]
+    /// Maximum curtailable load `MW`
     pub max_curtail_mw: f64,
-    /// Minimum load (cannot curtail below this) [MW]
+    /// Minimum load (cannot curtail below this) `MW`
     pub min_load_mw: f64,
     /// DR program type
     pub program_type: DrProgramType,
@@ -64,7 +64,7 @@ pub struct DrParticipant {
     pub elasticity: f64,
     /// Reference price for elasticity model [$/MWh]
     pub ref_price: f64,
-    /// Maximum shift window for shiftable loads [hours]
+    /// Maximum shift window for shiftable loads `hours`
     pub shift_window_h: f64,
     /// Discomfort cost coefficient [$/MWh²] (quadratic curtailment discomfort)
     pub discomfort_coeff: f64,
@@ -117,7 +117,7 @@ impl DrParticipant {
         }
     }
 
-    /// Compute load curtailment for a given spot price [MW].
+    /// Compute load curtailment for a given spot price `MW`.
     ///
     /// For price-responsive: ΔP = ε · P0 · (price - ref) / ref
     /// For curtailable: curtail = max_curtail if price > incentive_rate
@@ -145,7 +145,7 @@ impl DrParticipant {
         }
     }
 
-    /// Effective load at given price [MW].
+    /// Effective load at given price `MW`.
     pub fn effective_load(&self, price: f64) -> f64 {
         (self.base_load_mw - self.curtailment_at_price(price))
             .clamp(self.min_load_mw, self.base_load_mw)
@@ -177,7 +177,7 @@ impl DrParticipant {
 pub struct DrDispatchResult {
     /// Per-participant results
     pub participants: Vec<DrParticipantResult>,
-    /// Total curtailment [MW]
+    /// Total curtailment `MW`
     pub total_curtailment_mw: f64,
     /// Total incentive cost to utility [$/h]
     pub total_incentive_cost: f64,
@@ -355,7 +355,7 @@ impl DrAggregator {
         Self { participants }
     }
 
-    /// Total enrolled capacity [MW].
+    /// Total enrolled capacity `MW`.
     pub fn total_enrolled_mw(&self) -> f64 {
         self.participants.iter().map(|p| p.max_curtail_mw).sum()
     }

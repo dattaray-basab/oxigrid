@@ -28,9 +28,9 @@ pub struct AgingParams {
     pub dod_exponent: f64,
     /// Reference DoD for cycle aging coefficient (0–1)
     pub dod_ref: f64,
-    /// Initial capacity [Ah]
+    /// Initial capacity `Ah`
     pub q_nom: f64,
-    /// Initial internal resistance [Ω]
+    /// Initial internal resistance `Ω`
     pub r0_nom: f64,
     /// Resistance growth factor relative to capacity fade
     pub r_growth_factor: f64,
@@ -69,7 +69,7 @@ impl AgingParams {
 /// Accumulated aging state.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct AgingState {
-    /// Calendar age [s]
+    /// Calendar age `s`
     pub time_s: f64,
     /// Equivalent full cycles (charge throughput / 2·Q_nom)
     pub equiv_full_cycles: f64,
@@ -77,9 +77,9 @@ pub struct AgingState {
     pub q_loss_cal_pct: f64,
     /// Capacity loss due to cycle aging [%]
     pub q_loss_cyc_pct: f64,
-    /// Remaining capacity [Ah]
+    /// Remaining capacity `Ah`
     pub q_remaining: f64,
-    /// Current internal resistance [Ω]
+    /// Current internal resistance `Ω`
     pub r0_current: f64,
     /// State of health (SoH) — 0 = dead, 1 = new
     pub soh: f64,
@@ -104,7 +104,7 @@ impl AgingState {
 pub struct AgingModel {
     pub params: AgingParams,
     pub state: AgingState,
-    /// Accumulated charge throughput in current half-cycle [Ah]
+    /// Accumulated charge throughput in current half-cycle `Ah`
     charge_throughput: f64,
     /// Previous SoC for DoD tracking
     prev_soc: f64,
@@ -124,7 +124,7 @@ impl AgingModel {
         }
     }
 
-    /// Calendar aging increment: Δt seconds at temperature T [K].
+    /// Calendar aging increment: Δt seconds at temperature T `K`.
     pub fn step_calendar(&mut self, dt_s: f64, temp_k: f64) {
         let t0 = self.state.time_s;
         let t1 = t0 + dt_s;
@@ -152,7 +152,7 @@ impl AgingModel {
 
     /// Update state when current flows (for automatic cycle counting).
     ///
-    /// `current_a` — positive = discharge; `dt_s` — time step [s].
+    /// `current_a` — positive = discharge; `dt_s` — time step `s`.
     pub fn step_current(&mut self, current_a: f64, dt_s: f64, soc: f64) {
         let dah = current_a.abs() * dt_s / 3600.0;
         self.ah_total += dah;
@@ -180,7 +180,7 @@ impl AgingModel {
             self.params.r0_nom * (1.0 + self.params.r_growth_factor * capacity_loss_frac);
     }
 
-    /// Time to 80% SoH at constant temperature [s] (calendar aging only).
+    /// Time to 80% SoH at constant temperature `s` (calendar aging only).
     pub fn time_to_80pct_soh(&self, temp_k: f64) -> f64 {
         let k_eff = self.params.k_cal * (-self.params.e_a / (GAS_CONSTANT * temp_k)).exp();
         // Q_loss_cal = 20% → k_eff * √t = 0.20 → t = (0.20/k_eff)²
@@ -205,7 +205,7 @@ impl AgingModel {
 /// where I_threshold is the current density above which plating begins.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct LithiumPlatingModel {
-    /// Nominal cell capacity [Ah]
+    /// Nominal cell capacity `Ah`
     pub q_nom: f64,
     /// Threshold C-rate for plating onset (typical: 0.5–1.0 C)
     pub c_rate_threshold: f64,
@@ -215,11 +215,11 @@ pub struct LithiumPlatingModel {
     pub beta: f64,
     /// Fraction of plated Li that is irreversible (dead Li): 0–1
     pub irreversible_fraction: f64,
-    /// Accumulated plated lithium [Ah] (total, including reversible)
+    /// Accumulated plated lithium `Ah` (total, including reversible)
     pub plated_ah: f64,
-    /// Accumulated dead lithium capacity loss [Ah]
+    /// Accumulated dead lithium capacity loss `Ah`
     pub dead_li_ah: f64,
-    /// Low temperature threshold below which plating rate is amplified [K]
+    /// Low temperature threshold below which plating rate is amplified `K`
     pub t_threshold_k: f64,
     /// Temperature amplification factor at cold temperatures
     pub cold_amplification: f64,
@@ -259,7 +259,7 @@ impl LithiumPlatingModel {
     /// Advance one time step with charging current `i_charge_a` (positive = charging)
     /// and cell temperature `temp_k`.
     ///
-    /// Returns the incremental dead-Li capacity loss this step [Ah].
+    /// Returns the incremental dead-Li capacity loss this step `Ah`.
     pub fn step(&mut self, i_charge_a: f64, dt_s: f64, temp_k: f64) -> f64 {
         if i_charge_a <= 0.0 {
             // Discharging or idle — no new plating; partial strip of reversible Li
@@ -297,7 +297,7 @@ impl LithiumPlatingModel {
         (self.dead_li_ah / self.q_nom).clamp(0.0, 1.0)
     }
 
-    /// Remaining capacity accounting for dead lithium [Ah].
+    /// Remaining capacity accounting for dead lithium `Ah`.
     pub fn remaining_capacity_ah(&self) -> f64 {
         (self.q_nom - self.dead_li_ah).max(0.0)
     }

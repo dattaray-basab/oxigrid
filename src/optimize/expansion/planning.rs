@@ -7,7 +7,7 @@
 ///
 /// Decision variables:
 ///   z_{l,y} ∈ {0,1}  — build branch l in year y (binary)
-///   P_g_t   [MW]      — generation dispatch per period t
+///   P_g_t   `MW`      — generation dispatch per period t
 ///
 /// Objective:
 ///   min  Σ_l Σ_y  z_{l,y} · IC_l · annuity(y, WACC)
@@ -51,13 +51,13 @@ pub struct CandidateBranch {
     pub r: f64,
     /// Charging susceptance B [p.u.]
     pub b: f64,
-    /// Thermal rating [MW]
+    /// Thermal rating `MW`
     pub rate_a: f64,
     /// Investment cost [M$] (total)
     pub investment_cost_musd: f64,
-    /// Construction lead time [years]
+    /// Construction lead time `years`
     pub lead_time_years: usize,
-    /// Economic lifetime [years]
+    /// Economic lifetime `years`
     pub lifetime_years: usize,
 }
 
@@ -97,7 +97,7 @@ pub struct DemandScenario {
     pub year: usize,
     /// Load scaling factor relative to base (1.0 = base case)
     pub load_scale: f64,
-    /// Duration of this year [hours]
+    /// Duration of this year `hours`
     pub duration_h: f64,
 }
 
@@ -157,7 +157,7 @@ impl ExpansionPlanResult {
 pub struct ExpansionConfig {
     /// Weighted average cost of capital (WACC) for annualisation
     pub wacc: f64,
-    /// Planning horizon [years]
+    /// Planning horizon `years`
     pub n_years: usize,
     /// Hours per year (8760 typical)
     pub hours_per_year: f64,

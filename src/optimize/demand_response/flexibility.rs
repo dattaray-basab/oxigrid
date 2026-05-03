@@ -104,23 +104,23 @@ pub struct FlexibilityResource {
     pub segment: CustomerSegment,
     /// Flexibility program type.
     pub flex_type: FlexibilityType,
-    /// Baseline (uncontrolled) power consumption [kW].
+    /// Baseline (uncontrolled) power consumption `kW`.
     pub baseline_kw: f64,
-    /// Maximum achievable load reduction [kW].
+    /// Maximum achievable load reduction `kW`.
     pub max_reduction_kw: f64,
-    /// Maximum load increase capability for valley filling [kW].
+    /// Maximum load increase capability for valley filling `kW`.
     pub max_increase_kw: f64,
-    /// Minimum event duration [h].
+    /// Minimum event duration `h`.
     pub min_duration_h: f64,
-    /// Maximum event duration [h].
+    /// Maximum event duration `h`.
     pub max_duration_h: f64,
-    /// Duration over which rebound load recovers after curtailment [h].
+    /// Duration over which rebound load recovers after curtailment `h`.
     pub recovery_time_h: f64,
     /// Fraction of curtailed energy that rebounds (0 = no rebound, 1 = full).
     pub recovery_factor: f64,
     /// How the DR event is activated.
     pub activation_mode: ActivationMode,
-    /// Advance notice required before dispatch [minutes].
+    /// Advance notice required before dispatch `minutes`.
     pub notification_time_min: f64,
     /// Maximum DR events permitted per day.
     pub max_events_per_day: u8,
@@ -205,11 +205,11 @@ pub struct FlexibilityEnvelope {
     pub resource_id: usize,
     /// Number of hours in the planning horizon.
     pub time_horizon_h: usize,
-    /// Available upward flexibility (load increase) per hour [kW].
+    /// Available upward flexibility (load increase) per hour `kW`.
     pub upward_flex_kw: Vec<f64>,
-    /// Available downward flexibility (load reduction) per hour [kW].
+    /// Available downward flexibility (load reduction) per hour `kW`.
     pub downward_flex_kw: Vec<f64>,
-    /// Expected rebound load after curtailment per hour [kW].
+    /// Expected rebound load after curtailment per hour `kW`.
     pub rebound_kw: Vec<f64>,
     /// Curtailment cost per hour [$/kWh].
     pub cost_usd_per_kwh: Vec<f64>,
@@ -222,11 +222,11 @@ pub struct DispatchSignal {
     pub resource_id: usize,
     /// Hour (0-indexed) at which dispatch begins.
     pub start_hour: usize,
-    /// Requested dispatch duration [h].
+    /// Requested dispatch duration `h`.
     pub duration_h: f64,
-    /// Requested power: positive = curtail, negative = increase [kW].
+    /// Requested power: positive = curtail, negative = increase `kW`.
     pub requested_kw: f64,
-    /// Actual dispatched power after feasibility checks [kW].
+    /// Actual dispatched power after feasibility checks `kW`.
     pub actual_kw: f64,
     /// Curtailment cost for this dispatch event [$].
     pub cost_usd: f64,
@@ -241,11 +241,11 @@ pub struct FlexibilityPortfolio {
     pub resources: Vec<FlexibilityResource>,
     /// Hour-by-hour aggregate flexibility envelope across all resources.
     pub aggregated_envelope: FlexibilityEnvelope,
-    /// Sum of all resource baseline loads [kW].
+    /// Sum of all resource baseline loads `kW`.
     pub total_baseline_kw: f64,
-    /// Sum of all maximum reductions [kW].
+    /// Sum of all maximum reductions `kW`.
     pub total_max_reduction_kw: f64,
-    /// Sum of all maximum increases [kW].
+    /// Sum of all maximum increases `kW`.
     pub total_max_increase_kw: f64,
 }
 
@@ -269,7 +269,7 @@ pub struct FlexibilityBid {
     pub resource_id: usize,
     /// Hour for which the bid is valid.
     pub hour: usize,
-    /// Quantity offered [kW].
+    /// Quantity offered `kW`.
     pub quantity_kw: f64,
     /// Bid price [$/kWh].
     pub price_usd_per_kwh: f64,
@@ -605,7 +605,7 @@ impl FlexibilityAggregator {
             .collect()
     }
 
-    /// Estimate aggregate load change [kW] from a price signal at a given hour.
+    /// Estimate aggregate load change `kW` from a price signal at a given hour.
     ///
     /// Applies own-price elasticity: ΔL = ε × L_baseline × ΔP/P_ref,
     /// where P_ref = 0.10 $/kWh.  Sums across all resources.

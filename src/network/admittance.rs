@@ -24,6 +24,33 @@ use sprs::{CsMat, TriMat};
 /// `1/base_mva`.
 ///
 /// Returns a CSC sparse matrix of size `n × n`.
+///
+/// # Examples
+///
+/// ```rust
+/// # fn main() -> Result<(), Box<dyn std::error::Error>> {
+/// use oxigrid::network::topology::PowerNetwork;
+/// use oxigrid::network::bus::{Bus, BusType};
+/// use oxigrid::network::branch::Branch;
+/// use oxigrid::network::admittance::build_y_bus;
+///
+/// let mut net = PowerNetwork::new(100.0);
+/// net.buses.push(Bus::new(1, BusType::Slack));
+/// net.buses.push(Bus::new(2, BusType::PQ));
+/// net.branches.push(Branch {
+///     from_bus: 1, to_bus: 2,
+///     r: 0.01, x: 0.1, b: 0.02,
+///     rate_a: 100.0, rate_b: 100.0, rate_c: 100.0,
+///     tap: 0.0, shift: 0.0, status: true,
+/// });
+///
+/// let y_bus = build_y_bus(&net)?;
+/// assert_eq!(y_bus.rows(), 2);
+/// assert_eq!(y_bus.cols(), 2);
+/// // Diagonal entries must be non-zero (series + shunt admittance)
+/// assert!(y_bus.nnz() > 0);
+/// # Ok(()) }
+/// ```
 pub fn build_y_bus(network: &PowerNetwork) -> Result<CsMat<Complex64>> {
     let n = network.bus_count();
     let mut ybus = TriMat::new((n, n));

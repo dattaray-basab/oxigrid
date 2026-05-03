@@ -11,7 +11,7 @@
 /// Eigenvalues λ = σ ± jωd
 ///   σ < 0  → stable mode
 ///   ζ = −σ/|λ| → damping ratio
-///   fₙ = ωd/(2π) → natural frequency [Hz]
+///   fₙ = ωd/(2π) → natural frequency `Hz`
 use nalgebra::DMatrix;
 use serde::{Deserialize, Serialize};
 
@@ -24,7 +24,7 @@ pub struct OscillationMode {
     pub omega_d: f64,
     /// Damping ratio ζ = −σ/|λ|
     pub damping_ratio: f64,
-    /// Natural frequency fn [Hz]
+    /// Natural frequency fn `Hz`
     pub freq_hz: f64,
     /// Participation factors (generator index → magnitude)
     pub participation: Vec<f64>,

@@ -31,7 +31,7 @@ use std::f64::consts::PI;
 pub struct MachineParams {
     /// Generator index label
     pub id: usize,
-    /// Inertia constant H [s]
+    /// Inertia constant H `s`
     pub h: f64,
     /// Damping coefficient D [p.u.]
     pub d: f64,
@@ -41,7 +41,7 @@ pub struct MachineParams {
     pub e_prime: f64,
     /// Pre-fault mechanical input power P_m [p.u.]
     pub p_mech: f64,
-    /// System frequency [Hz]
+    /// System frequency `Hz`
     pub freq_hz: f64,
 }
 
@@ -75,7 +75,7 @@ impl MachineParams {
 /// State of one machine (angle + speed deviation in COI frame).
 #[derive(Debug, Clone, Copy, Serialize, Deserialize)]
 pub struct MachineState {
-    /// Rotor angle δ [rad] (absolute, COI frame = relative to COI)
+    /// Rotor angle δ `rad` (absolute, COI frame = relative to COI)
     pub delta: f64,
     /// Speed deviation Δω = ω − ω_COI [rad/s]
     pub omega: f64,
@@ -111,7 +111,7 @@ pub struct MultiMachineSim {
 impl MultiMachineSim {
     /// Construct from machine parameters and a pre-built reduced admittance matrix.
     ///
-    /// `y_red_flat` is row-major: y_red[i][j] = G_ij + j·B_ij [p.u.].
+    /// `y_red_flat` is row-major: `y_red[i][j]` = G_ij + j·B_ij `p.u.`.
     pub fn new(machines: Vec<MachineParams>, y_red: Vec<Vec<Complex64>>) -> Self {
         Self {
             machines,
@@ -442,7 +442,7 @@ impl MultiMachineResult {
             .fold(f64::NEG_INFINITY, f64::max)
     }
 
-    /// Time series of the COI angle [rad].
+    /// Time series of the COI angle `rad`.
     pub fn coi_angle(&self, machines: &[MachineParams]) -> Vec<(f64, f64)> {
         let mt: f64 = machines.iter().map(|m| m.m_inertia()).sum();
         self.snapshots

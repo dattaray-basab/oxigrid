@@ -25,15 +25,15 @@ pub struct Branch {
     pub x: f64,
     /// Total line-charging susceptance [p.u.] (split equally at each end).
     pub b: f64,
-    /// Long-term MVA rating [MVA] (`0` = unlimited).
+    /// Long-term MVA rating `MVA` (`0` = unlimited).
     pub rate_a: f64,
-    /// Short-term MVA rating [MVA] (`0` = unlimited).
+    /// Short-term MVA rating `MVA` (`0` = unlimited).
     pub rate_b: f64,
-    /// Emergency MVA rating [MVA] (`0` = unlimited).
+    /// Emergency MVA rating `MVA` (`0` = unlimited).
     pub rate_c: f64,
     /// Off-nominal turns ratio (transformer tap magnitude).  `0.0` = treated as `1.0`.
     pub tap: f64,
-    /// Phase shift angle [degrees].  `0.0` = no phase shift.
+    /// Phase shift angle `degrees`.  `0.0` = no phase shift.
     pub shift: f64,
     /// In-service flag.  `false` = branch is open (removed from Y-bus).
     pub status: bool,
@@ -49,7 +49,7 @@ impl Branch {
         }
     }
 
-    /// Complex tap `a = t·e^{jφ}` where `t = effective_tap()`, `φ = shift` [rad].
+    /// Complex tap `a = t·e^{jφ}` where `t = effective_tap()`, `φ = shift` `rad`.
     pub fn tap_complex(&self) -> num_complex::Complex64 {
         let t = self.effective_tap();
         let shift_rad = self.shift.to_radians();

@@ -126,7 +126,7 @@ pub struct InductionMotorParams {
     pub p_rated: f64,
     /// Power factor at rated load
     pub power_factor: f64,
-    /// Inertia constant H [s]
+    /// Inertia constant H `s`
     pub h: f64,
     /// Transient reactance X' [p.u.] (≈ leakage + rotor reactance)
     pub x_prime: f64,
@@ -172,7 +172,7 @@ impl InductionMotorParams {
 /// State of an induction motor.
 #[derive(Debug, Clone, Copy, Serialize, Deserialize)]
 pub struct MotorState {
-    /// Slip s = (ωs − ω) / ωs [0,1] (0=synchronous, 1=stall)
+    /// Slip s = (ωs − ω) / ωs `0,1` (0=synchronous, 1=stall)
     pub slip: f64,
     /// Stalled flag (true if motor has stalled)
     pub stalled: bool,
@@ -303,7 +303,7 @@ impl ClodModel {
 /// where:
 ///   P_s(V) = P0 * V^α_s  (static characteristic after recovery)
 ///   P_t     = transient (dynamic) load
-///   T_p     = active power recovery time constant [s]
+///   T_p     = active power recovery time constant `s`
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct LoadRecoveryModel {
     /// Steady-state active load at V=1 [p.u.]
@@ -318,9 +318,9 @@ pub struct LoadRecoveryModel {
     pub beta_s: f64,
     /// Reactive power transient voltage exponent (β_t)
     pub beta_t: f64,
-    /// Active recovery time constant T_p [s]
+    /// Active recovery time constant T_p `s`
     pub t_p: f64,
-    /// Reactive recovery time constant T_q [s]
+    /// Reactive recovery time constant T_q `s`
     pub t_q: f64,
     // State: transient load power deviation
     pub x_p: f64, // active load state variable

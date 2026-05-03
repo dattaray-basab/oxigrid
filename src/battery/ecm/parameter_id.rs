@@ -23,15 +23,15 @@ use serde::{Deserialize, Serialize};
 /// RLS estimated parameter vector for a 2RC Thevenin model.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct EcmParams {
-    /// Ohmic resistance R0 [Ω]
+    /// Ohmic resistance R0 `Ω`
     pub r0: f64,
-    /// RC pair 1 resistance R1 [Ω]
+    /// RC pair 1 resistance R1 `Ω`
     pub r1: f64,
-    /// RC pair 1 capacitance C1 [F]
+    /// RC pair 1 capacitance C1 `F`
     pub c1: f64,
-    /// RC pair 2 resistance R2 [Ω]
+    /// RC pair 2 resistance R2 `Ω`
     pub r2: f64,
-    /// RC pair 2 capacitance C2 [F]
+    /// RC pair 2 capacitance C2 `F`
     pub c2: f64,
 }
 
@@ -47,12 +47,12 @@ impl EcmParams {
         }
     }
 
-    /// Time constants τ1 = R1·C1, τ2 = R2·C2 [s].
+    /// Time constants τ1 = R1·C1, τ2 = R2·C2 `s`.
     pub fn time_constants(&self) -> (f64, f64) {
         (self.r1 * self.c1, self.r2 * self.c2)
     }
 
-    /// Total DC resistance R0 + R1 + R2 [Ω].
+    /// Total DC resistance R0 + R1 + R2 `Ω`.
     pub fn r_total(&self) -> f64 {
         self.r0 + self.r1 + self.r2
     }
@@ -83,7 +83,7 @@ pub struct RlsEstimator {
     v_rc2_prev: f64,
     /// Previous current
     i_prev: f64,
-    /// Discretisation time step [s]
+    /// Discretisation time step `s`
     dt: f64,
     /// Number of updates performed
     pub update_count: usize,
@@ -94,7 +94,7 @@ impl RlsEstimator {
     ///
     /// - `initial`  — starting parameter guess
     /// - `lambda`   — forgetting factor (0.95–0.999 typical)
-    /// - `dt`       — sample period [s]
+    /// - `dt`       — sample period `s`
     /// - `p0_diag` — initial covariance diagonal (large = uncertain)
     pub fn new(initial: &EcmParams, lambda: f64, dt: f64, p0_diag: f64) -> Self {
         let n = 5;
@@ -123,9 +123,9 @@ impl RlsEstimator {
 
     /// Update the RLS estimate with a new measurement.
     ///
-    /// - `current_a`    — measured current [A] (positive = discharge)
-    /// - `voltage_v`    — measured terminal voltage [V]
-    /// - `ocv_v`        — estimated OCV at current SoC [V]
+    /// - `current_a`    — measured current `A` (positive = discharge)
+    /// - `voltage_v`    — measured terminal voltage `V`
+    /// - `ocv_v`        — estimated OCV at current SoC `V`
     ///
     /// Returns the updated parameter estimate.
     pub fn update(&mut self, current_a: f64, voltage_v: f64, ocv_v: f64) -> EcmParams {
@@ -243,16 +243,16 @@ fn mat5_vec_mul(m: &[f64], v: &[f64; 5], n: usize) -> Vec<f64> {
 /// where h is a hysteresis state that decays exponentially toward ±1:
 ///   dh/dt = γ · |I| / Q_nom · (sgn(I) − h)
 ///
-/// with γ = hysteresis decay constant, Q_nom = nominal capacity [Ah].
+/// with γ = hysteresis decay constant, Q_nom = nominal capacity `Ah`.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct HysteresisModel {
     /// Hysteresis state h ∈ [−1, +1]
     pub h: f64,
     /// Decay constant γ (typical 1–10)
     pub gamma: f64,
-    /// Nominal cell capacity [Ah]
+    /// Nominal cell capacity `Ah`
     pub q_nom_ah: f64,
-    /// Peak hysteresis voltage [V] at each SoC breakpoint
+    /// Peak hysteresis voltage `V` at each SoC breakpoint
     pub m_soc: Vec<(f64, f64)>, // (SoC fraction, M voltage [V])
 }
 
@@ -279,8 +279,8 @@ impl HysteresisModel {
 
     /// Update the hysteresis state given the current and time step.
     ///
-    /// - `current_a` — cell current [A] (positive = discharge)
-    /// - `dt_s`      — time step [s]
+    /// - `current_a` — cell current `A` (positive = discharge)
+    /// - `dt_s`      — time step `s`
     pub fn update(&mut self, current_a: f64, dt_s: f64) {
         let sign_i = if current_a > 1e-6 {
             1.0
@@ -317,7 +317,7 @@ impl HysteresisModel {
         0.0
     }
 
-    /// Compute hysteresis voltage correction [V] at given SoC.
+    /// Compute hysteresis voltage correction `V` at given SoC.
     pub fn voltage_correction(&self, soc: f64) -> f64 {
         self.h * self.m_at_soc(soc)
     }
@@ -336,9 +336,9 @@ pub struct DualEkf {
     pub state_ekf: StateEkf,
     /// Parameter EKF
     pub param_ekf: ParamEkf,
-    /// Discretisation time step [s]
+    /// Discretisation time step `s`
     pub dt: f64,
-    /// Total cell capacity [Ah]
+    /// Total cell capacity `Ah`
     pub capacity_ah: f64,
 }
 
@@ -355,8 +355,8 @@ impl DualEkf {
 
     /// Run one step of the dual EKF.
     ///
-    /// - `current_a` — measured current [A]
-    /// - `voltage_v` — measured terminal voltage [V]
+    /// - `current_a` — measured current `A`
+    /// - `voltage_v` — measured terminal voltage `V`
     /// - `ocv_fn`    — OCV-SoC function
     ///
     /// Returns (SoC estimate, parameter estimate).
@@ -395,7 +395,7 @@ pub struct StateEkf {
     q: [f64; 3],
     /// Measurement noise variance σ_v²
     r_noise: f64,
-    /// Capacity [Ah]
+    /// Capacity `Ah`
     capacity_ah: f64,
 }
 

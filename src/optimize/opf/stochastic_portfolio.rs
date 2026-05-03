@@ -80,7 +80,7 @@ pub struct RenewableCandidate {
     pub renewable_type: RenewableType,
     /// Bus / location identifier in the network
     pub location_id: usize,
-    /// Nameplate capacity [MW]
+    /// Nameplate capacity `MW`
     pub capacity_mw: f64,
     /// Expected (mean) capacity factor [0, 1]
     pub capacity_factor_mean: f64,
@@ -90,13 +90,13 @@ pub struct RenewableCandidate {
     pub capital_cost_musd: f64,
     /// Annual operating expenditure [million USD/year]
     pub annual_opex_musd: f64,
-    /// Project economic lifetime [years]
+    /// Project economic lifetime `years`
     pub lifetime_years: f64,
-    /// Construction / lead time [years]
+    /// Construction / lead time `years`
     pub lead_time_years: f64,
     /// Grid interconnection cost [million USD]
     pub interconnection_cost_musd: f64,
-    /// Land footprint [km²]
+    /// Land footprint `km²`
     pub land_use_km2: f64,
     /// Lifecycle CO₂ intensity [g/kWh]
     pub co2_intensity_g_per_kwh: f64,
@@ -124,7 +124,7 @@ pub struct PortfolioDecision {
     pub candidate_id: usize,
     /// Whether the candidate is selected
     pub selected: bool,
-    /// Actual installed capacity [MW] (may be ≤ candidate nameplate if partial)
+    /// Actual installed capacity `MW` (may be ≤ candidate nameplate if partial)
     pub capacity_installed_mw: f64,
 }
 
@@ -147,9 +147,9 @@ pub struct PortfolioResult {
     pub risk_measure_value_musd: f64,
     /// Annual CO₂ avoided [kt/year]
     pub co2_avoided_ktpy: f64,
-    /// Total land use of selected projects [km²]
+    /// Total land use of selected projects `km²`
     pub land_use_km2: f64,
-    /// Total installed portfolio capacity [MW]
+    /// Total installed portfolio capacity `MW`
     pub portfolio_capacity_mw: f64,
     /// Weighted average portfolio capacity factor
     pub capacity_factor_portfolio: f64,
@@ -168,9 +168,9 @@ pub struct StochasticPortfolioOptimizer {
     pub candidates: Vec<RenewableCandidate>,
     /// Available investment budget [million USD]
     pub budget_musd: f64,
-    /// Minimum total installed capacity [MW]
+    /// Minimum total installed capacity `MW`
     pub min_capacity_mw: f64,
-    /// Maximum total installed capacity [MW]
+    /// Maximum total installed capacity `MW`
     pub max_capacity_mw: f64,
     /// Annual generation target [GWh/year]
     pub target_energy_gwh_per_year: f64,
@@ -186,7 +186,7 @@ pub struct StochasticPortfolioOptimizer {
     pub discount_rate: f64,
     /// Maximum annual CO₂ emissions of portfolio [t/year], `None` = no limit
     pub co2_constraint_tpy: Option<f64>,
-    /// Maximum land use [km²], `None` = no limit
+    /// Maximum land use `km²`, `None` = no limit
     pub land_use_constraint_km2: Option<f64>,
 }
 

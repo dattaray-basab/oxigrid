@@ -143,7 +143,7 @@ impl GeneratorInertia {
     }
 
     /// Steady-state governor response at frequency deviation Δf (Hz).
-    /// ΔP_gov_ss = -(Δf / f0) / R * P_rated   [MW]
+    /// ΔP_gov_ss = -(Δf / f0) / R * P_rated   `MW`
     fn governor_ss_mw(&self, delta_f_hz: f64, f0_hz: f64) -> f64 {
         if self.droop_pu() < 1e-12 {
             return 0.0;
@@ -187,9 +187,9 @@ impl RocofRiskLevel {
 pub struct SystemInertia {
     /// Total stored energy: Σ(H_i * S_i) [MW·s]
     pub total_h_mws: f64,
-    /// System-equivalent inertia constant H_sys = total_h_mws / S_base [s]
+    /// System-equivalent inertia constant H_sys = total_h_mws / S_base `s`
     pub system_h_s: f64,
-    /// Load-weighted average inertia constant [s]
+    /// Load-weighted average inertia constant `s`
     pub weighted_average_h_s: f64,
     /// Total synchronous MVA online
     pub synchronous_mva: f64,
@@ -206,15 +206,15 @@ pub struct SystemInertia {
 /// Result of a frequency nadir prediction run.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct FrequencyNadirResult {
-    /// Time from disturbance to frequency nadir [s]
+    /// Time from disturbance to frequency nadir `s`
     pub time_to_nadir_s: f64,
-    /// Frequency at the nadir [Hz]
+    /// Frequency at the nadir `Hz`
     pub nadir_frequency_hz: f64,
-    /// Depth of the nadir: f0 − f_nadir [Hz]
+    /// Depth of the nadir: f0 − f_nadir `Hz`
     pub nadir_deviation_hz: f64,
     /// Initial rate-of-change-of-frequency [Hz/s]
     pub rocof_initial_hz_per_s: f64,
-    /// Quasi-steady-state post-governor frequency [Hz]
+    /// Quasi-steady-state post-governor frequency `Hz`
     pub quasi_steady_state_hz: f64,
     /// Whether under-frequency load shedding would be triggered
     pub ufls_triggered: bool,
@@ -242,13 +242,13 @@ pub struct FrequencyNadirPredictor {
     pub generators: Vec<GeneratorInertia>,
     /// System base MVA
     pub system_mva: f64,
-    /// Nominal system frequency [Hz]
+    /// Nominal system frequency `Hz`
     pub frequency_hz: f64,
-    /// Minimum permissible frequency before UFLS triggers [Hz]
+    /// Minimum permissible frequency before UFLS triggers `Hz`
     pub minimum_frequency_hz: f64,
     /// Regulatory ROCOF limit [Hz/s]
     pub rocof_limit_hz_per_s: f64,
-    /// Virtual inertia resources: (k_vi [MW·s], T_response [s])
+    /// Virtual inertia resources: (k_vi [MW·s], T_response `s`)
     virtual_inertia_resources: Vec<(f64, f64)>,
 }
 
@@ -522,7 +522,7 @@ impl FrequencyNadirPredictor {
         })
     }
 
-    /// Minimum system inertia [s] required to keep |ROCOF| ≤ rocof_limit:
+    /// Minimum system inertia `s` required to keep |ROCOF| ≤ rocof_limit:
     ///   H_min = ΔP / (2 * rocof_limit * S_base)
     pub fn minimum_inertia_for_rocof(&self, power_imbalance_mw: f64) -> f64 {
         let denom = 2.0 * self.rocof_limit_hz_per_s * self.system_mva;
@@ -532,7 +532,7 @@ impl FrequencyNadirPredictor {
         power_imbalance_mw * self.frequency_hz / denom
     }
 
-    /// Find the maximum credible power loss [MW] such that the frequency nadir
+    /// Find the maximum credible power loss `MW` such that the frequency nadir
     /// stays above `minimum_frequency_hz`.
     ///
     /// Uses binary search with ±0.1 MW resolution over [0, system_mva] MW.
@@ -574,13 +574,13 @@ impl FrequencyNadirPredictor {
     ///
     /// # Arguments
     /// * `k_vi_mw_s`    — virtual inertia gain [MW·s]
-    /// * `t_response_s` — response time constant [s]
+    /// * `t_response_s` — response time constant `s`
     pub fn add_virtual_inertia(&mut self, k_vi_mw_s: f64, t_response_s: f64) {
         self.virtual_inertia_resources
             .push((k_vi_mw_s, t_response_s.max(0.001)));
     }
 
-    /// Frequency containment reserve (FCR) requirement [MW].
+    /// Frequency containment reserve (FCR) requirement `MW`.
     ///
     /// Based on the ENTSO-E approach:
     ///   FCR = H_min_required * 2 * S_base / t_delivery
@@ -610,19 +610,19 @@ pub struct InertiaEmulationControl {
     pub k_inertia: f64,
     /// Droop response gain [MW/Hz]
     pub k_droop: f64,
-    /// Frequency deadband [Hz] — no response within ±deadband_hz
+    /// Frequency deadband `Hz` — no response within ±deadband_hz
     pub deadband_hz: f64,
-    /// Maximum power the resource can inject [MW]
+    /// Maximum power the resource can inject `MW`
     pub max_power_mw: f64,
     /// Maximum ramp rate [MW/s]
     pub ramp_limit_mw_per_s: f64,
     /// Current estimated ROCOF [Hz/s] (state, public for monitoring)
     pub df_dt: f64,
-    /// Current frequency deviation [Hz] (state)
+    /// Current frequency deviation `Hz` (state)
     pub delta_f: f64,
-    /// Current power output [MW] (state)
+    /// Current power output `MW` (state)
     pub p_output_mw: f64,
-    /// Power at previous time step [MW] (state, used for ramp limiting)
+    /// Power at previous time step `MW` (state, used for ramp limiting)
     pub p_prev_mw: f64,
 }
 
@@ -653,9 +653,9 @@ impl InertiaEmulationControl {
     /// # Arguments
     /// * `frequency_hz`  — measured frequency
     /// * `rocof_hz_per_s`— measured or estimated ROCOF
-    /// * `dt`            — time step size [s]
+    /// * `dt`            — time step size `s`
     ///
-    /// Returns the power injection [MW] (positive = injection into grid).
+    /// Returns the power injection `MW` (positive = injection into grid).
     pub fn compute_response(&mut self, frequency_hz: f64, rocof_hz_per_s: f64, dt: f64) -> f64 {
         self.df_dt = rocof_hz_per_s;
         self.delta_f = frequency_hz - self.nominal_frequency_estimate();
@@ -692,7 +692,7 @@ impl InertiaEmulationControl {
         50.0
     }
 
-    /// Virtual inertia constant H_virtual = K_inertia / (2 * S_resource) [s].
+    /// Virtual inertia constant H_virtual = K_inertia / (2 * S_resource) `s`.
     ///
     /// # Arguments
     /// * `s_resource_mva` — MVA rating of the resource
@@ -720,7 +720,7 @@ pub enum EstimationMethod {
 /// Online inertia estimate derived from a PMU disturbance event.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct InertiaEstimate {
-    /// Timestamp at which the estimate was produced [s]
+    /// Timestamp at which the estimate was produced `s`
     pub timestamp: f64,
     /// Estimated system inertia [MW·s]
     pub estimated_h_mws: f64,
@@ -728,7 +728,7 @@ pub struct InertiaEstimate {
     pub confidence: f64,
     /// Measured ROCOF [Hz/s]
     pub rocof_measured_hz_per_s: f64,
-    /// Estimated power imbalance [MW] (from ΔP = H * 2 * rocof / S_base * S_base)
+    /// Estimated power imbalance `MW` (from ΔP = H * 2 * rocof / S_base * S_base)
     pub power_imbalance_estimate_mw: f64,
     /// Estimation method used
     pub method: EstimationMethod,
@@ -738,11 +738,11 @@ pub struct InertiaEstimate {
 pub struct InertiaMonitor {
     /// Number of samples in the sliding window
     pub window_size: usize,
-    /// PMU sampling rate [Hz]
+    /// PMU sampling rate `Hz`
     pub sampling_rate_hz: f64,
-    /// Circular buffer of frequency samples [Hz]
+    /// Circular buffer of frequency samples `Hz`
     pub frequency_buffer: Vec<f64>,
-    /// Corresponding timestamps [s]
+    /// Corresponding timestamps `s`
     pub time_buffer: Vec<f64>,
 }
 
@@ -804,7 +804,7 @@ impl InertiaMonitor {
     /// H = ΔP * fn / (2 * |ROCOF| * S_base)
     ///
     /// # Arguments
-    /// * `power_imbalance_mw` — known power step [MW]
+    /// * `power_imbalance_mw` — known power step `MW`
     /// * `system_mva`         — system base MVA
     pub fn estimate_inertia(&self, power_imbalance_mw: f64, system_mva: f64) -> InertiaEstimate {
         let rocof = self.estimate_rocof();

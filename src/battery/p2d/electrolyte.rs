@@ -80,7 +80,7 @@ pub struct ElectrolyteState {
     pub params: ElectrolyteParams,
     /// Li concentration at each node [mol/m³]
     pub c_e: Vec<f64>,
-    /// Electrolyte potential at each node [V]
+    /// Electrolyte potential at each node `V`
     pub phi_e: Vec<f64>,
     /// Node count in anode region
     pub n_neg: usize,
@@ -88,7 +88,7 @@ pub struct ElectrolyteState {
     pub n_sep: usize,
     /// Node count in cathode region
     pub n_pos: usize,
-    /// Node width (uniform) [m]
+    /// Node width (uniform) `m`
     dx_neg: f64,
     dx_sep: f64,
     dx_pos: f64,
@@ -101,7 +101,7 @@ pub struct ElectrolyteState {
 impl ElectrolyteState {
     /// Create uniform initial state.
     ///
-    /// Lengths in [m]; porosities dimensionless.
+    /// Lengths in `m`; porosities dimensionless.
     #[allow(clippy::too_many_arguments)]
     pub fn new(
         params: ElectrolyteParams,

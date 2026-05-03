@@ -29,9 +29,9 @@ use serde::{Deserialize, Serialize};
 pub struct AutorecloserConfig {
     /// Maximum number of reclose attempts
     pub n_shots: usize,
-    /// Dead times between reclose attempts [s] (length ≥ n_shots)
+    /// Dead times between reclose attempts `s` (length ≥ n_shots)
     pub dead_times_s: Vec<f64>,
-    /// Reclaim time after successful reclose [s] (reset timer to normal)
+    /// Reclaim time after successful reclose `s` (reset timer to normal)
     pub reclaim_time_s: f64,
     /// Instantaneous (fast) trip applied on first shot?
     pub first_shot_fast: bool,
@@ -41,7 +41,7 @@ pub struct AutorecloserConfig {
     pub sync_check_dv_pu: f64,
     /// Minimum voltage on line to confirm de-energisation before reclose
     pub min_line_voltage_pu: f64,
-    /// Hold-off time before allowing first reclose after trip [s]
+    /// Hold-off time before allowing first reclose after trip `s`
     pub holdoff_time_s: f64,
 }
 
@@ -119,7 +119,7 @@ pub struct AutorecloserState {
     pub breaker_closed: bool,
     /// Number of shots fired so far (cumulative)
     pub total_shots_fired: usize,
-    /// Time since last state transition [s]
+    /// Time since last state transition `s`
     pub time_in_state_s: f64,
 }
 
@@ -300,7 +300,7 @@ pub fn process_event(
     }
 }
 
-/// Advance the auto-recloser on a time tick [s].
+/// Advance the auto-recloser on a time tick `s`.
 ///
 /// Handles dead-time expiry (issue reclose) and reclaim-time expiry (return to Normal).
 /// Returns a command if the state changes.
@@ -380,9 +380,9 @@ pub struct RecloserReliabilityStats {
     pub transient_faults: usize,
     pub semi_permanent_faults: usize,
     pub permanent_faults: usize,
-    /// Transient fault rate [fraction]
+    /// Transient fault rate `fraction`
     pub transient_rate: f64,
-    /// Permanent fault rate [fraction]
+    /// Permanent fault rate `fraction`
     pub permanent_rate: f64,
     /// Average shots per fault
     pub avg_shots_per_fault: f64,

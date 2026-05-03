@@ -241,7 +241,7 @@ impl DistributionStateEstimator {
 
     // ── Per-unit conversion helpers ──────────────────────────────────────────
 
-    /// Base impedance Z_base = V_base² / S_base  [Ω].
+    /// Base impedance Z_base = V_base² / S_base  `Ω`.
     ///
     /// V_base is converted from kV to V; S_base from MVA to VA.
     pub fn z_base(&self) -> f64 {

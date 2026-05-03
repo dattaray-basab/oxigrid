@@ -55,9 +55,9 @@ pub struct OcRelay {
     pub tms: f64,
     /// Relay characteristic curve
     pub curve: RelayCharacteristic,
-    /// Instantaneous trip level [A] (0 = disabled)
+    /// Instantaneous trip level `A` (0 = disabled)
     pub inst_level: f64,
-    /// Instantaneous trip time [s] (typically 0.02–0.05)
+    /// Instantaneous trip time `s` (typically 0.02–0.05)
     pub inst_time: f64,
 }
 
@@ -78,7 +78,7 @@ impl OcRelay {
         self
     }
 
-    /// Compute trip time [s] for fault current `i_fault`.
+    /// Compute trip time `s` for fault current `i_fault`.
     ///
     /// Returns `None` if current is below pickup.
     pub fn trip_time(&self, i_fault: f64) -> Option<f64> {
@@ -132,22 +132,22 @@ impl OcRelay {
 /// Mho distance relay (single zone).
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct DistanceRelay {
-    /// Zone 1 reach [Ω] (typically 80% of line impedance)
+    /// Zone 1 reach `Ω` (typically 80% of line impedance)
     pub z1_reach: f64,
-    /// Zone 2 reach [Ω] (typically 120% of line impedance)
+    /// Zone 2 reach `Ω` (typically 120% of line impedance)
     pub z2_reach: f64,
-    /// Zone 3 reach [Ω] (typically 220% of line impedance)
+    /// Zone 3 reach `Ω` (typically 220% of line impedance)
     pub z3_reach: f64,
-    /// Zone 1 trip time [s] (instantaneous ≈ 0.02)
+    /// Zone 1 trip time `s` (instantaneous ≈ 0.02)
     pub t1: f64,
-    /// Zone 2 trip time [s] (typically 0.3–0.5)
+    /// Zone 2 trip time `s` (typically 0.3–0.5)
     pub t2: f64,
-    /// Zone 3 trip time [s] (typically 1.0)
+    /// Zone 3 trip time `s` (typically 1.0)
     pub t3: f64,
 }
 
 impl DistanceRelay {
-    /// Trip time for apparent impedance `z_app` [Ω].
+    /// Trip time for apparent impedance `z_app` `Ω`.
     pub fn trip_time(&self, z_app: f64) -> Option<f64> {
         if z_app <= self.z1_reach {
             Some(self.t1)

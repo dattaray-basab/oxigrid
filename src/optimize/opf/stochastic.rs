@@ -114,7 +114,7 @@ pub struct UncertainSource {
     pub bus_id: u32,
     /// Type: "load" or "renewable"
     pub source_type: String,
-    /// Power output distribution [MW]
+    /// Power output distribution `MW`
     pub dist: UncertainDist,
 }
 
@@ -166,7 +166,7 @@ pub struct StochasticOpfConfig {
     pub epsilon: f64,
     /// CVaR confidence level α (e.g. 0.95 = worst 5% of scenarios)
     pub cvar_alpha: f64,
-    /// CVaR risk penalty weight β (objective = E[cost] + β·CVaR)
+    /// CVaR risk penalty weight β (objective = `E[cost]` + β·CVaR)
     pub cvar_beta: f64,
 }
 
@@ -187,17 +187,17 @@ impl Default for StochasticOpfConfig {
 pub struct Scenario {
     /// Scenario index
     pub index: usize,
-    /// Sampled uncertain power injections [MW], keyed by bus_id
+    /// Sampled uncertain power injections `MW`, keyed by bus_id
     pub injections: Vec<(u32, f64)>,
-    /// Total load for this scenario [MW]
+    /// Total load for this scenario `MW`
     pub total_load_mw: f64,
-    /// Dispatch result [MW] per generator
+    /// Dispatch result `MW` per generator
     pub p_gen_mw: Vec<f64>,
     /// Total cost [$/h]
     pub cost: f64,
     /// Any constraint violated in this scenario
     pub constraint_violated: bool,
-    /// Curtailment of renewables [MW] (renewable sampled − renewable used)
+    /// Curtailment of renewables `MW` (renewable sampled − renewable used)
     pub curtailment_mw: f64,
 }
 
@@ -212,20 +212,20 @@ pub struct StochasticOpfResult {
     pub cost_std: f64,
     /// CVaR at α confidence level [$/h]
     pub cvar: f64,
-    /// Risk-adjusted objective: E[cost] + β·CVaR [$/h]
+    /// Risk-adjusted objective: `E[cost]` + β·CVaR `$/h`
     pub objective: f64,
     /// Probability of constraint violation across scenarios
     pub violation_probability: f64,
     /// Chance constraint satisfied? (violation_prob ≤ ε)
     pub chance_constraint_satisfied: bool,
-    /// Optimal base dispatch (expected dispatch across scenarios) [MW]
+    /// Optimal base dispatch (expected dispatch across scenarios) `MW`
     pub base_dispatch_mw: Vec<f64>,
-    /// Expected curtailment [MW]
+    /// Expected curtailment `MW`
     pub expected_curtailment_mw: f64,
 }
 
 impl StochasticOpfResult {
-    /// Percentile cost at given probability level p ∈ [0,1].
+    /// Percentile cost at given probability level p ∈ `0,1`.
     pub fn cost_percentile(&self, p: f64) -> f64 {
         let mut costs: Vec<f64> = self.scenarios.iter().map(|s| s.cost).collect();
         costs.sort_by(|a, b| a.partial_cmp(b).unwrap());
@@ -250,7 +250,7 @@ impl StochasticOpfResult {
 ///   3. Solve deterministic DC-OPF for the scenario load.
 ///   4. Check constraint feasibility (load ≤ gen capacity).
 ///
-/// Then aggregate statistics: E[cost], CVaR, violation probability.
+/// Then aggregate statistics: `E[cost]`, CVaR, violation probability.
 pub fn run_stochastic_opf(
     network: &PowerNetwork,
     gen_costs: &[GenCost],
@@ -422,7 +422,7 @@ fn compute_cvar(scenarios: &[Scenario], alpha: f64) -> f64 {
 
 /// Sensitivity analysis: partial derivative of expected cost w.r.t. uncertain mean.
 ///
-/// Uses finite-difference approximation: ΔE[cost] / Δμ_i.
+/// Uses finite-difference approximation: `ΔE[cost]` / Δμ_i.
 pub fn cost_sensitivity_to_mean(
     network: &PowerNetwork,
     gen_costs: &[GenCost],

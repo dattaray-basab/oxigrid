@@ -63,9 +63,9 @@ pub struct ThermalGenerator {
     pub name: String,
     /// Technology type.
     pub gen_type: GeneratorType,
-    /// Minimum stable generation [MW].
+    /// Minimum stable generation `MW`.
     pub p_min_mw: f64,
-    /// Maximum continuous rating [MW].
+    /// Maximum continuous rating `MW`.
     pub p_max_mw: f64,
     /// No-load (fixed) operating cost [USD/h].
     pub cost_a_usd_per_h: f64,
@@ -77,17 +77,17 @@ pub struct ThermalGenerator {
     pub ramp_up_mw_per_min: f64,
     /// Ramp-down rate [MW/min].
     pub ramp_down_mw_per_min: f64,
-    /// One-time cost to start the unit from cold [USD].
+    /// One-time cost to start the unit from cold `USD`.
     pub startup_cost_usd: f64,
-    /// One-time cost to shut the unit down [USD].
+    /// One-time cost to shut the unit down `USD`.
     pub shutdown_cost_usd: f64,
-    /// Minimum continuous online duration [h].
+    /// Minimum continuous online duration `h`.
     pub min_up_time_h: f64,
-    /// Minimum continuous offline duration before restart [h].
+    /// Minimum continuous offline duration before restart `h`.
     pub min_down_time_h: f64,
     /// Whether the unit is currently committed (online).
     pub online: bool,
-    /// Current real power output [MW].
+    /// Current real power output `MW`.
     pub current_output_mw: f64,
 }
 
@@ -98,9 +98,9 @@ pub struct StorageBattery {
     pub id: usize,
     /// Human-readable name.
     pub name: String,
-    /// Usable energy capacity [MWh].
+    /// Usable energy capacity `MWh`.
     pub energy_capacity_mwh: f64,
-    /// Maximum charge / discharge power [MW].
+    /// Maximum charge / discharge power `MW`.
     pub power_capacity_mw: f64,
     /// Round-trip efficiency (0–1).
     pub roundtrip_efficiency: f64,
@@ -127,13 +127,13 @@ impl StorageBattery {
         self.roundtrip_efficiency.sqrt()
     }
 
-    /// Maximum energy that can be charged in one step of `dt_h` hours [MWh].
+    /// Maximum energy that can be charged in one step of `dt_h` hours `MWh`.
     pub fn max_charge_energy_mwh(&self, dt_h: f64) -> f64 {
         let e_to_full = (self.soc_max - self.soc_current) * self.energy_capacity_mwh;
         (self.power_capacity_mw * dt_h).min(e_to_full.max(0.0))
     }
 
-    /// Maximum energy that can be discharged in one step of `dt_h` hours [MWh].
+    /// Maximum energy that can be discharged in one step of `dt_h` hours `MWh`.
     pub fn max_discharge_energy_mwh(&self, dt_h: f64) -> f64 {
         let e_available = (self.soc_current - self.soc_min) * self.energy_capacity_mwh;
         (self.power_capacity_mw * dt_h).min(e_available.max(0.0))
@@ -153,15 +153,15 @@ pub struct DispatchResult {
     pub storage_discharge: Vec<(usize, f64)>,
     /// State of charge after this period per storage unit `(storage_id, SoC)`.
     pub storage_soc: Vec<(usize, f64)>,
-    /// Total generation + storage cost for this period [USD].
+    /// Total generation + storage cost for this period `USD`.
     pub total_cost_usd: f64,
     /// System lambda (marginal price / LMP at balance node) [USD/MWh].
     pub lambda_usd_per_mwh: f64,
-    /// Total load served [MW].
+    /// Total load served `MW`.
     pub load_served_mw: f64,
-    /// Must-take renewable generation injected [MW].
+    /// Must-take renewable generation injected `MW`.
     pub renewable_mw: f64,
-    /// Renewable curtailment (when renewable > load) [MW].
+    /// Renewable curtailment (when renewable > load) `MW`.
     pub curtailment_mw: f64,
 }
 
@@ -172,13 +172,13 @@ pub struct EconomicDispatchProblem {
     pub generators: Vec<ThermalGenerator>,
     /// Battery storage units in the portfolio.
     pub storage: Vec<StorageBattery>,
-    /// Load to be served in the current period [MW].
+    /// Load to be served in the current period `MW`.
     pub load_mw: f64,
-    /// Must-take renewable injection for the current period [MW].
+    /// Must-take renewable injection for the current period `MW`.
     pub renewable_mw: f64,
-    /// Minimum spinning reserve required [MW].
+    /// Minimum spinning reserve required `MW`.
     pub spinning_reserve_mw: f64,
-    /// Dispatch time-step [h] (default 1.0).
+    /// Dispatch time-step `h` (default 1.0).
     pub dt_h: f64,
 }
 
@@ -187,7 +187,7 @@ pub struct EconomicDispatchProblem {
 pub struct DispatchSolution {
     /// Per-period dispatch results.
     pub results: Vec<DispatchResult>,
-    /// Total cost across all periods [USD].
+    /// Total cost across all periods `USD`.
     pub total_cost_usd: f64,
     /// Fraction of total load served by renewables [0–1].
     pub total_renewable_pct: f64,
@@ -288,7 +288,7 @@ impl EconomicDispatchProblem {
         p.clamp(gen.p_min_mw, gen.p_max_mw)
     }
 
-    /// Compute net storage contribution [MW] at a given lambda.
+    /// Compute net storage contribution `MW` at a given lambda.
     ///
     /// Returns `(net_mw, charge_per_unit, discharge_per_unit)`.
     /// Positive net means storage is net generating (discharging more than charging).
@@ -535,8 +535,8 @@ impl EconomicDispatchProblem {
     /// solver is invoked.
     ///
     /// # Arguments
-    /// - `loads`      — load demand for each period [MW].
-    /// - `renewable`  — must-take renewable for each period [MW].
+    /// - `loads`      — load demand for each period `MW`.
+    /// - `renewable`  — must-take renewable for each period `MW`.
     /// - `horizon_h`  — number of periods to dispatch (capped at `loads.len()`).
     pub fn solve_multi_period(
         &mut self,

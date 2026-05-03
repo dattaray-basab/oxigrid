@@ -21,7 +21,7 @@
 //!
 //! Using the second-order approximation:
 //! ```text
-//! ΔCS ≈ ½ × |ε| × (ΔP)² / P_base × Q_base   [USD]
+//! ΔCS ≈ ½ × |ε| × (ΔP)² / P_base × Q_base   `USD`
 //! ```
 //!
 //! # References

@@ -28,13 +28,13 @@ pub struct RtGenerator {
     pub id: usize,
     /// Terminal bus index (0-based)
     pub bus: usize,
-    /// Minimum real power output [MW]
+    /// Minimum real power output `MW`
     pub p_min_mw: f64,
-    /// Maximum real power output [MW]
+    /// Maximum real power output `MW`
     pub p_max_mw: f64,
-    /// Minimum reactive power output [MVAr]
+    /// Minimum reactive power output `MVAr`
     pub q_min_mvar: f64,
-    /// Maximum reactive power output [MVAr]
+    /// Maximum reactive power output `MVAr`
     pub q_max_mvar: f64,
     /// Ramp rate capability [MW/min]
     pub ramp_rate_mw_per_min: f64,
@@ -48,9 +48,9 @@ pub struct RtGenerator {
     pub agc_participation: f64,
     /// Commitment status
     pub is_online: bool,
-    /// Current active power setpoint [MW] (used for ramp constraints)
+    /// Current active power setpoint `MW` (used for ramp constraints)
     pub p_current_mw: f64,
-    /// Current reactive power setpoint [MVAr]
+    /// Current reactive power setpoint `MVAr`
     pub q_current_mvar: f64,
 }
 
@@ -61,11 +61,11 @@ pub struct RtBranch {
     pub from: usize,
     /// To-bus index (0-based)
     pub to: usize,
-    /// Series resistance [pu]
+    /// Series resistance `pu`
     pub r_pu: f64,
-    /// Series reactance [pu]
+    /// Series reactance `pu`
     pub x_pu: f64,
-    /// Thermal rating [MVA]
+    /// Thermal rating `MVA`
     pub rating_mva: f64,
     /// Off-nominal tap ratio (1.0 = nominal)
     pub tap: f64,
@@ -76,22 +76,22 @@ pub struct RtBranch {
 pub struct RtLoadForecast {
     /// Bus index (0-based)
     pub bus: usize,
-    /// Forecasted active load [MW]
+    /// Forecasted active load `MW`
     pub p_mw: f64,
-    /// Forecasted reactive load [MVAr]
+    /// Forecasted reactive load `MVAr`
     pub q_mvar: f64,
-    /// 1-sigma forecast uncertainty [MW]
+    /// 1-sigma forecast uncertainty `MW`
     pub forecast_error_mw: f64,
 }
 
 /// Warm-start data propagated from one RTOPF solve to the next.
 #[derive(Debug, Clone)]
 pub struct RtWarmStart {
-    /// Active power setpoint per generator [MW]
+    /// Active power setpoint per generator `MW`
     pub generator_setpoints: Vec<f64>,
-    /// Bus voltage magnitude [pu]
+    /// Bus voltage magnitude `pu`
     pub voltage_magnitudes: Vec<f64>,
-    /// Bus voltage angle [rad]
+    /// Bus voltage angle `rad`
     pub voltage_angles: Vec<f64>,
     /// Dual variables (LMP) per bus [$/MWh]
     pub lambda: Vec<f64>,
@@ -108,13 +108,13 @@ pub struct RtConfig {
     pub max_iterations: usize,
     /// Convergence tolerance in pu (default 1e-4)
     pub convergence_tol: f64,
-    /// Ramp constraint window [min] (default 5)
+    /// Ramp constraint window `min` (default 5)
     pub ramp_window_min: f64,
     /// Branch loading security margin, fraction of rating (default 0.95)
     pub security_margin: f64,
     /// Enable AGC area-control-error correction
     pub agc_enabled: bool,
-    /// Nominal frequency [Hz] (50 or 60)
+    /// Nominal frequency `Hz` (50 or 60)
     pub frequency_hz: f64,
     /// AGC droop setting [%] (default 4%)
     pub droop_percent: f64,
@@ -139,15 +139,15 @@ impl Default for RtConfig {
 /// Solution returned by the RTOPF solver.
 #[derive(Debug, Clone)]
 pub struct RtSolution {
-    /// Unix-like timestamp [s]
+    /// Unix-like timestamp `s`
     pub timestamp: f64,
-    /// Active power dispatch per generator [MW]
+    /// Active power dispatch per generator `MW`
     pub generator_dispatch: Vec<f64>,
-    /// Reactive power dispatch per generator [MVAr]
+    /// Reactive power dispatch per generator `MVAr`
     pub reactive_dispatch: Vec<f64>,
-    /// Bus voltage magnitude [pu]
+    /// Bus voltage magnitude `pu`
     pub voltage_magnitude: Vec<f64>,
-    /// Bus voltage angle [rad]
+    /// Bus voltage angle `rad`
     pub voltage_angle: Vec<f64>,
     /// Locational marginal price per bus [$/MWh]
     pub lmp: Vec<f64>,
@@ -155,15 +155,15 @@ pub struct RtSolution {
     pub branch_loading: Vec<f64>,
     /// Total generation cost [$/h]
     pub total_cost_usd_per_hr: f64,
-    /// Estimated total network losses [MW]
+    /// Estimated total network losses `MW`
     pub total_losses_mw: f64,
-    /// AGC correction signal [MW] (area control error)
+    /// AGC correction signal `MW` (area control error)
     pub agc_signal_mw: f64,
     /// Whether the SLP converged
     pub converged: bool,
     /// Number of SLP iterations used
     pub iterations: usize,
-    /// Wall-clock solve time [ms]
+    /// Wall-clock solve time `ms`
     pub solve_time_ms: f64,
     /// Warm-start data for the next solve
     pub warm_start: RtWarmStart,
@@ -731,8 +731,8 @@ impl RealTimeOpf {
 
     /// Build the DC B-matrix (n_bus × n_bus susceptance matrix).
     ///
-    /// B[i][j] = -1/x_ij for i≠j (branch susceptance)
-    /// B[i][i] = Σ_j 1/x_ij   (sum of all branch susceptances at bus i)
+    /// `B[i][j]` = -1/x_ij for i≠j (branch susceptance)
+    /// `B[i][i]` = Σ_j 1/x_ij   (sum of all branch susceptances at bus i)
     pub fn build_b_matrix(&self) -> Vec<Vec<f64>> {
         let n = self.config.n_buses;
         let mut b = vec![vec![0.0_f64; n]; n];
@@ -850,7 +850,7 @@ impl RealTimeOpf {
 
     /// Compute the PTDF matrix (n_branches × n_buses).
     ///
-    /// PTDF[l][k] = (1/x_l) * (θ_from − θ_to) per unit injection at bus k.
+    /// `PTDF[l][k]` = (1/x_l) * (θ_from − θ_to) per unit injection at bus k.
     /// Computed via: inject 1 pu at bus k, withdraw at slack (bus 0), solve DC PF.
     #[allow(clippy::ptr_arg)]
     pub fn compute_ptdf(&self, b_matrix: &Vec<Vec<f64>>) -> Vec<Vec<f64>> {
@@ -894,7 +894,7 @@ impl RealTimeOpf {
 
     /// Compute AGC correction: distribute ACE proportionally by participation.
     ///
-    /// Returns the total ACE correction signal [MW].
+    /// Returns the total ACE correction signal `MW`.
     pub fn compute_agc_correction(&self, solution: &RtSolution, ace_mw: f64) -> f64 {
         if !self.config.agc_enabled {
             return 0.0;
@@ -923,7 +923,7 @@ impl RealTimeOpf {
     // Private helpers
     // -----------------------------------------------------------------------
 
-    /// Build nodal power injection vector [pu].
+    /// Build nodal power injection vector `pu`.
     fn build_p_injections(
         &self,
         p_gen: &[f64],
@@ -1086,7 +1086,7 @@ impl RealTimeOpf {
         Ok(p_new)
     }
 
-    /// Compute branch flows [pu] from voltage angles.
+    /// Compute branch flows `pu` from voltage angles.
     fn compute_branch_flows(&self, theta: &[f64]) -> Vec<f64> {
         let n_bus = self.config.n_buses;
         self.branches
@@ -1213,7 +1213,7 @@ impl RealTimeOpf {
             .collect()
     }
 
-    /// Estimate network losses from branch flows [MW].
+    /// Estimate network losses from branch flows `MW`.
     ///
     /// Loss on branch l ≈ r_l * I_l² ≈ r_l * (f_l / x_l)² × base  (DC approx)
     fn estimate_losses(&self, branch_flows_pu: &[f64], base: f64) -> f64 {

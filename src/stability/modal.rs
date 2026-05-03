@@ -16,7 +16,7 @@ pub struct OscillatoryMode {
     pub sigma: f64,
     /// Damped natural frequency ω_d (imaginary part of eigenvalue) [rad/s]
     pub omega_d: f64,
-    /// Frequency [Hz]
+    /// Frequency `Hz`
     pub frequency_hz: f64,
     /// Damping ratio ζ = -σ / sqrt(σ²+ω²)
     pub damping_ratio: f64,
@@ -63,11 +63,11 @@ pub enum ModeType {
 /// Configuration for modal analysis.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ModalConfig {
-    /// Minimum frequency [Hz] to include in oscillatory mode list.
+    /// Minimum frequency `Hz` to include in oscillatory mode list.
     pub f_min_hz: f64,
-    /// Maximum frequency [Hz] to include.
+    /// Maximum frequency `Hz` to include.
     pub f_max_hz: f64,
-    /// Inter-area / local boundary frequency [Hz].
+    /// Inter-area / local boundary frequency `Hz`.
     pub inter_area_threshold_hz: f64,
     /// Control mode boundary: modes with high damping but low freq.
     pub control_mode_threshold_hz: f64,
@@ -450,7 +450,7 @@ pub struct PssDampingRecommendation {
     pub participation: f64,
     /// Recommended PSS gain (normalised, relative to unit input signal)
     pub recommended_gain: f64,
-    /// Phase compensation required at mode frequency [degrees]
+    /// Phase compensation required at mode frequency `degrees`
     pub phase_compensation_deg: f64,
     /// Priority: 1 = highest (place PSS here first)
     pub priority: usize,
@@ -880,6 +880,186 @@ mod tests {
                 "Not sorted by participation"
             );
             assert_eq!(recs[i - 1].priority, i);
+        }
+    }
+
+    // ─── New tests (Round 27) ──────────────────────────────────────────────
+
+    #[test]
+    fn test_omega_n_matches_formula() {
+        // Reason: omega_n() must equal sqrt(sigma^2 + omega_d^2) by definition.
+        let mode = OscillatoryMode {
+            sigma: -0.3,
+            omega_d: 4.0,
+            frequency_hz: 0.637,
+            damping_ratio: 0.0747,
+            mode_type: ModeType::InterArea,
+            participation: vec![0.5, 0.5],
+            mode_shape_re: vec![1.0, -1.0],
+            mode_shape_im: vec![0.0, 0.0],
+        };
+        let expected = (0.3_f64 * 0.3 + 4.0_f64 * 4.0).sqrt();
+        approx::assert_relative_eq!(mode.omega_n(), expected, max_relative = 1e-12);
+    }
+
+    #[test]
+    fn test_is_unstable_hand_built_mode() {
+        // Reason: is_unstable() must return true exactly when sigma > 0.
+        let stable_mode = OscillatoryMode {
+            sigma: -0.1,
+            omega_d: 2.0,
+            frequency_hz: std::f64::consts::FRAC_1_PI,
+            damping_ratio: 0.05,
+            mode_type: ModeType::Local,
+            participation: vec![1.0],
+            mode_shape_re: vec![1.0],
+            mode_shape_im: vec![0.0],
+        };
+        let unstable_mode = OscillatoryMode {
+            sigma: 0.2,
+            omega_d: 2.0,
+            frequency_hz: std::f64::consts::FRAC_1_PI,
+            damping_ratio: -0.1,
+            mode_type: ModeType::Local,
+            participation: vec![1.0],
+            mode_shape_re: vec![1.0],
+            mode_shape_im: vec![0.0],
+        };
+        assert!(!stable_mode.is_unstable(), "sigma < 0 must not be unstable");
+        assert!(unstable_mode.is_unstable(), "sigma > 0 must be unstable");
+    }
+
+    #[test]
+    fn test_modal_config_default_field_sanity() {
+        // Reason: Default thresholds must satisfy domain ordering constraints.
+        let cfg = ModalConfig::default();
+        assert!(cfg.f_min_hz < cfg.f_max_hz, "f_min must be < f_max");
+        assert!(
+            cfg.control_mode_threshold_hz < cfg.inter_area_threshold_hz,
+            "control threshold must be < inter-area threshold"
+        );
+        assert!(
+            cfg.inter_area_threshold_hz < cfg.f_max_hz,
+            "inter-area threshold must be < f_max"
+        );
+        assert!(
+            cfg.min_participation > 0.0,
+            "min participation must be positive"
+        );
+    }
+
+    #[test]
+    fn test_modal_analysis_non_square_returns_err() {
+        // Reason: modal_analysis must return Err for a non-square matrix.
+        let a = nalgebra::DMatrix::<f64>::zeros(3, 4);
+        let cfg = ModalConfig::default();
+        let result = modal_analysis(&a, &cfg);
+        assert!(result.is_err(), "Non-square A-matrix must return Err");
+    }
+
+    #[test]
+    fn test_min_damping_ratio_non_empty() {
+        // Reason: min_damping_ratio() must return the smallest ratio in a non-empty result.
+        let a = two_machine_a_matrix(5.0, 3.0, 1.5);
+        let cfg = ModalConfig::default();
+        let result = modal_analysis(&a, &cfg).expect("modal analysis should succeed");
+        if let Some(min_dr) = result.min_damping_ratio() {
+            for mode in &result.modes {
+                assert!(
+                    mode.damping_ratio >= min_dr - 1e-12,
+                    "min_damping_ratio returned {min_dr:.6} but mode has {:.6}",
+                    mode.damping_ratio
+                );
+            }
+        }
+    }
+
+    #[test]
+    fn test_inter_area_modes_filter() {
+        // Reason: inter_area_modes() must return only InterArea-classified modes.
+        let a = two_machine_a_matrix(10.0, 10.0, 20.0);
+        let cfg = ModalConfig::default();
+        let result = modal_analysis(&a, &cfg).expect("modal analysis should succeed");
+        for mode in result.inter_area_modes() {
+            assert_eq!(
+                mode.mode_type,
+                ModeType::InterArea,
+                "Expected InterArea, got {:?}",
+                mode.mode_type
+            );
+        }
+    }
+
+    #[test]
+    fn test_local_modes_filter() {
+        // Reason: local_modes() must return only Local-classified modes.
+        let a = two_machine_a_matrix(2.0, 2.0, 90.0);
+        let cfg = ModalConfig::default();
+        let result = modal_analysis(&a, &cfg).expect("modal analysis should succeed");
+        for mode in result.local_modes() {
+            assert_eq!(
+                mode.mode_type,
+                ModeType::Local,
+                "Expected Local, got {:?}",
+                mode.mode_type
+            );
+        }
+    }
+
+    #[test]
+    fn test_all_eigenvalue_real_parts_negative_for_stable_system() {
+        // Reason: a damped two-machine system must have all eigenvalue real parts < 0.
+        let a = two_machine_a_matrix_damped(5.0, 5.0, 4.0, 1.0);
+        let cfg = ModalConfig::default();
+        let result = modal_analysis(&a, &cfg).expect("modal analysis should succeed");
+        for &re in &result.all_eigenvalue_real {
+            assert!(
+                re < 1e-9,
+                "Stable system must have non-positive real eigenvalue parts, got {re:.6}"
+            );
+        }
+    }
+
+    #[test]
+    fn test_inter_area_index_empty_input() {
+        // Reason: inter_area_index with zero-length shapes must return 0.0 without panic.
+        let iai = inter_area_index(&[], &[], 4);
+        approx::assert_relative_eq!(iai, 0.0, max_relative = 1e-12);
+    }
+
+    #[test]
+    fn test_optimal_pss_phase_clamped_in_range() {
+        // Reason: optimal_pss_phase_deg must always return a value in [-90, 90].
+        let extreme_modes = vec![
+            OscillatoryMode {
+                sigma: -100.0,
+                omega_d: 0.001,
+                frequency_hz: 0.0002,
+                damping_ratio: 0.999,
+                mode_type: ModeType::Control,
+                participation: vec![1.0],
+                mode_shape_re: vec![1.0],
+                mode_shape_im: vec![0.0],
+            },
+            OscillatoryMode {
+                sigma: 0.001,
+                omega_d: 100.0,
+                frequency_hz: 15.9,
+                damping_ratio: -0.00001,
+                mode_type: ModeType::Local,
+                participation: vec![1.0],
+                mode_shape_re: vec![1.0],
+                mode_shape_im: vec![0.0],
+            },
+        ];
+        for mode in &extreme_modes {
+            let phase = optimal_pss_phase_deg(mode);
+            assert!(
+                (-90.0..=90.0).contains(&phase),
+                "Phase out of [-90, 90]: {phase:.3} for sigma={:.3}, omega_d={:.3}",
+                mode.sigma,
+                mode.omega_d
+            );
         }
     }
 }

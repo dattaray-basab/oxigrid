@@ -1,10 +1,10 @@
-use serde::{Deserialize, Serialize};
-use std::fmt;
-use std::ops::{Add, Div, Mul, Neg, Sub};
+use core::fmt;
+use core::ops::{Add, Div, Mul, Neg, Sub};
 
 macro_rules! impl_unit_type {
     ($name:ident, $unit:expr) => {
-        #[derive(Debug, Clone, Copy, PartialEq, PartialOrd, Serialize, Deserialize, Default)]
+        #[derive(Debug, Clone, Copy, PartialEq, PartialOrd, Default)]
+        #[cfg_attr(feature = "std", derive(serde::Serialize, serde::Deserialize))]
         pub struct $name(pub f64);
 
         impl fmt::Display for $name {
@@ -66,29 +66,48 @@ impl_unit_type!(PerUnit, "p.u.");
 
 // Unit-type descriptions (rustdoc via inherent impl blocks below)
 
-/// Terminal voltage [V].
+/// Terminal voltage `V`.
 ///
 /// Positive value = voltage magnitude above ground reference.
 /// Inner `f64` stores volts.
+///
+/// # Examples
+///
+/// ```rust
+/// use oxigrid::units::electrical::Voltage;
+///
+/// // Construct a 230 V bus voltage
+/// let v = Voltage(230.0);
+/// assert_eq!(v.0, 230.0);
+///
+/// // Per-unit conversion: 115 V on 230 V base = 0.5 p.u.
+/// let base = Voltage(230.0);
+/// let pu = Voltage(115.0).to_per_unit(base);
+/// assert!((pu.0 - 0.5).abs() < 1e-9);
+///
+/// // Recover from per-unit
+/// let v_back = Voltage::from_per_unit(pu, base);
+/// assert!((v_back.0 - 115.0).abs() < 1e-9);
+/// ```
 impl Voltage {}
 
-/// Electric current [A].
+/// Electric current `A`.
 ///
 /// Convention: positive = discharge (conventional current out of positive terminal).
 /// Inner `f64` stores amperes.
 impl Current {}
 
-/// Active (real) power [W].
+/// Active (real) power `W`.
 ///
 /// Inner `f64` stores watts.  Use `to_energy_wh(dt_h)` to integrate over time.
 impl Power {}
 
-/// Reactive power [VAr].
+/// Reactive power `VAr`.
 ///
 /// Positive = inductive reactive power consumption.  Inner `f64` stores volt-amperes reactive.
 impl ReactivePower {}
 
-/// Electrical frequency [Hz].  Inner `f64` stores hertz.
+/// Electrical frequency `Hz`.  Inner `f64` stores hertz.
 impl Frequency {}
 
 /// Dimensionless per-unit value.
@@ -96,12 +115,13 @@ impl Frequency {}
 /// Quantity normalised by its base value.  Inner `f64` is already normalised.
 impl PerUnit {}
 
-/// Complex impedance Z = R + jX [Ω].
-#[derive(Debug, Clone, Copy, PartialEq, Serialize, Deserialize, Default)]
+/// Complex impedance Z = R + jX `Ω`.
+#[derive(Debug, Clone, Copy, PartialEq, Default)]
+#[cfg_attr(feature = "std", derive(serde::Serialize, serde::Deserialize))]
 pub struct Impedance {
-    /// Resistance [Ω].
+    /// Resistance `Ω`.
     pub r: f64,
-    /// Reactance [Ω].  Positive = inductive, negative = capacitive.
+    /// Reactance `Ω`.  Positive = inductive, negative = capacitive.
     pub x: f64,
 }
 
@@ -111,7 +131,7 @@ impl Impedance {
         Self { r, x }
     }
 
-    /// Impedance magnitude |Z| = √(R² + X²) [Ω].
+    /// Impedance magnitude |Z| = √(R² + X²) `Ω`.
     pub fn magnitude(&self) -> f64 {
         (self.r * self.r + self.x * self.x).sqrt()
     }
@@ -217,14 +237,14 @@ impl Current {
 }
 
 // Cross-type dimensional arithmetic: V × A = W
-impl std::ops::Mul<Current> for Voltage {
+impl core::ops::Mul<Current> for Voltage {
     type Output = Power;
     fn mul(self, rhs: Current) -> Power {
         Power(self.0 * rhs.0)
     }
 }
 
-impl std::ops::Mul<Voltage> for Current {
+impl core::ops::Mul<Voltage> for Current {
     type Output = Power;
     fn mul(self, rhs: Voltage) -> Power {
         Power(self.0 * rhs.0)

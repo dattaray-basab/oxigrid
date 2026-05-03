@@ -1,9 +1,9 @@
-use serde::{Deserialize, Serialize};
-use std::fmt;
-use std::ops::{Add, Div, Mul, Neg, Sub};
+use core::fmt;
+use core::ops::{Add, Div, Mul, Neg, Sub};
 
-/// Electrical energy [Wh].  Inner value stores watt-hours.
-#[derive(Debug, Clone, Copy, PartialEq, PartialOrd, Serialize, Deserialize, Default)]
+/// Electrical energy `Wh`.  Inner value stores watt-hours.
+#[derive(Debug, Clone, Copy, PartialEq, PartialOrd, Default)]
+#[cfg_attr(feature = "std", derive(serde::Serialize, serde::Deserialize))]
 pub struct Energy(pub f64);
 
 impl Energy {
@@ -64,8 +64,9 @@ impl Neg for Energy {
     }
 }
 
-/// Battery charge capacity [Ah].  Inner value stores ampere-hours.
-#[derive(Debug, Clone, Copy, PartialEq, PartialOrd, Serialize, Deserialize, Default)]
+/// Battery charge capacity `Ah`.  Inner value stores ampere-hours.
+#[derive(Debug, Clone, Copy, PartialEq, PartialOrd, Default)]
+#[cfg_attr(feature = "std", derive(serde::Serialize, serde::Deserialize))]
 pub struct Capacity(pub f64);
 
 impl fmt::Display for Capacity {
@@ -110,7 +111,8 @@ impl Neg for Capacity {
 }
 
 /// State of charge in [0, 1].  Inner value is a fraction (0 = empty, 1 = full).
-#[derive(Debug, Clone, Copy, PartialEq, PartialOrd, Serialize, Deserialize, Default)]
+#[derive(Debug, Clone, Copy, PartialEq, PartialOrd, Default)]
+#[cfg_attr(feature = "std", derive(serde::Serialize, serde::Deserialize))]
 pub struct StateOfCharge(pub f64);
 
 impl StateOfCharge {

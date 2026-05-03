@@ -7,9 +7,9 @@ use serde::{Deserialize, Serialize};
 /// Result of a battery sizing calculation.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct SizingResult {
-    /// Required energy capacity [kWh]
+    /// Required energy capacity `kWh`
     pub capacity_kwh: f64,
-    /// Required power rating [kW]
+    /// Required power rating `kW`
     pub power_kw: f64,
     /// C-rate (power / capacity) [h⁻¹]
     pub c_rate: f64,
@@ -39,9 +39,9 @@ impl SizingResult {
 /// `grid_limit_kw` by storing energy during off-peak periods.
 ///
 /// # Arguments
-/// - `load_kw`       — load profile [kW] for each time step
-/// - `grid_limit_kw` — maximum allowed grid import [kW]
-/// - `dt_h`          — time step [hours]
+/// - `load_kw`       — load profile `kW` for each time step
+/// - `grid_limit_kw` — maximum allowed grid import `kW`
+/// - `dt_h`          — time step `hours`
 /// - `efficiency_rt` — round-trip efficiency (0–1)
 pub fn size_for_peak_shaving(
     load_kw: &[f64],
@@ -82,9 +82,9 @@ pub fn size_for_peak_shaving(
 /// Stores excess solar generation during the day to serve load in the evening.
 ///
 /// # Arguments
-/// - `pv_kw`         — PV generation profile [kW]
-/// - `load_kw`       — load profile [kW]
-/// - `dt_h`          — time step [hours]
+/// - `pv_kw`         — PV generation profile `kW`
+/// - `load_kw`       — load profile `kW`
+/// - `dt_h`          — time step `hours`
 /// - `efficiency_rt` — round-trip efficiency
 pub fn size_for_solar_shifting(
     pv_kw: &[f64],
@@ -138,8 +138,8 @@ pub fn size_for_solar_shifting(
 /// Size a battery for backup power.
 ///
 /// # Arguments
-/// - `load_kw`       — average load to support during outage [kW]
-/// - `duration_h`    — required backup duration [hours]
+/// - `load_kw`       — average load to support during outage `kW`
+/// - `duration_h`    — required backup duration `hours`
 /// - `dod`           — allowed depth of discharge (0–1, default 0.80)
 /// - `efficiency_rt` — round-trip efficiency
 pub fn size_for_backup(
@@ -159,9 +159,9 @@ pub fn size_for_backup(
 /// Self-consumption = PV energy consumed on-site / total PV generation.
 ///
 /// # Arguments
-/// - `pv_kw`               — PV generation profile [kW]
-/// - `load_kw`             — load profile [kW]
-/// - `dt_h`                — time step [hours]
+/// - `pv_kw`               — PV generation profile `kW`
+/// - `load_kw`             — load profile `kW`
+/// - `dt_h`                — time step `hours`
 /// - `target_sc_ratio`     — target self-consumption (0–1, e.g. 0.80)
 /// - `efficiency_rt`       — round-trip efficiency
 pub fn size_for_self_consumption(

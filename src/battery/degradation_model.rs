@@ -40,7 +40,7 @@ const R_GAS: f64 = 8.314;
 /// Pre-exponential SEI growth factor [1/day].
 const K_SEI: f64 = 1e-4;
 
-/// Default initial internal resistance [Ω].
+/// Default initial internal resistance `Ω`.
 const DEFAULT_R0: f64 = 0.02;
 
 /// Maximum temperature history window size.
@@ -212,11 +212,11 @@ pub struct CapacityFade {
 pub struct ResistanceGrowth {
     /// Relative total resistance R/R₀ (1.0 = new).
     pub relative_resistance: f64,
-    /// SEI film resistance contribution [Ω].
+    /// SEI film resistance contribution `Ω`.
     pub sei_resistance_ohm: f64,
-    /// Contact resistance from particle disconnection [Ω].
+    /// Contact resistance from particle disconnection `Ω`.
     pub contact_resistance_ohm: f64,
-    /// Total resistance including all contributions [Ω].
+    /// Total resistance including all contributions `Ω`.
     pub total_resistance_ohm: f64,
 }
 
@@ -320,31 +320,31 @@ impl Default for CycleCounterDoD {
 pub struct DegradationModel {
     /// Battery chemistry (determines kinetic parameters).
     pub chemistry: DegradationChemistry,
-    /// Nominal (nameplate) capacity [Ah].
+    /// Nominal (nameplate) capacity `Ah`.
     pub nominal_capacity_ah: f64,
-    /// Nominal voltage [V].
+    /// Nominal voltage `V`.
     pub nominal_voltage_v: f64,
-    /// Fresh internal resistance [Ω].
+    /// Fresh internal resistance `Ω`.
     pub initial_resistance_ohm: f64,
-    /// Current (degraded) capacity [Ah].
+    /// Current (degraded) capacity `Ah`.
     pub current_capacity_ah: f64,
-    /// Current (degraded) internal resistance [Ω].
+    /// Current (degraded) internal resistance `Ω`.
     pub current_resistance_ohm: f64,
     /// Accumulated full equivalent cycles.
     pub total_cycles: f64,
-    /// Calendar age [days].
+    /// Calendar age `days`.
     pub calendar_age_days: f64,
-    /// Cumulative capacity lost to SEI growth [Ah].
+    /// Cumulative capacity lost to SEI growth `Ah`.
     pub cumulative_sei_loss: f64,
-    /// Cumulative capacity lost to lithium plating [Ah].
+    /// Cumulative capacity lost to lithium plating `Ah`.
     pub cumulative_plating_loss: f64,
-    /// Cumulative capacity lost to mechanical stress [Ah].
+    /// Cumulative capacity lost to mechanical stress `Ah`.
     pub cumulative_mechanical_loss: f64,
     /// Sliding window of recent cell temperatures [°C] (last 1000 samples).
     pub temperature_history: Vec<f64>,
-    /// Cumulative calendar capacity loss [Ah] (for fade breakdown).
+    /// Cumulative calendar capacity loss `Ah` (for fade breakdown).
     pub cumulative_calendar_loss: f64,
-    /// Cumulative cycle capacity loss [Ah] (for fade breakdown).
+    /// Cumulative cycle capacity loss `Ah` (for fade breakdown).
     pub cumulative_cycle_loss: f64,
 }
 
@@ -417,7 +417,7 @@ impl DegradationModel {
         K_SEI * arr * soc_f / t_ref * self.nominal_capacity_ah
     }
 
-    /// Compute incremental calendar capacity loss for a time step [Ah].
+    /// Compute incremental calendar capacity loss for a time step `Ah`.
     ///
     /// Uses the square-root (parabolic) SEI growth model:
     /// `ΔQ_cal = (α_cal/100) * Arr(T) * f(SoC) * [sqrt(t + dt) - sqrt(t)]`
@@ -439,7 +439,7 @@ impl DegradationModel {
         (loss_frac * self.nominal_capacity_ah).max(0.0)
     }
 
-    /// Compute capacity loss for a single charge/discharge cycle [Ah].
+    /// Compute capacity loss for a single charge/discharge cycle `Ah`.
     ///
     /// Empirical Wöhler-type model:
     /// `Q_cyc = (α_cyc/100) * (DoD/100)^β * (1 + 0.15*(C_eff - 1)) * T_factor`

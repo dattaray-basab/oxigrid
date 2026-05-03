@@ -9,8 +9,8 @@
 ///
 /// where:
 ///   M_i  = 2H_i / ω_s     [s²/rad]  (inertia constant)
-///   H_i  = inertia constant [s]
-///   δ_i  = rotor angle [rad]
+///   H_i  = inertia constant `s`
+///   δ_i  = rotor angle `rad`
 ///   ω_i  = rotor speed deviation [rad/s]
 ///   P_m_i = mechanical input power [p.u.]
 ///   P_e_i = electrical output power [p.u.]
@@ -24,7 +24,7 @@ use std::f64::consts::PI;
 /// Synchronous generator parameters for classical model.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ClassicalGen {
-    /// Inertia constant H [s]
+    /// Inertia constant H `s`
     pub h: f64,
     /// Damping coefficient D [p.u.]
     pub d: f64,
@@ -68,7 +68,7 @@ impl ClassicalGen {
 /// State of a single generator during transient simulation.
 #[derive(Debug, Clone, Copy, Serialize, Deserialize)]
 pub struct GenState {
-    /// Rotor angle [rad]
+    /// Rotor angle `rad`
     pub delta: f64,
     /// Speed deviation dω = ω − ω_s [rad/s]
     pub omega: f64,
@@ -88,7 +88,7 @@ impl GenState {
 pub enum TransientEvent {
     /// Apply a three-phase fault at a bus.
     FaultOn {
-        /// Time of fault application [s].
+        /// Time of fault application `s`.
         time: f64,
         /// Bus index (0-based) where fault is applied.
         bus: usize,
@@ -97,7 +97,7 @@ pub enum TransientEvent {
     },
     /// Clear (remove) a fault at a bus.
     FaultOff {
-        /// Time of fault clearing [s].
+        /// Time of fault clearing `s`.
         time: f64,
         /// Bus index (0-based) where fault is cleared.
         bus: usize,
@@ -107,11 +107,11 @@ pub enum TransientEvent {
 /// Configuration for a transient stability simulation.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct TransientConfig {
-    /// Simulation end time [s].
+    /// Simulation end time `s`.
     pub t_end: f64,
-    /// Time step [s].
+    /// Time step `s`.
     pub dt: f64,
-    /// System frequency [Hz].
+    /// System frequency `Hz`.
     pub freq_hz: f64,
     /// Scheduled events (faults, etc.).
     pub events: Vec<TransientEvent>,
@@ -384,5 +384,75 @@ mod tests {
             "δ changed: {}",
             delta_final
         );
+    }
+
+    #[test]
+    fn test_inertia_constant_m_is_2h_over_omega_s() {
+        let gen = ClassicalGen::thermal_unit();
+        let m = gen.m(60.0);
+        let expected = 2.0 * 6.0 / (2.0 * PI * 60.0);
+        assert!(
+            (m - expected).abs() < 1e-10,
+            "M = {:.6}, expected {:.6}",
+            m,
+            expected
+        );
+    }
+
+    #[test]
+    fn test_hydro_unit_has_lower_inertia_than_thermal() {
+        let thermal = ClassicalGen::thermal_unit();
+        let hydro = ClassicalGen::hydro_unit();
+        assert!(
+            hydro.h < thermal.h,
+            "hydro H={} must be < thermal H={}",
+            hydro.h,
+            thermal.h
+        );
+    }
+
+    #[test]
+    fn test_smib_eigenvalues_real_parts_negative_for_positive_k() {
+        // Standard result: D>0, K>0 → both eigenvalue real parts ≤ 0
+        let gen = ClassicalGen::thermal_unit();
+        let (r1, _i1, r2, _i2) = smib_eigenvalues(&gen, 2.5, 60.0);
+        assert!(r1 <= 0.0, "λ1 real = {:.4}", r1);
+        assert!(r2 <= 0.0, "λ2 real = {:.4}", r2);
+    }
+
+    #[test]
+    fn test_run_snapshot_count_matches_n_steps() {
+        let gen = ClassicalGen::thermal_unit();
+        let pe_fn: PeFunction = Box::new(|_| vec![0.8]);
+        let sim = TransientSim::new(vec![gen], 60.0, pe_fn);
+        let initial = vec![GenState::new(0.3)];
+        let dt = 0.01;
+        let t_end = 0.5;
+        let snaps = sim.run(initial, dt, t_end);
+        // expect ceil(t_end/dt) + 1 = 51 snapshots
+        let n_expected = (t_end / dt).ceil() as usize + 1;
+        assert_eq!(snaps.len(), n_expected, "got {} snapshots", snaps.len());
+    }
+
+    #[test]
+    fn test_smib_two_machine_symmetry() {
+        // Two identical machines with symmetric Pe function → angles stay equal
+        let gen1 = ClassicalGen::thermal_unit();
+        let gen2 = ClassicalGen::thermal_unit();
+        let pe_fn: PeFunction = Box::new(|states: &[GenState]| {
+            // Each machine sees half the synchronising power
+            let delta1 = states[0].delta;
+            let delta2 = states[1].delta;
+            let pe = 0.8 * (delta1 - delta2).sin();
+            vec![pe, -pe]
+        });
+        let sim = TransientSim::new(vec![gen1, gen2], 60.0, pe_fn);
+        // Start with identical angles → no torque → angles stay equal
+        let initial = vec![GenState::new(0.5), GenState::new(0.5)];
+        let snaps = sim.run(initial, 0.01, 0.5);
+        let last = snaps.last().expect("should have snapshots");
+        let d1 = last.gen_states[0].delta;
+        let d2 = last.gen_states[1].delta;
+        assert!((d1 - d2).abs() < 1e-8, "Δδ = {:.4e}", (d1 - d2).abs());
     }
 }

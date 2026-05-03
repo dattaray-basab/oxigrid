@@ -12,7 +12,7 @@ pub struct HarmonicComponent {
     pub order: u32,
     /// Magnitude (RMS, same units as input)
     pub magnitude: f64,
-    /// Phase angle [rad]
+    /// Phase angle `rad`
     pub phase_rad: f64,
     /// Individual Harmonic Distortion [%] relative to fundamental
     pub ihd_pct: f64,
@@ -21,7 +21,7 @@ pub struct HarmonicComponent {
 /// Result of a harmonic analysis.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct HarmonicSpectrum {
-    /// Fundamental frequency [Hz]
+    /// Fundamental frequency `Hz`
     pub fundamental_hz: f64,
     /// Fundamental magnitude (RMS)
     pub fundamental: f64,
@@ -34,7 +34,7 @@ pub struct HarmonicSpectrum {
 }
 
 impl HarmonicSpectrum {
-    /// Check IEEE 519-2022 voltage THD compliance at a given bus voltage [kV].
+    /// Check IEEE 519-2022 voltage THD compliance at a given bus voltage `kV`.
     ///
     /// Returns `true` if THD ≤ limit.
     pub fn ieee519_voltage_compliant(&self, bus_kv: f64) -> bool {
@@ -107,8 +107,8 @@ pub fn goertzel(samples: &[f64], freq_hz: f64, sample_rate_hz: f64) -> (f64, f64
 ///
 /// # Arguments
 /// - `samples`          — time-domain waveform (one full period recommended)
-/// - `sample_rate_hz`   — sampling frequency [Hz]
-/// - `fundamental_hz`   — fundamental frequency [Hz] (50 or 60)
+/// - `sample_rate_hz`   — sampling frequency `Hz`
+/// - `fundamental_hz`   — fundamental frequency `Hz` (50 or 60)
 /// - `max_order`        — highest harmonic order to compute
 /// - `rated_current`    — optional rated current for TDD calculation
 pub fn analyse(

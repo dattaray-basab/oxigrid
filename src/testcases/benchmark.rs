@@ -367,3 +367,400 @@ pub fn validate_all_benchmarks() -> Vec<BenchmarkReport> {
 
     reports
 }
+
+// ---------------------------------------------------------------------------
+// Tests
+// ---------------------------------------------------------------------------
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use approx::assert_relative_eq;
+
+    /// Reason: power_flow_benchmarks() should return exactly 3 scenarios (IEEE 14, 30, 57).
+    #[test]
+    fn test_benchmark_suite_length() {
+        let suite = power_flow_benchmarks();
+        assert_eq!(suite.len(), 3, "Expected 3 benchmark scenarios");
+    }
+
+    /// Reason: Each scenario name should contain the bus count (14, 30, 57) for identification.
+    #[test]
+    fn test_benchmark_scenario_names() {
+        let suite = power_flow_benchmarks();
+        let names: Vec<&str> = suite.iter().map(|s| s.name.as_str()).collect();
+        assert!(
+            names.iter().any(|n| n.contains("14")),
+            "Expected IEEE 14-Bus scenario"
+        );
+        assert!(
+            names.iter().any(|n| n.contains("30")),
+            "Expected IEEE 30-Bus scenario"
+        );
+        assert!(
+            names.iter().any(|n| n.contains("57")),
+            "Expected IEEE 57-Bus scenario"
+        );
+    }
+
+    /// Reason: For every scenario, max_voltage_pu must exceed min_voltage_pu (physical invariant).
+    #[test]
+    fn test_expected_results_voltage_ordering() {
+        let suite = power_flow_benchmarks();
+        for scenario in &suite {
+            let exp = &scenario.expected_result;
+            assert!(
+                exp.max_voltage_pu > exp.min_voltage_pu,
+                "Scenario '{}': max_voltage_pu ({}) must exceed min_voltage_pu ({})",
+                scenario.name,
+                exp.max_voltage_pu,
+                exp.min_voltage_pu
+            );
+        }
+    }
+
+    /// Reason: Tolerance must be positive so comparisons are meaningful.
+    #[test]
+    fn test_expected_results_positive_tolerance() {
+        let suite = power_flow_benchmarks();
+        for scenario in &suite {
+            assert!(
+                scenario.expected_result.tolerance > 0.0,
+                "Scenario '{}': tolerance must be positive",
+                scenario.name
+            );
+        }
+    }
+
+    /// Reason: All reference scenarios expect the solver to converge.
+    #[test]
+    fn test_expected_results_converged_flag() {
+        let suite = power_flow_benchmarks();
+        for scenario in &suite {
+            assert!(
+                scenario.expected_result.converged,
+                "Scenario '{}': expected_result.converged should be true",
+                scenario.name
+            );
+        }
+    }
+
+    /// Reason: BenchmarkReport::is_pass() returns true when passed == true.
+    #[test]
+    fn test_report_is_pass_true() {
+        let report = BenchmarkReport {
+            scenario_name: "test".to_string(),
+            passed: true,
+            actual_converged: true,
+            actual_iterations: 4,
+            voltage_error_pu: 0.001,
+            losses_error_mw: 0.5,
+            notes: vec![],
+        };
+        assert!(report.is_pass());
+    }
+
+    /// Reason: BenchmarkReport::is_pass() returns false when passed == false (failure path).
+    #[test]
+    fn test_report_is_pass_false() {
+        let report = BenchmarkReport {
+            scenario_name: "test".to_string(),
+            passed: false,
+            actual_converged: false,
+            actual_iterations: 0,
+            voltage_error_pu: f64::NAN,
+            losses_error_mw: f64::NAN,
+            notes: vec!["Solver error".to_string()],
+        };
+        assert!(!report.is_pass());
+    }
+
+    /// Reason: run_benchmark() on IEEE 14-Bus must return Ok and populate scenario_name correctly.
+    #[cfg(feature = "powerflow")]
+    #[test]
+    fn test_run_benchmark_ieee14_returns_ok() {
+        use crate::powerflow::newton_raphson::NewtonRaphsonSolver;
+
+        let suite = power_flow_benchmarks();
+        let ieee14_scenario = suite.iter().find(|s| s.name.contains("14"));
+        assert!(ieee14_scenario.is_some(), "IEEE 14-Bus scenario must exist");
+        let scenario = ieee14_scenario.expect("already checked is_some");
+        let solver = NewtonRaphsonSolver;
+        let result = run_benchmark(scenario, &solver);
+        assert!(
+            result.is_ok(),
+            "run_benchmark should return Ok for IEEE 14-Bus"
+        );
+        let report = result.expect("already checked is_ok");
+        assert_eq!(report.scenario_name, "IEEE 14-Bus");
+    }
+
+    /// Reason: run_benchmark() report must record actual_iterations > 0 on convergence.
+    #[cfg(feature = "powerflow")]
+    #[test]
+    fn test_run_benchmark_records_iterations() {
+        use crate::powerflow::newton_raphson::NewtonRaphsonSolver;
+
+        let suite = power_flow_benchmarks();
+        let scenario = suite.first().expect("at least one scenario");
+        let solver = NewtonRaphsonSolver;
+        let report = run_benchmark(scenario, &solver).expect("run_benchmark must return Ok");
+        if report.actual_converged {
+            assert!(
+                report.actual_iterations > 0,
+                "Converged report must have actual_iterations > 0"
+            );
+        }
+    }
+
+    /// Reason: validate_all_benchmarks() must return the same count as power_flow_benchmarks().
+    #[cfg(feature = "powerflow")]
+    #[test]
+    fn test_validate_all_benchmarks_count() {
+        let expected_count = power_flow_benchmarks().len();
+        let reports = validate_all_benchmarks();
+        assert_eq!(
+            reports.len(),
+            expected_count,
+            "validate_all_benchmarks() count must match power_flow_benchmarks()"
+        );
+    }
+
+    /// Reason: ieee9_stability() must build a network with 9 buses, 9 branches, 3 generators.
+    #[cfg(feature = "stability")]
+    #[test]
+    fn test_ieee9_stability_topology() {
+        let result = ieee9_stability();
+        assert!(result.is_ok(), "ieee9_stability() must return Ok");
+        let (net, _cfg) = result.expect("already checked is_ok");
+        assert_eq!(net.buses.len(), 9, "IEEE 9-Bus must have 9 buses");
+        assert_eq!(net.branches.len(), 9, "IEEE 9-Bus must have 9 branches");
+        assert_eq!(net.generators.len(), 3, "IEEE 9-Bus must have 3 generators");
+    }
+
+    /// Reason: ieee9_stability() transient events must be at t=0.1 and t=0.25 (Anderson & Fouad).
+    #[cfg(feature = "stability")]
+    #[test]
+    fn test_ieee9_stability_event_times() {
+        use crate::stability::transient::TransientEvent;
+
+        let result = ieee9_stability();
+        assert!(result.is_ok(), "ieee9_stability() must return Ok");
+        let (_net, cfg) = result.expect("already checked is_ok");
+        assert_eq!(cfg.events.len(), 2, "Must have exactly 2 transient events");
+        match &cfg.events[0] {
+            TransientEvent::FaultOn { time, .. } => {
+                assert_relative_eq!(*time, 0.1, epsilon = 1e-9);
+            }
+            _ => panic!("First event must be FaultOn"),
+        }
+        match &cfg.events[1] {
+            TransientEvent::FaultOff { time, .. } => {
+                assert_relative_eq!(*time, 0.25, epsilon = 1e-9);
+            }
+            _ => panic!("Second event must be FaultOff"),
+        }
+    }
+
+    /// Reason: run_benchmark() voltage_error_pu must not be NaN when solver converges.
+    #[cfg(feature = "powerflow")]
+    #[test]
+    fn test_run_benchmark_voltage_error_not_nan_on_convergence() {
+        use crate::powerflow::newton_raphson::NewtonRaphsonSolver;
+
+        let suite = power_flow_benchmarks();
+        let solver = NewtonRaphsonSolver;
+        for scenario in &suite {
+            let report = run_benchmark(scenario, &solver).expect("run_benchmark must return Ok");
+            if report.actual_converged {
+                assert!(
+                    !report.voltage_error_pu.is_nan(),
+                    "Scenario '{}': voltage_error_pu must not be NaN on convergence",
+                    report.scenario_name
+                );
+                assert!(
+                    !report.losses_error_mw.is_nan(),
+                    "Scenario '{}': losses_error_mw must not be NaN on convergence",
+                    report.scenario_name
+                );
+            }
+        }
+    }
+
+    /// Reason: n_iterations in each reference scenario must be > 0 (power flow always needs at least one iteration).
+    #[test]
+    fn test_reference_n_iterations_positive() {
+        let suite = power_flow_benchmarks();
+        for scenario in &suite {
+            assert!(
+                scenario.expected_result.n_iterations > 0,
+                "Scenario '{}': n_iterations must be > 0",
+                scenario.name
+            );
+        }
+    }
+
+    /// Reason: slack_generation_mw must be positive for all reference cases (generation invariant).
+    #[test]
+    fn test_reference_slack_generation_positive() {
+        let suite = power_flow_benchmarks();
+        for scenario in &suite {
+            assert!(
+                scenario.expected_result.slack_generation_mw > 0.0,
+                "Scenario '{}': slack_generation_mw ({}) must be positive",
+                scenario.name,
+                scenario.expected_result.slack_generation_mw
+            );
+        }
+    }
+
+    /// Reason: total_losses_mw in each reference scenario must be strictly positive (physical loss invariant).
+    #[test]
+    fn test_reference_total_losses_positive() {
+        let suite = power_flow_benchmarks();
+        for scenario in &suite {
+            assert!(
+                scenario.expected_result.total_losses_mw > 0.0,
+                "Scenario '{}': total_losses_mw ({}) must be positive",
+                scenario.name,
+                scenario.expected_result.total_losses_mw
+            );
+        }
+    }
+
+    /// Reason: BenchmarkReport derives Clone and Debug — both must work without panicking.
+    #[test]
+    fn test_benchmark_report_clone_and_debug() {
+        let report = BenchmarkReport {
+            scenario_name: "clone-test".to_string(),
+            passed: true,
+            actual_converged: true,
+            actual_iterations: 3,
+            voltage_error_pu: 0.005,
+            losses_error_mw: 1.2,
+            notes: vec!["note1".to_string()],
+        };
+        let cloned = report.clone();
+        assert_eq!(cloned.scenario_name, report.scenario_name);
+        assert_eq!(cloned.passed, report.passed);
+        // Debug formatting must not panic
+        let _ = format!("{:?}", report);
+    }
+
+    /// Reason: ExpectedPowerFlowResult derives Clone and Debug — both must work without panicking.
+    #[test]
+    fn test_expected_result_clone_and_debug() {
+        let exp = ExpectedPowerFlowResult {
+            converged: true,
+            n_iterations: 5,
+            max_voltage_pu: 1.05,
+            min_voltage_pu: 0.95,
+            total_losses_mw: 20.0,
+            slack_generation_mw: 250.0,
+            tolerance: 0.02,
+        };
+        let cloned = exp.clone();
+        assert_relative_eq!(cloned.max_voltage_pu, exp.max_voltage_pu, epsilon = 1e-12);
+        assert_relative_eq!(cloned.tolerance, exp.tolerance, epsilon = 1e-12);
+        // Debug formatting must not panic
+        let _ = format!("{:?}", exp);
+    }
+
+    /// Reason: validate_all_benchmarks() reports must each have a non-empty scenario_name string.
+    #[cfg(feature = "powerflow")]
+    #[test]
+    fn test_validate_all_benchmarks_nonempty_names() {
+        let reports = validate_all_benchmarks();
+        for report in &reports {
+            assert!(
+                !report.scenario_name.is_empty(),
+                "validate_all_benchmarks: scenario_name must not be empty"
+            );
+        }
+    }
+
+    /// Reason: validate_all_benchmarks() must return reports whose names match the scenarios exactly (no truncation or mangling).
+    #[cfg(feature = "powerflow")]
+    #[test]
+    fn test_validate_all_benchmarks_names_match_scenarios() {
+        let scenario_names: Vec<String> = power_flow_benchmarks()
+            .into_iter()
+            .map(|s| s.name)
+            .collect();
+        let reports = validate_all_benchmarks();
+        let report_names: Vec<&str> = reports.iter().map(|r| r.scenario_name.as_str()).collect();
+        for name in &scenario_names {
+            assert!(
+                report_names.iter().any(|rn| rn == name),
+                "Expected report for scenario '{}' but not found",
+                name
+            );
+        }
+    }
+
+    /// Reason: run_benchmark() on IEEE 30-Bus returns Ok with scenario_name = "IEEE 30-Bus".
+    #[cfg(feature = "powerflow")]
+    #[test]
+    fn test_run_benchmark_ieee30_returns_ok() {
+        use crate::powerflow::newton_raphson::NewtonRaphsonSolver;
+
+        let suite = power_flow_benchmarks();
+        let scenario = suite
+            .iter()
+            .find(|s| s.name.contains("30"))
+            .expect("IEEE 30-Bus scenario must exist");
+        let solver = NewtonRaphsonSolver;
+        let result = run_benchmark(scenario, &solver);
+        assert!(
+            result.is_ok(),
+            "run_benchmark must return Ok for IEEE 30-Bus"
+        );
+        let report = result.expect("already checked is_ok");
+        assert_eq!(report.scenario_name, "IEEE 30-Bus");
+    }
+
+    /// Reason: ieee9_stability() generator bus IDs must be 1, 2, 3 per Anderson & Fouad data.
+    #[cfg(feature = "stability")]
+    #[test]
+    fn test_ieee9_stability_generator_bus_ids() {
+        let result = ieee9_stability();
+        assert!(result.is_ok(), "ieee9_stability() must return Ok");
+        let (net, _cfg) = result.expect("already checked is_ok");
+        let bus_ids: Vec<usize> = net.generators.iter().map(|g| g.bus_id).collect();
+        assert!(bus_ids.contains(&1), "Generator at bus 1 must exist");
+        assert!(bus_ids.contains(&2), "Generator at bus 2 must exist");
+        assert!(bus_ids.contains(&3), "Generator at bus 3 must exist");
+    }
+
+    /// Reason: ieee9_stability() transient config t_end must be 3.0 (boundary: simulation duration).
+    #[cfg(feature = "stability")]
+    #[test]
+    fn test_ieee9_stability_t_end_boundary() {
+        let result = ieee9_stability();
+        assert!(result.is_ok(), "ieee9_stability() must return Ok");
+        let (_net, cfg) = result.expect("already checked is_ok");
+        assert_relative_eq!(cfg.t_end, 3.0, epsilon = 1e-12);
+    }
+
+    /// Reason: BenchmarkReport with notes populated must preserve all note strings via clone.
+    #[test]
+    fn test_benchmark_report_notes_preserved_via_clone() {
+        let notes = vec![
+            "Voltage error exceeded".to_string(),
+            "Solver did not converge".to_string(),
+        ];
+        let report = BenchmarkReport {
+            scenario_name: "notes-test".to_string(),
+            passed: false,
+            actual_converged: false,
+            actual_iterations: 0,
+            voltage_error_pu: f64::NAN,
+            losses_error_mw: f64::NAN,
+            notes: notes.clone(),
+        };
+        let cloned = report.clone();
+        assert_eq!(cloned.notes.len(), 2);
+        assert_eq!(cloned.notes[0], "Voltage error exceeded");
+        assert_eq!(cloned.notes[1], "Solver did not converge");
+    }
+}

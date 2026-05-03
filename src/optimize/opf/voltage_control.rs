@@ -9,9 +9,9 @@
 //! | Tertiary  | minutes   | System-wide reactive OPF |
 //!
 //! # Units
-//! - Voltages in `[pu]`
-//! - Reactive power in `[Mvar]`
-//! - Time constants in `[s]`
+//! - Voltages in ``pu``
+//! - Reactive power in ``Mvar``
+//! - Time constants in ``s``
 
 use std::fmt;
 

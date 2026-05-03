@@ -29,9 +29,9 @@ pub struct ContingencyViolation {
     pub outage_branch: usize,
     /// Index of the overloaded branch (monitored)
     pub monitored_branch: usize,
-    /// Post-contingency flow [MW]
+    /// Post-contingency flow `MW`
     pub post_flow_mw: f64,
-    /// Thermal limit [MW]
+    /// Thermal limit `MW`
     pub limit_mw: f64,
     /// LODF sensitivity used: LODF[monitored, outage]
     pub lodf: f64,
@@ -62,7 +62,7 @@ pub struct ScopfResult {
 pub struct ScopfConfig {
     /// Fraction of rate_a to use as limit for post-contingency flows (typical: 1.0)
     pub emergency_rating_fraction: f64,
-    /// Minimum base-case branch flow below which LODF screening is skipped [MW]
+    /// Minimum base-case branch flow below which LODF screening is skipped `MW`
     pub flow_threshold_mw: f64,
 }
 

@@ -493,16 +493,14 @@ impl MicrogridProtectionSystem {
                 let t_up = upstream.trip_time_ms(test_current);
 
                 match (t_down, t_up) {
-                    (Some(td), Some(tu)) => {
-                        if tu <= td + margin_ms {
-                            violations.push(format!(
-                                "Coordination violation: relay {} (upstream, bus {}) trips at {:.1} ms, \
-                                 relay {} (downstream, bus {}) trips at {:.1} ms — margin {:.1} ms < required {:.1} ms",
-                                upstream.relay_id, upstream.bus, tu,
-                                downstream.relay_id, downstream.bus, td,
-                                tu - td, margin_ms
-                            ));
-                        }
+                    (Some(td), Some(tu)) if tu <= td + margin_ms => {
+                        violations.push(format!(
+                            "Coordination violation: relay {} (upstream, bus {}) trips at {:.1} ms, \
+                             relay {} (downstream, bus {}) trips at {:.1} ms — margin {:.1} ms < required {:.1} ms",
+                            upstream.relay_id, upstream.bus, tu,
+                            downstream.relay_id, downstream.bus, td,
+                            tu - td, margin_ms
+                        ));
                     }
                     (None, Some(_)) => {
                         // Upstream operates but downstream doesn't — possible mis-coordination

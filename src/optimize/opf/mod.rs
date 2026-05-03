@@ -9,15 +9,21 @@ pub mod ac_opf;
 pub mod ac_scopf;
 pub mod admm;
 pub mod bess_opf;
+pub mod carbon_opf;
 pub mod dc_opf;
 pub mod facts_opf;
+pub mod lagrangian;
+pub mod loss_min;
 pub mod loss_minimization;
+pub mod multiperiod;
+pub mod n1_scopf;
 pub mod realtime_opf;
 pub mod scopf_mp;
 pub mod security;
 pub mod stochastic;
 pub mod stochastic_cc;
 pub mod stochastic_portfolio;
+pub mod voltage_control;
 pub mod vvo;
 pub use ac_scopf::{
     AcBusType, AcContingency, AcScopfBranch, AcScopfBus, AcScopfConfig, AcScopfGenerator,

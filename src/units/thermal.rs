@@ -1,9 +1,9 @@
-use serde::{Deserialize, Serialize};
-use std::fmt;
-use std::ops::{Add, Div, Mul, Neg, Sub};
+use core::fmt;
+use core::ops::{Add, Div, Mul, Neg, Sub};
 
-/// Thermodynamic temperature [K].  Inner value stores kelvin.
-#[derive(Debug, Clone, Copy, PartialEq, PartialOrd, Serialize, Deserialize, Default)]
+/// Thermodynamic temperature `K`.  Inner value stores kelvin.
+#[derive(Debug, Clone, Copy, PartialEq, PartialOrd, Default)]
+#[cfg_attr(feature = "std", derive(serde::Serialize, serde::Deserialize))]
 pub struct Temperature(pub f64);
 
 impl Temperature {
@@ -44,7 +44,8 @@ impl Sub for Temperature {
 }
 
 /// Thermal conductivity λ [W/(m·K)].
-#[derive(Debug, Clone, Copy, PartialEq, PartialOrd, Serialize, Deserialize, Default)]
+#[derive(Debug, Clone, Copy, PartialEq, PartialOrd, Default)]
+#[cfg_attr(feature = "std", derive(serde::Serialize, serde::Deserialize))]
 pub struct ThermalConductivity(pub f64);
 
 impl fmt::Display for ThermalConductivity {
@@ -75,7 +76,8 @@ impl Neg for ThermalConductivity {
 }
 
 /// Specific heat capacity Cp [J/(kg·K)].
-#[derive(Debug, Clone, Copy, PartialEq, PartialOrd, Serialize, Deserialize, Default)]
+#[derive(Debug, Clone, Copy, PartialEq, PartialOrd, Default)]
+#[cfg_attr(feature = "std", derive(serde::Serialize, serde::Deserialize))]
 pub struct HeatCapacity(pub f64);
 
 impl fmt::Display for HeatCapacity {

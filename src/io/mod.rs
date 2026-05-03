@@ -10,3 +10,4 @@ pub mod oxirs_bridge;
 pub mod pmu;
 pub mod serialize;
 pub mod timeseries;
+pub mod visualization;

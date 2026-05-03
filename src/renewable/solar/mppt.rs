@@ -15,15 +15,15 @@ use serde::{Deserialize, Serialize};
 /// State for the Perturb & Observe MPPT controller.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct PerturbObserve {
-    /// Current operating voltage [V]
+    /// Current operating voltage `V`
     pub v_op: f64,
-    /// Previous power measurement [W]
+    /// Previous power measurement `W`
     prev_power: f64,
-    /// Previous voltage [V]
+    /// Previous voltage `V`
     prev_voltage: f64,
-    /// Perturbation step size [V]
+    /// Perturbation step size `V`
     pub delta_v: f64,
-    /// Voltage limits [V]
+    /// Voltage limits `V`
     pub v_min: f64,
     pub v_max: f64,
 }
@@ -31,9 +31,9 @@ pub struct PerturbObserve {
 impl PerturbObserve {
     /// Create a new P&O controller.
     ///
-    /// - `v_init`  — initial operating voltage [V]
-    /// - `delta_v` — perturbation step [V] (typical: 0.5–2% of V_oc)
-    /// - `v_min` / `v_max` — operating voltage window [V]
+    /// - `v_init`  — initial operating voltage `V`
+    /// - `delta_v` — perturbation step `V` (typical: 0.5–2% of V_oc)
+    /// - `v_min` / `v_max` — operating voltage window `V`
     pub fn new(v_init: f64, delta_v: f64, v_min: f64, v_max: f64) -> Self {
         Self {
             v_op: v_init,
@@ -77,15 +77,15 @@ impl PerturbObserve {
 /// State for the Incremental Conductance MPPT controller.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct IncrementalConductance {
-    /// Current operating voltage reference [V]
+    /// Current operating voltage reference `V`
     pub v_ref: f64,
-    /// Previous voltage [V]
+    /// Previous voltage `V`
     prev_v: f64,
-    /// Previous current [A]
+    /// Previous current `A`
     prev_i: f64,
-    /// Step size [V]
+    /// Step size `V`
     pub delta_v: f64,
-    /// Voltage limits [V]
+    /// Voltage limits `V`
     pub v_min: f64,
     pub v_max: f64,
 }

@@ -19,7 +19,7 @@ use serde::{Deserialize, Serialize};
 /// A single-machine infinite-bus (SMIB) or multi-machine fault scenario.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct FaultScenario {
-    /// Inertia constant [s] (M = 2H/ω_s; here stored as H)
+    /// Inertia constant `s` (M = 2H/ω_s; here stored as H)
     pub h_inertia: f64,
     /// Damping coefficient [p.u./rad·s⁻¹]
     pub damping: f64,
@@ -41,7 +41,7 @@ pub struct FaultScenario {
     pub e_prime: f64,
     /// Infinite-bus voltage [p.u.]
     pub v_inf: f64,
-    /// Pre-fault rotor angle [rad]
+    /// Pre-fault rotor angle `rad`
     pub delta_0: f64,
     /// Nominal frequency [rad/s] (ω₀ = 2π·f)
     pub omega_0: f64,
@@ -124,9 +124,9 @@ enum FaultPhase {
 /// A single point on the fault trajectory.
 #[derive(Debug, Clone, Copy, Serialize, Deserialize)]
 pub struct TrajectoryPoint {
-    /// Time [s]
+    /// Time `s`
     pub time_s: f64,
-    /// Rotor angle [rad]
+    /// Rotor angle `rad`
     pub delta: f64,
     /// Rotor speed deviation [rad/s]
     pub omega: f64,
@@ -145,13 +145,13 @@ pub struct FaultTrajectoryResult {
     pub trajectory: Vec<TrajectoryPoint>,
     /// Whether the machine remains stable
     pub is_stable: bool,
-    /// Maximum rotor angle reached [rad]
+    /// Maximum rotor angle reached `rad`
     pub delta_max: f64,
-    /// Time of maximum rotor angle [s]
+    /// Time of maximum rotor angle `s`
     pub t_delta_max: f64,
-    /// Clearing time [s]
+    /// Clearing time `s`
     pub t_clear: f64,
-    /// Post-fault settling angle [rad] (last point)
+    /// Post-fault settling angle `rad` (last point)
     pub delta_final: f64,
 }
 
@@ -159,9 +159,9 @@ pub struct FaultTrajectoryResult {
 ///
 /// # Arguments
 /// - `scenario`    — SMIB parameters
-/// - `t_clear`     — fault clearing time [s]
-/// - `t_sim`       — total simulation time [s]
-/// - `dt`          — integration step [s]
+/// - `t_clear`     — fault clearing time `s`
+/// - `t_sim`       — total simulation time `s`
+/// - `dt`          — integration step `s`
 pub fn simulate_fault_trajectory(
     scenario: &FaultScenario,
     t_clear: f64,
@@ -293,11 +293,11 @@ fn rk4_derivatives(
 /// Critical Clearing Time (CCT) result.
 #[derive(Debug, Clone, Copy, Serialize, Deserialize)]
 pub struct CctResult {
-    /// CCT [s] — maximum clearing time for stability
+    /// CCT `s` — maximum clearing time for stability
     pub cct_s: f64,
-    /// Rotor angle at CCT [rad]
+    /// Rotor angle at CCT `rad`
     pub delta_at_cct: f64,
-    /// Maximum angle margin (stable case delta_max - delta_0) [rad]
+    /// Maximum angle margin (stable case delta_max - delta_0) `rad`
     pub angle_margin_rad: f64,
     /// Number of bisection iterations
     pub n_iter: usize,
@@ -307,11 +307,11 @@ pub struct CctResult {
 ///
 /// # Arguments
 /// - `scenario`        — SMIB fault parameters
-/// - `t_lo`            — lower bound for clearing time (known stable) [s]
-/// - `t_hi`            — upper bound for clearing time (known unstable) [s]
-/// - `tol`             — bisection tolerance [s]
-/// - `t_sim`           — simulation horizon [s]
-/// - `dt`              — integration step [s]
+/// - `t_lo`            — lower bound for clearing time (known stable) `s`
+/// - `t_hi`            — upper bound for clearing time (known unstable) `s`
+/// - `tol`             — bisection tolerance `s`
+/// - `t_sim`           — simulation horizon `s`
+/// - `dt`              — integration step `s`
 pub fn find_cct(
     scenario: &FaultScenario,
     t_lo: f64,
@@ -368,11 +368,11 @@ pub fn find_cct(
 /// the equal area: ∫_{δ0}^{δcr} P_a_fault dδ = ∫_{δcr}^{δmax} P_a_post dδ
 #[derive(Debug, Clone, Copy, Serialize, Deserialize)]
 pub struct EacResult {
-    /// Initial equilibrium angle [rad]
+    /// Initial equilibrium angle `rad`
     pub delta_0: f64,
-    /// Unstable equilibrium angle [rad]
+    /// Unstable equilibrium angle `rad`
     pub delta_u: f64,
-    /// Critical clearing angle [rad]
+    /// Critical clearing angle `rad`
     pub delta_cr: f64,
     /// Accelerating area [p.u.·rad]
     pub a_acc: f64,

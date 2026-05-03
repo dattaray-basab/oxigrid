@@ -296,13 +296,15 @@ pub struct TvsaEngine {
     /// Per-unit voltage below which the system is classified as collapsed
     /// (default 0.50 pu).
     pub collapse_threshold_pu: f64,
+    /// Available reactive headroom \[MVAr\] used to scale the motor-stall
+    /// Q penalty in the post-fault recovery formula (default 100.0 MVAr).
+    ///
+    /// Set via [`TvsaEngine::with_q_headroom`].  Values ≤ 0 suppress the
+    /// penalty entirely.
+    pub q_max_available_mvar: f64,
 }
 
 impl TvsaEngine {
-    /// Available reactive headroom (Mvar) used to scale the motor-stall Q
-    /// penalty.  Acts as a placeholder for true system Q capability.
-    const Q_MAX_AVAILABLE: f64 = 100.0;
-
     /// Thevenin impedance (pu) used in the voltage-divider fault model.
     const Z_THEVENIN: f64 = 0.1;
 
@@ -319,7 +321,15 @@ impl TvsaEngine {
             simulation_duration_s: 10.0,
             voltage_threshold_pu: 0.95,
             collapse_threshold_pu: 0.50,
+            q_max_available_mvar: 100.0,
         }
+    }
+
+    /// Set the available reactive headroom \[MVAr\] for motor-stall penalty scaling.
+    /// Default is 100.0 MVAr.
+    pub fn with_q_headroom(mut self, mvar: f64) -> Self {
+        self.q_max_available_mvar = mvar;
+        self
     }
 
     /// Register a motor load with the engine.
@@ -465,7 +475,11 @@ impl TvsaEngine {
                     .filter(|m| m.bus_id == bus.bus_id && m.stalled && !m.tripped)
                     .map(|m| m.rated_mvar * 3.0)
                     .sum();
-                let q_penalty = (motor_q / Self::Q_MAX_AVAILABLE).min(0.5);
+                let q_penalty = if self.q_max_available_mvar > 0.0 {
+                    (motor_q / self.q_max_available_mvar).min(0.5)
+                } else {
+                    0.0
+                };
                 let v_post_eq = (bus.v_post_fault_pu - q_penalty).max(0.0);
 
                 let v_calc = v_post_eq
@@ -1105,5 +1119,90 @@ mod tests {
         let engine = TvsaEngine::new(vec![]);
         let idx = engine.compute_recovery_index(&[]);
         assert!((idx - 1.0).abs() < 1e-9, "empty trajectories → index = 1.0");
+    }
+
+    // 26. Smaller Q headroom produces a lower post-fault voltage than larger headroom.
+    //
+    // Motor is configured to stay stalled for the full simulation (reconnect
+    // voltage set impossibly high, thermal-trip time set far beyond window) so
+    // that the q_penalty drives a sustained difference in v_post_eq between the
+    // two engines.
+    //
+    // rated_mvar = 5.0 → motor_q = 15.0 Mvar
+    //   q50  = (15 / 50).min(0.5)  = 0.30  → v_post_eq ≈ 0.97 - 0.30 = 0.67
+    //   q200 = (15 / 200).min(0.5) = 0.075 → v_post_eq ≈ 0.97 - 0.075 = 0.895
+    //
+    // Fault impedance = 0.4 pu → v_during = 0.1 / 0.5 = 0.20 pu < stall_voltage
+    // of 0.65, so the motor always stalls.
+    #[test]
+    fn test_tvsa_q_headroom_scales_motor_penalty() {
+        // ── shared bus + fault parameters ───────────────────────────────────
+        let make_bus = || BusVoltageModel {
+            bus_id: 0,
+            v_pre_fault_pu: 1.0,
+            v_during_fault_pu: 1.0, // overwritten by run_assessment
+            v_post_fault_pu: 0.97,
+            time_constant_s: 0.3,
+            motor_reactive_demand_mvar: 0.0,
+        };
+
+        // fault_impedance 0.4 pu → v_during = 0.1 / (0.1 + 0.4) = 0.20 pu
+        let make_fault = || FaultEvent {
+            bus_id: 0,
+            fault_type: FaultType::ThreePhase,
+            fault_impedance_pu: 0.4,
+            fault_time_s: 0.1,
+            clearing_time_s: 0.2,
+            pre_fault_voltage_pu: 1.0,
+        };
+
+        // Motor with rated_mvar = 5.0 → motor_q (stalled) = 15.0 Mvar.
+        // reconnect_voltage 1.5 pu ⟹ never reconnects voluntarily.
+        // thermal_trip_time 1000.0 s ⟹ never trips within the 10 s window.
+        let make_motor = || {
+            let mut m = MotorLoad::new(0, 0, StallType::HvacCompressor, 2.0, 5.0);
+            m.reconnect_voltage_pu = 1.5;
+            m.thermal_trip_time_s = 1_000.0;
+            m
+        };
+
+        // ── engine with tight Q headroom (50 MVAr) ───────────────────────
+        let mut engine50 = TvsaEngine::new(vec![make_bus()]).with_q_headroom(50.0);
+        engine50.add_motor_load(make_motor());
+        let result50 = engine50.run_assessment(make_fault());
+
+        // Sanity: motor must have stalled or the penalty is trivially zero.
+        assert!(
+            !result50.stalled_motors.is_empty(),
+            "engine50: motor should stall during the deep voltage sag"
+        );
+
+        // ── engine with large Q headroom (200 MVAr) ───────────────────────
+        let mut engine200 = TvsaEngine::new(vec![make_bus()]).with_q_headroom(200.0);
+        engine200.add_motor_load(make_motor());
+        let result200 = engine200.run_assessment(make_fault());
+
+        assert!(
+            !result200.stalled_motors.is_empty(),
+            "engine200: motor should stall during the deep voltage sag"
+        );
+
+        // ── compare final voltages ────────────────────────────────────────
+        let v50 = result50
+            .voltage_trajectories
+            .first()
+            .and_then(|t| t.voltage_pu.last().copied())
+            .expect("engine50 trajectory should exist");
+
+        let v200 = result200
+            .voltage_trajectories
+            .first()
+            .and_then(|t| t.voltage_pu.last().copied())
+            .expect("engine200 trajectory should exist");
+
+        assert!(
+            v50 < v200,
+            "lower Q headroom (50 MVAr) should yield lower final recovery voltage: v50={v50:.4} v200={v200:.4}"
+        );
     }
 }

@@ -289,13 +289,13 @@ pub struct FactsDevice {
     pub from_bus: usize,
     /// To-bus index (0-indexed).
     pub to_bus: usize,
-    /// Apparent power rating [MVA].
+    /// Apparent power rating `MVA`.
     pub rating_mva: f64,
-    /// Minimum reactance setting [pu].  Capacitive compensation → negative.
+    /// Minimum reactance setting `pu`.  Capacitive compensation → negative.
     pub x_min_pu: f64,
-    /// Maximum reactance setting [pu].
+    /// Maximum reactance setting `pu`.
     pub x_max_pu: f64,
-    /// Current reactance setting [pu].
+    /// Current reactance setting `pu`.
     pub current_x_pu: f64,
     /// Primary control objective.
     pub control_objective: FactsControlObjective,
@@ -360,15 +360,15 @@ impl FactsDevice {
 pub struct DcBusData {
     /// Bus index (0-indexed).
     pub id: usize,
-    /// Active generation [MW].
+    /// Active generation `MW`.
     pub p_gen_mw: f64,
-    /// Active load [MW].
+    /// Active load `MW`.
     pub p_load_mw: f64,
-    /// Shunt susceptance [pu].
+    /// Shunt susceptance `pu`.
     pub b_shunt_pu: f64,
     /// True if this is the reference (slack) bus.
     pub is_slack: bool,
-    /// Computed voltage angle [rad] (output).
+    /// Computed voltage angle `rad` (output).
     pub angle_rad: f64,
 }
 
@@ -419,11 +419,11 @@ pub struct DcBranchData {
     pub from_bus: usize,
     /// To-bus index.
     pub to_bus: usize,
-    /// Series reactance [pu].
+    /// Series reactance `pu`.
     pub x_pu: f64,
-    /// Series susceptance [pu] = 1 / x_pu.
+    /// Series susceptance `pu` = 1 / x_pu.
     pub b_pu: f64,
-    /// Thermal rating [MW].
+    /// Thermal rating `MW`.
     pub rating_mw: f64,
     /// Optional FACTS device ID installed on this branch.
     pub facts_device_id: Option<usize>,
@@ -473,9 +473,9 @@ pub struct GeneratorData {
     pub id: usize,
     /// Bus to which this generator is connected.
     pub bus_id: usize,
-    /// Minimum active output [MW].
+    /// Minimum active output `MW`.
     pub p_min_mw: f64,
-    /// Maximum active output [MW].
+    /// Maximum active output `MW`.
     pub p_max_mw: f64,
     /// No-load (constant) cost coefficient [USD/h].
     pub cost_a_usd_per_h: f64,
@@ -518,9 +518,9 @@ pub struct FactsOpfProblemResult {
     pub generator_dispatch: Vec<(usize, f64)>,
     /// Optimal FACTS settings: `(device_id, x_pu)`.
     pub facts_settings: Vec<(usize, f64)>,
-    /// Voltage angles per bus [rad].
+    /// Voltage angles per bus `rad`.
     pub bus_angles_rad: Vec<f64>,
-    /// Branch active power flows [MW].
+    /// Branch active power flows `MW`.
     pub branch_flows_mw: Vec<f64>,
     /// Branch loading as percentage of rating [%].
     pub branch_loading_pct: Vec<f64>,
@@ -530,7 +530,7 @@ pub struct FactsOpfProblemResult {
     pub total_facts_cost_usd: f64,
     /// Number of branches exceeding 95 % of thermal rating.
     pub n_congested_branches: usize,
-    /// Total network losses [MW] (0 for lossless DC approximation).
+    /// Total network losses `MW` (0 for lossless DC approximation).
     pub losses_mw: f64,
     /// Whether the FACTS iteration converged.
     pub converged: bool,
@@ -644,10 +644,10 @@ impl FactsOpfProblem {
     /// Solve the DC power flow via Gaussian elimination with partial pivoting.
     ///
     /// The slack bus (index 0) angle is fixed to 0.  Returns the full angle
-    /// vector [rad].
+    /// vector `rad`.
     ///
     /// * `b_matrix`    — Full n × n B-matrix (from [`Self::build_b_matrix`]).
-    /// * `p_injections`— Net power injection per bus [pu] = (P_gen − P_load) / base_mva.
+    /// * `p_injections`— Net power injection per bus `pu` = (P_gen − P_load) / base_mva.
     pub fn solve_dc_pf(b_matrix: &[Vec<f64>], p_injections: &[f64]) -> Vec<f64> {
         let n = b_matrix.len();
         if n == 0 {
@@ -679,7 +679,7 @@ impl FactsOpfProblem {
 
     /// Compute branch active power flows from bus angles.
     ///
-    /// `P_ij = (θ_i − θ_j) × b_ij_eff × base_mva`  [MW]
+    /// `P_ij = (θ_i − θ_j) × b_ij_eff × base_mva`  `MW`
     pub fn compute_branch_flows(&self, angles: &[f64]) -> Vec<f64> {
         self.branches
             .iter()
@@ -903,7 +903,7 @@ impl FactsOpfProblem {
 
     // ── Private helpers ────────────────────────────────────────────────────────
 
-    /// Net power injection per bus [pu]: (P_gen − P_load) / base_mva.
+    /// Net power injection per bus `pu`: (P_gen − P_load) / base_mva.
     fn net_injections_pu(&self) -> Vec<f64> {
         self.buses
             .iter()

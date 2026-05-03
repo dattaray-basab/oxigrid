@@ -29,11 +29,11 @@ pub enum Iec61000Class {
 pub struct HarmonicLimit {
     /// Harmonic order n
     pub harmonic: u32,
-    /// Maximum harmonic current [A] (absolute) or mA/W (relative for Class D)
+    /// Maximum harmonic current `A` (absolute) or mA/W (relative for Class D)
     pub limit: f64,
 }
 
-/// Get IEC 61000-3-2 Class A current limits [A].
+/// Get IEC 61000-3-2 Class A current limits `A`.
 pub fn iec61000_3_2_class_a() -> Vec<HarmonicLimit> {
     vec![
         HarmonicLimit {
@@ -88,7 +88,7 @@ pub fn iec61000_3_2_class_a() -> Vec<HarmonicLimit> {
     ]
 }
 
-/// Get IEC 61000-3-2 Class C limits [A] at rated current I_n.
+/// Get IEC 61000-3-2 Class C limits `A` at rated current I_n.
 ///
 /// Class C limits are expressed as % of the fundamental current.
 pub fn iec61000_3_2_class_c(i_fundamental: f64) -> Vec<HarmonicLimit> {
@@ -330,7 +330,7 @@ pub fn check_iec61000_3_2_class_a(measured: &[(u32, f64)]) -> Vec<String> {
 
 /// Check IEEE 519 voltage distortion compliance.
 ///
-/// `bus_kv` — bus voltage [kV]
+/// `bus_kv` — bus voltage `kV`
 /// `harmonics_pct` — list of `(harmonic_order, voltage_as_pct_of_fundamental)`
 ///
 /// Returns list of violations.

@@ -1231,4 +1231,137 @@ mod tests {
             "EV renewable match {pct} not in [0,1]"
         );
     }
+
+    // ── 8 new tests ───────────────────────────────────────────────────────────
+
+    #[test]
+    fn test_peak_demand_increase_mw_positive() {
+        let impact = make_impact();
+        let peak = impact.peak_demand_increase_mw();
+        assert!(
+            peak > 0.0,
+            "peak_demand_increase_mw should be positive, got {peak}"
+        );
+    }
+
+    #[test]
+    fn test_voltage_impact_estimate_pct_proportional_to_impedance() {
+        let impact = make_impact();
+        let v1 = impact.voltage_impact_estimate_pct(0.01);
+        let v2 = impact.voltage_impact_estimate_pct(0.02);
+        // doubling impedance should double the voltage impact
+        assert!(
+            (v2 - 2.0 * v1).abs() < 1e-9,
+            "voltage impact should scale linearly with impedance: v1={v1}, v2={v2}"
+        );
+    }
+
+    #[test]
+    fn test_charging_session_is_satisfied_after_full_schedule() {
+        let mut session = EvChargingSession::new(0, 18, 23, 10.0, 7.0, 0.2, 60.0);
+        // schedule 10 kW across 2 hours → 10 kWh total
+        session.scheduled_power_kw[18] = 5.0;
+        session.scheduled_power_kw[19] = 5.0;
+        assert!(
+            (session.total_scheduled_kwh() - 10.0).abs() < 1e-9,
+            "total should be 10.0, got {}",
+            session.total_scheduled_kwh()
+        );
+        assert!(session.is_satisfied(), "session should be satisfied");
+    }
+
+    #[test]
+    fn test_cost_comparison_tou_lte_uncontrolled_cost() {
+        let coord = make_coordinator(CoordinationMode::Uncontrolled);
+        let (uncontrolled, tou, _carbon, _grid) = coord.cost_comparison();
+        assert!(
+            tou <= uncontrolled + 1e-6,
+            "TOU-optimal cost ({tou:.4}) should not exceed uncontrolled cost ({uncontrolled:.4})"
+        );
+    }
+
+    #[test]
+    fn test_fleet_energy_available_kwh_scales_with_fleet_size() {
+        let make_calc = |n: usize| V2gRevenueCalculator {
+            fleet_vehicles: n,
+            battery_kwh_per_vehicle: 60.0,
+            usable_soc_range: (0.2, 0.8),
+            charger_kw: 11.0,
+            round_trip_efficiency: 0.9,
+            availability_hours_per_day: 8.0,
+            degradation_cost_per_kwh: 0.05,
+        };
+        let e100 = make_calc(100).fleet_energy_available_kwh();
+        let e200 = make_calc(200).fleet_energy_available_kwh();
+        assert!(
+            (e200 - 2.0 * e100).abs() < 1e-6,
+            "doubling fleet should double energy: e100={e100}, e200={e200}"
+        );
+    }
+
+    #[test]
+    fn test_arbitrage_revenue_per_day_positive_spread() {
+        let calc = V2gRevenueCalculator {
+            fleet_vehicles: 100,
+            battery_kwh_per_vehicle: 60.0,
+            usable_soc_range: (0.2, 0.8),
+            charger_kw: 11.0,
+            round_trip_efficiency: 0.9,
+            availability_hours_per_day: 8.0,
+            degradation_cost_per_kwh: 0.01, // low degradation
+        };
+        let revenue = calc.arbitrage_revenue_per_day(50.0, 200.0, 1.0);
+        assert!(
+            revenue > 0.0,
+            "arbitrage revenue should be positive with a large spread, got {revenue}"
+        );
+    }
+
+    #[test]
+    fn test_available_curtailment_mw_zero_below_min_soc() {
+        let dr = EvDemandResponse {
+            enrolled_evs: 500,
+            response_capacity_fraction: 0.8,
+            min_soc_for_dr: 0.3,
+            notification_delay_min: 5.0,
+            max_curtailment_pct: 50.0,
+            compensation_per_kwh: 0.10,
+        };
+        // avg_soc below threshold → zero curtailment
+        let curtail = dr.available_curtailment_mw(10.0, 0.1);
+        assert!(
+            curtail.abs() < 1e-9,
+            "curtailment should be zero below min SoC, got {curtail}"
+        );
+        // avg_soc above threshold → positive curtailment
+        let curtail_ok = dr.available_curtailment_mw(10.0, 0.5);
+        assert!(
+            curtail_ok > 0.0,
+            "curtailment should be positive above min SoC, got {curtail_ok}"
+        );
+    }
+
+    #[test]
+    fn test_population_coverage_pct_full_when_in_radius() {
+        let optimizer = ChargingNetworkOptimizer {
+            candidate_locations: vec![ChargingLocation {
+                id: 1,
+                x: 0.0,
+                y: 0.0,
+                charger_type: NetworkChargerType::Dcfc_150kw,
+                install_cost: 10_000.0,
+                annual_opex: 1_000.0,
+                charger_kw: 150.0,
+                capacity: 20,
+            }],
+            budget: 50_000.0,
+            // All demand nodes within 5 km (Dcfc_150kw radius = 50 km)
+            ev_demand_nodes: vec![(1.0, 1.0, 100.0), (2.0, 2.0, 80.0), (3.0, 3.0, 60.0)],
+        };
+        let coverage = optimizer.population_coverage_pct(&[1]);
+        assert!(
+            (coverage - 1.0).abs() < 1e-9,
+            "all demand nodes should be covered, got {coverage}"
+        );
+    }
 }

@@ -21,9 +21,9 @@ use super::electrode::{ElectrodeParams, ParticleDiffusion};
 /// Operating mode for the SPM solver.
 #[derive(Debug, Clone, Copy, PartialEq, Serialize, Deserialize)]
 pub enum SpmMode {
-    /// Constant current [A] (positive = discharge)
+    /// Constant current `A` (positive = discharge)
     GalvanostaticDischarge,
-    /// Constant current [A] (positive = charge)
+    /// Constant current `A` (positive = charge)
     GalvanostaticCharge,
 }
 
@@ -32,9 +32,9 @@ pub enum SpmMode {
 pub struct SpmConfig {
     /// Number of radial nodes in each particle
     pub n_nodes: usize,
-    /// Minimum allowed cell voltage [V]
+    /// Minimum allowed cell voltage `V`
     pub v_min: f64,
-    /// Maximum allowed cell voltage [V]
+    /// Maximum allowed cell voltage `V`
     pub v_max: f64,
     /// Faraday constant [C/mol]
     pub faraday: f64,
@@ -60,9 +60,9 @@ impl Default for SpmConfig {
 /// Instantaneous cell state from the SPM.
 #[derive(Debug, Clone, Copy, Serialize, Deserialize)]
 pub struct SpmState {
-    /// Terminal voltage [V]
+    /// Terminal voltage `V`
     pub voltage: f64,
-    /// Cell current [A] (positive = discharge)
+    /// Cell current `A` (positive = discharge)
     pub current: f64,
     /// Anode surface stoichiometry θ_neg
     pub theta_neg: f64,
@@ -72,7 +72,7 @@ pub struct SpmState {
     pub theta_neg_avg: f64,
     /// Cathode average stoichiometry θ_pos_avg
     pub theta_pos_avg: f64,
-    /// Elapsed simulation time [s]
+    /// Elapsed simulation time `s`
     pub time_s: f64,
     /// True if voltage limit was hit
     pub cutoff: bool,
@@ -83,9 +83,9 @@ pub struct SpmSolver {
     pub config: SpmConfig,
     pub anode: ParticleDiffusion,
     pub cathode: ParticleDiffusion,
-    /// Area of electrode [m²] (used to convert current → current density)
+    /// Area of electrode `m²` (used to convert current → current density)
     pub electrode_area: f64,
-    /// Simulation time [s]
+    /// Simulation time `s`
     pub time_s: f64,
 }
 
@@ -120,7 +120,7 @@ impl SpmSolver {
         }
     }
 
-    /// Compute Butler-Volmer overpotential [V] given pore-wall flux j_n.
+    /// Compute Butler-Volmer overpotential `V` given pore-wall flux j_n.
     ///
     /// j_n = i_0/(F) · [exp(α_a·F·η/RT) − exp(−α_c·F·η/RT)]
     ///
@@ -146,9 +146,9 @@ impl SpmSolver {
 
     /// Advance the cell by one time step and return state.
     ///
-    /// `current_a` — applied current [A] (positive = discharge)
-    /// `dt`        — time step [s]
-    /// `temp_k`    — temperature [K]
+    /// `current_a` — applied current `A` (positive = discharge)
+    /// `dt`        — time step `s`
+    /// `temp_k`    — temperature `K`
     pub fn step(&mut self, current_a: f64, dt: f64, temp_k: f64) -> SpmState {
         let f = self.config.faraday;
         let area = self.electrode_area;
@@ -245,7 +245,7 @@ impl SpmSolver {
 
     /// State of charge estimate from anode average stoichiometry.
     ///
-    /// Normalised to [0,1] using full-charge and full-discharge stoichiometry.
+    /// Normalised to `0,1` using full-charge and full-discharge stoichiometry.
     pub fn soc_estimate(&self) -> f64 {
         let theta = self.anode.theta_avg();
         let theta_100 = 0.80; // full charge

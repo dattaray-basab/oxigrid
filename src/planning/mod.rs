@@ -12,19 +12,20 @@
 //! - [`stochastic`] — Stochastic planning under uncertainty.
 
 pub mod distribution;
+pub mod distribution_planner;
 pub mod integrated;
 pub mod stochastic;
 
-pub use distribution::distribution_planner::{
-    CapacityNeed, DerIntegrationPlan, DistributionAssetNew, DistributionAssetType,
-    DistributionPlan, DistributionPlanner, ExpansionProject, LoadForecast, LoadGrowthModel,
-    PlanningHorizon,
-};
 pub use distribution::{
     AssetConditionAssessor, DerCandidate, DerCandidateType, DerIntegrationPlanner, DistAssetType,
     DistributionAsset, DistributionExpansionPlanner, DistributionLoadForecast, DistributionProject,
     ExpansionPlan, GrowthScenario, LongTermStrategy, MaintenanceActivity, MaintenancePlan,
     ProjectBenefits, ProjectType, RcmAnalyzer, StrategyMetrics,
+};
+pub use distribution_planner::{
+    CapacityNeed, DerIntegrationPlan, DistributionAssetNew, DistributionAssetType,
+    DistributionPlan, DistributionPlanner, ExpansionProject, LoadForecast, LoadGrowthModel,
+    PlanningHorizon,
 };
 pub use integrated::*;
 pub use stochastic::*;

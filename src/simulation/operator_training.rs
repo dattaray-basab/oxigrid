@@ -429,14 +429,10 @@ fn action_match_score(submitted: &OtsOperatorAction, correct: &OtsOperatorAction
                 unit_id: cu,
                 mw: cm,
             },
-        ) => {
-            if su == cu {
-                // Credit proportional to MW closeness, capped at 0.7.
-                let rel_err = ((sm - cm).abs() / cm.abs().max(1.0)).min(1.0);
-                (0.7 * (1.0 - rel_err)).max(0.0)
-            } else {
-                0.0
-            }
+        ) if su == cu => {
+            // Credit proportional to MW closeness, capped at 0.7.
+            let rel_err = ((sm - cm).abs() / cm.abs().max(1.0)).min(1.0);
+            (0.7 * (1.0 - rel_err)).max(0.0)
         }
         // CommitUnit vs ActivateReserve in frequency emergency → partial.
         (OtsOperatorAction::CommitUnit { .. }, OtsOperatorAction::ActivateReserve { .. })

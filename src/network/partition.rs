@@ -36,7 +36,7 @@ pub struct NetworkEdge {
 
 /// Build the graph Laplacian for a set of edges.
 ///
-/// Returns the n×n Laplacian as a flat Vec<f64> in row-major order.
+/// Returns the n×n Laplacian as a flat `Vec<f64>` in row-major order.
 pub fn build_laplacian(n_buses: usize, edges: &[NetworkEdge]) -> Vec<Vec<f64>> {
     let mut lap = vec![vec![0.0_f64; n_buses]; n_buses];
     for e in edges {
@@ -156,7 +156,7 @@ fn compute_spectral_shift(lap: &[Vec<f64>]) -> f64 {
 /// Result of spectral bisection.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct BisectionResult {
-    /// Partition assignment: partition_id[i] ∈ {0, 1}
+    /// Partition assignment: `partition_id[i]` ∈ {0, 1}
     pub partition: Vec<usize>,
     /// Number of buses in partition 0
     pub n_partition_0: usize,

@@ -264,8 +264,8 @@ impl SeasonalH2Optimizer {
     /// For gas-law types we use the ideal-gas law as a first-order approximation:
     ///
     /// ```text
-    /// n_H₂ [mol] = (P [Pa] × V [m³]) / (R [J/(mol·K)] × T [K])
-    /// m_H₂ [kg]  = n_H₂ × M_H₂ [kg/mol]
+    /// n_H₂ [mol] = (P [Pa] × V `m³`) / (R [J/(mol·K)] × T `K`)
+    /// m_H₂ `kg`  = n_H₂ × M_H₂ [kg/mol]
     /// ```
     ///
     /// For salt caverns the working mass is the gas stored between `min_pressure_bar`

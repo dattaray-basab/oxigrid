@@ -25,22 +25,22 @@ use std::f64::consts::PI;
 /// Geographic location of a wind site.
 #[derive(Debug, Clone, Copy, Serialize, Deserialize)]
 pub struct SiteLocation {
-    /// Easting [km] or longitude (arbitrary consistent units)
+    /// Easting `km` or longitude (arbitrary consistent units)
     pub x_km: f64,
-    /// Northing [km] or latitude
+    /// Northing `km` or latitude
     pub y_km: f64,
-    /// Hub height [m]
+    /// Hub height `m`
     pub hub_height_m: f64,
     /// Weibull shape parameter k (≈ 2 for typical wind)
     pub weibull_k: f64,
     /// Weibull scale parameter c [m/s]
     pub weibull_c: f64,
-    /// Rated capacity [MW]
+    /// Rated capacity `MW`
     pub capacity_mw: f64,
 }
 
 impl SiteLocation {
-    /// Distance to another site [km].
+    /// Distance to another site `km`.
     pub fn distance_km(&self, other: &SiteLocation) -> f64 {
         let dx = self.x_km - other.x_km;
         let dy = self.y_km - other.y_km;
@@ -64,7 +64,7 @@ pub fn weibull_icdf(p: f64, k: f64, c: f64) -> f64 {
     c * (-(1.0 - p).ln()).powf(1.0 / k)
 }
 
-/// Weibull mean wind speed: E[U] = c·Γ(1 + 1/k)
+/// Weibull mean wind speed: `E[U]` = c·Γ(1 + 1/k)
 pub fn weibull_mean(k: f64, c: f64) -> f64 {
     c * gamma_func(1.0 + 1.0 / k)
 }
@@ -119,7 +119,7 @@ pub struct SemiVariogram {
     pub nugget: f64,
     /// Sill c (total variance for large h)
     pub sill: f64,
-    /// Range a (correlation length [km])
+    /// Range a (correlation length `km`)
     pub range: f64,
 }
 
@@ -154,7 +154,7 @@ impl SemiVariogram {
         }
     }
 
-    /// Evaluate γ(h) at separation distance h [km].
+    /// Evaluate γ(h) at separation distance h `km`.
     pub fn eval(&self, h: f64) -> f64 {
         if h < 1e-9 {
             return 0.0;
@@ -319,7 +319,7 @@ impl GaussianCopula {
     /// Generate `n_scenarios` correlated uniform samples using a deterministic
     /// quasi-random sequence (Halton).
     ///
-    /// Returns a `[n_scenarios × n_sites]` matrix of uniform [0,1] samples.
+    /// Returns a `[n_scenarios × n_sites]` matrix of uniform `0,1` samples.
     pub fn generate_uniform_scenarios(&self, n_scenarios: usize) -> Vec<Vec<f64>> {
         let n = self.n_sites;
 
@@ -370,7 +370,7 @@ impl GaussianCopula {
             .collect()
     }
 
-    /// Generate correlated wind power scenarios [MW] at each site.
+    /// Generate correlated wind power scenarios `MW` at each site.
     pub fn generate_power_scenarios(
         &self,
         sites: &[SiteLocation],
@@ -533,7 +533,7 @@ pub struct ScenarioStats {
     pub std_speed: Vec<f64>,
     /// Empirical correlation between site pairs
     pub empirical_corr: Vec<Vec<f64>>,
-    /// Mean total power [MW]
+    /// Mean total power `MW`
     pub mean_total_power_mw: f64,
 }
 

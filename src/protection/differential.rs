@@ -33,19 +33,19 @@ use serde::{Deserialize, Serialize};
 pub struct DiffRelayParams {
     /// Minimum pickup threshold I_min [p.u. of transformer rating]
     pub i_min_pu: f64,
-    /// Slope 1 (low-current region): k1 [fraction]
+    /// Slope 1 (low-current region): k1 `fraction`
     pub slope1: f64,
-    /// Slope 2 (high-current region): k2 [fraction], applied when I_rst > i_break_pu
+    /// Slope 2 (high-current region): k2 `fraction`, applied when I_rst > i_break_pu
     pub slope2: f64,
     /// Break-point current for dual-slope [p.u.]
     pub i_break_pu: f64,
-    /// 2nd harmonic ratio threshold for inrush blocking [fraction]
+    /// 2nd harmonic ratio threshold for inrush blocking `fraction`
     pub h2_threshold: f64,
-    /// 5th harmonic ratio threshold for over-excitation blocking [fraction]
+    /// 5th harmonic ratio threshold for over-excitation blocking `fraction`
     pub h5_threshold: f64,
     /// Definite trip (instantaneous) threshold for severe faults [p.u.]
     pub i_instantaneous_pu: f64,
-    /// Trip time delay [s] (for operate region, excluding instantaneous)
+    /// Trip time delay `s` (for operate region, excluding instantaneous)
     pub trip_delay_s: f64,
 }
 
@@ -275,7 +275,7 @@ pub fn bias_curve(params: &DiffRelayParams, i_rst_max: f64, n_points: usize) -> 
 /// State of the differential relay across multiple evaluation cycles.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct DiffRelayState {
-    /// Continuous operate zone timer [s]
+    /// Continuous operate zone timer `s`
     pub operate_timer_s: f64,
     /// Has tripped on this fault?
     pub has_tripped: bool,
@@ -297,7 +297,7 @@ impl DiffRelayState {
 
     /// Step the relay state machine.
     ///
-    /// `dt` — sample interval [s]. Returns Some(trip) if relay just tripped.
+    /// `dt` — sample interval `s`. Returns Some(trip) if relay just tripped.
     pub fn step(
         &mut self,
         params: &DiffRelayParams,

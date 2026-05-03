@@ -33,7 +33,7 @@ pub enum ElectrodeType {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ElectrodeParams {
     pub electrode_type: ElectrodeType,
-    /// Particle radius [m]
+    /// Particle radius `m`
     pub r_particle: f64,
     /// Solid-phase diffusivity at reference temperature [m²/s]
     pub d_s_ref: f64,
@@ -41,11 +41,11 @@ pub struct ElectrodeParams {
     pub c_s_max: f64,
     /// Initial stoichiometry (θ = c_s_avg / c_s_max)
     pub theta_init: f64,
-    /// Electrode thickness [m]
+    /// Electrode thickness `m`
     pub thickness: f64,
     /// Active material volume fraction
     pub epsilon_s: f64,
-    /// Electrode area [m²]
+    /// Electrode area `m²`
     pub area: f64,
     /// Activation energy for diffusivity [J/mol]
     pub e_a_ds: f64,
@@ -114,7 +114,7 @@ impl ElectrodeParams {
         3.0 * self.epsilon_s / self.r_particle
     }
 
-    /// Open-circuit potential (OCP) [V] as a function of stoichiometry θ ∈ [0,1].
+    /// Open-circuit potential (OCP) `V` as a function of stoichiometry θ ∈ `0,1`.
     pub fn ocp(&self, theta: f64) -> f64 {
         let x = theta.clamp(0.01, 0.99);
         match self.electrode_type {
@@ -176,7 +176,7 @@ pub struct ParticleDiffusion {
     pub c_s: Vec<f64>,
     /// Number of radial nodes
     pub n_nodes: usize,
-    /// Radial step size [m]
+    /// Radial step size `m`
     dr: f64,
 }
 
@@ -230,8 +230,8 @@ impl ParticleDiffusion {
     /// Advance concentration profile by one time step.
     ///
     /// `j_n` — pore-wall flux [mol/(m²·s)], positive for intercalation (charging into this electrode)
-    /// `dt`  — time step [s]
-    /// `temp_k` — temperature [K]
+    /// `dt`  — time step `s`
+    /// `temp_k` — temperature `K`
     pub fn step(&mut self, j_n: f64, dt: f64, temp_k: f64) {
         let n = self.n_nodes;
         let dr = self.dr;
@@ -272,18 +272,18 @@ impl ParticleDiffusion {
         0.5 * self.dr * self.dr / d_s
     }
 
-    /// Electrode volume [m³].
+    /// Electrode volume `m³`.
     pub fn volume(&self) -> f64 {
         self.params.area * self.params.thickness
     }
 
-    /// Electrode capacity [C] = F * c_s_max * ε_s * V_electrode.
+    /// Electrode capacity `C` = F * c_s_max * ε_s * V_electrode.
     pub fn capacity_coulombs(&self) -> f64 {
         const F: f64 = 96_485.0;
         F * self.params.c_s_max * self.params.epsilon_s * self.volume()
     }
 
-    /// Open-circuit potential at the particle surface [V].
+    /// Open-circuit potential at the particle surface `V`.
     pub fn ocp_surface(&self) -> f64 {
         self.params.ocp(self.theta_surface())
     }
@@ -295,7 +295,7 @@ impl ParticleDiffusion {
     }
 }
 
-/// Spherical particle volume for a given radius [m³].
+/// Spherical particle volume for a given radius `m³`.
 pub fn sphere_volume(r: f64) -> f64 {
     4.0 / 3.0 * PI * r * r * r
 }

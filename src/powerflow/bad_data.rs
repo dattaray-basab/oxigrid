@@ -188,7 +188,7 @@ impl BadDataProcessor {
     ///
     /// # Arguments
     /// * `measurements` — slice of measurements with residuals already computed.
-    /// * `h_matrix` — Jacobian `H` as row-major `[m][n]` (m measurements, n states).
+    /// * `h_matrix` — Jacobian `H` as row-major ``m``n`` (m measurements, n states).
     /// * `weight_matrix_diag` — diagonal of `W = R⁻¹`, length m.
     pub fn process(
         &self,

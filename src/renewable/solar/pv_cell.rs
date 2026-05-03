@@ -15,13 +15,13 @@ const Q_E: f64 = 1.602176634e-19; // Electron charge [C]
 /// Five-parameter single-diode model parameters at STC.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct SingleDiodeParams {
-    /// Photocurrent [A] at STC
+    /// Photocurrent `A` at STC
     pub i_ph_stc: f64,
-    /// Dark saturation current [A] at STC
+    /// Dark saturation current `A` at STC
     pub i_0_stc: f64,
-    /// Series resistance [Ω]
+    /// Series resistance `Ω`
     pub r_s: f64,
-    /// Shunt resistance [Ω]
+    /// Shunt resistance `Ω`
     pub r_sh: f64,
     /// Ideality factor (typically 1.0–1.5)
     pub n_diode: f64,
@@ -62,7 +62,7 @@ impl SingleDiodeParams {
         }
     }
 
-    /// Thermal voltage at temperature T [K].
+    /// Thermal voltage at temperature T `K`.
     pub fn v_t(&self, temp_k: f64) -> f64 {
         self.n_diode * K_B * temp_k / Q_E * self.n_cells as f64
     }

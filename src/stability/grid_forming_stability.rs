@@ -11,7 +11,7 @@
 //! A_vsg = [[0,          ω0       ],
 //!           [-Ks/(2H), -Kd/(2H)  ]]
 //! ```
-//! where `Ks` = synchronising torque, `Kd` = damping torque, `H` = virtual inertia [s].
+//! where `Ks` = synchronising torque, `Kd` = damping torque, `H` = virtual inertia `s`.
 //!
 //! Stability criterion: all eigenvalues `λ` satisfy `Re(λ) < 0`.
 //! Damping ratio: `ζ = -Re(λ) / |λ|`.

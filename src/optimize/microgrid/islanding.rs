@@ -15,17 +15,17 @@ use serde::{Deserialize, Serialize};
 pub struct IslandingDetector {
     /// ROCOF threshold [Hz/s] — typical: 0.5–2.0 Hz/s
     pub rocof_threshold_hz_s: f64,
-    /// Vector surge threshold [degrees] — typical: 2–12°
+    /// Vector surge threshold `degrees` — typical: 2–12°
     pub vector_surge_deg: f64,
-    /// Under-frequency trip level [Hz]
+    /// Under-frequency trip level `Hz`
     pub freq_lower_hz: f64,
-    /// Over-frequency trip level [Hz]
+    /// Over-frequency trip level `Hz`
     pub freq_upper_hz: f64,
     /// Under-voltage trip level [p.u.]
     pub voltage_lower_pu: f64,
     /// Over-voltage trip level [p.u.]
     pub voltage_upper_pu: f64,
-    /// Minimum time delay before tripping [s] (prevents nuisance trips)
+    /// Minimum time delay before tripping `s` (prevents nuisance trips)
     pub trip_delay_s: f64,
 
     // Internal state
@@ -58,13 +58,13 @@ pub struct IslandingTrip {
 /// Current measurement from the grid connection point.
 #[derive(Debug, Clone, Copy, Serialize, Deserialize)]
 pub struct GridMeasurement {
-    /// Fundamental frequency [Hz]
+    /// Fundamental frequency `Hz`
     pub freq_hz: f64,
     /// Voltage magnitude [p.u.]
     pub voltage_pu: f64,
-    /// Voltage phase angle [degrees]
+    /// Voltage phase angle `degrees`
     pub phase_deg: f64,
-    /// Elapsed time since last measurement [s]
+    /// Elapsed time since last measurement `s`
     pub dt_s: f64,
 }
 

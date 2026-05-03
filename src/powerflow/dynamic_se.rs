@@ -304,7 +304,6 @@ impl DynamicStateEstimator {
 
                 match m.mtype {
                     crate::powerflow::state_estimation::MeasurementType::VoltageMagnitude => v_i,
-                    crate::powerflow::state_estimation::MeasurementType::VoltageAngle => theta_i,
                     crate::powerflow::state_estimation::MeasurementType::PowerInjection => {
                         // P_i = Σ_j |V_i||V_j| (G_ij cos θ_ij + B_ij sin θ_ij)
                         let mut p = 0.0;
@@ -316,8 +315,7 @@ impl DynamicStateEstimator {
                         }
                         v_i * p
                     }
-                    crate::powerflow::state_estimation::MeasurementType::ReactiveInjection
-                    | crate::powerflow::state_estimation::MeasurementType::ReactivePowerInj => {
+                    crate::powerflow::state_estimation::MeasurementType::ReactiveInjection => {
                         let mut q = 0.0;
                         for (j, _bus) in buses.iter().enumerate() {
                             let theta_j = angles[j];
@@ -327,19 +325,13 @@ impl DynamicStateEstimator {
                         }
                         v_i * q
                     }
-                    crate::powerflow::state_estimation::MeasurementType::BranchActivePower
-                    | crate::powerflow::state_estimation::MeasurementType::BranchPowerFlow => {
+                    crate::powerflow::state_estimation::MeasurementType::BranchActivePower => {
                         let to_bus = m.to_bus.unwrap_or(0).min(n_bus - 1);
                         branch_active_power(bus_i, to_bus, &angles, &magnitudes, branches)
                     }
-                    crate::powerflow::state_estimation::MeasurementType::BranchReactivePower
-                    | crate::powerflow::state_estimation::MeasurementType::BranchReactiveFlow => {
+                    crate::powerflow::state_estimation::MeasurementType::BranchReactivePower => {
                         let to_bus = m.to_bus.unwrap_or(0).min(n_bus - 1);
                         branch_reactive_power(bus_i, to_bus, &angles, &magnitudes, branches)
-                    }
-                    crate::powerflow::state_estimation::MeasurementType::CurrentMagnitude => {
-                        let to_bus = m.to_bus.unwrap_or(0).min(n_bus - 1);
-                        branch_current_mag(bus_i, to_bus, &angles, &magnitudes, branches)
                     }
                 }
             })
@@ -412,7 +404,6 @@ fn compute_hx_for_state(
 
             match m.mtype {
                 crate::powerflow::state_estimation::MeasurementType::VoltageMagnitude => v_i,
-                crate::powerflow::state_estimation::MeasurementType::VoltageAngle => theta_i,
                 crate::powerflow::state_estimation::MeasurementType::PowerInjection => {
                     let mut p = 0.0;
                     for (j, _) in buses.iter().enumerate() {
@@ -422,8 +413,7 @@ fn compute_hx_for_state(
                     }
                     v_i * p
                 }
-                crate::powerflow::state_estimation::MeasurementType::ReactiveInjection
-                | crate::powerflow::state_estimation::MeasurementType::ReactivePowerInj => {
+                crate::powerflow::state_estimation::MeasurementType::ReactiveInjection => {
                     let mut q = 0.0;
                     for (j, _) in buses.iter().enumerate() {
                         let (g_ij, b_ij) = network_gb(network, bus_i, j, n_bus);
@@ -432,19 +422,13 @@ fn compute_hx_for_state(
                     }
                     v_i * q
                 }
-                crate::powerflow::state_estimation::MeasurementType::BranchActivePower
-                | crate::powerflow::state_estimation::MeasurementType::BranchPowerFlow => {
+                crate::powerflow::state_estimation::MeasurementType::BranchActivePower => {
                     let to_bus = m.to_bus.unwrap_or(0).min(n_bus - 1);
                     branch_active_power(bus_i, to_bus, &angles, &magnitudes, branches)
                 }
-                crate::powerflow::state_estimation::MeasurementType::BranchReactivePower
-                | crate::powerflow::state_estimation::MeasurementType::BranchReactiveFlow => {
+                crate::powerflow::state_estimation::MeasurementType::BranchReactivePower => {
                     let to_bus = m.to_bus.unwrap_or(0).min(n_bus - 1);
                     branch_reactive_power(bus_i, to_bus, &angles, &magnitudes, branches)
-                }
-                crate::powerflow::state_estimation::MeasurementType::CurrentMagnitude => {
-                    let to_bus = m.to_bus.unwrap_or(0).min(n_bus - 1);
-                    branch_current_mag(bus_i, to_bus, &angles, &magnitudes, branches)
                 }
             }
         })
@@ -542,35 +526,6 @@ fn branch_reactive_power(
             let b = -x / denom;
             // Q_ij = -Vi²·b - Vi·Vj·(g·sin θ_ij - b·cos θ_ij)
             return -vi * vi * b - vi * vj * (g * theta_ij.sin() - b * theta_ij.cos());
-        }
-    }
-    0.0
-}
-
-/// Current magnitude on branch from→to \[pu\].
-fn branch_current_mag(
-    from: usize,
-    to: usize,
-    angles: &[f64],
-    magnitudes: &[f64],
-    branches: &[crate::network::branch::Branch],
-) -> f64 {
-    for br in branches {
-        if (br.from_bus == from && br.to_bus == to) || (br.from_bus == to && br.to_bus == from) {
-            let r = br.r;
-            let x = br.x;
-            let denom = r * r + x * x;
-            if denom < 1e-30 {
-                return 0.0;
-            }
-            let vi = magnitudes[from];
-            let p = branch_active_power(from, to, angles, magnitudes, branches);
-            let q = branch_reactive_power(from, to, angles, magnitudes, branches);
-            if vi < 1e-15 {
-                return 0.0;
-            }
-            // |I| = √(P² + Q²) / Vi
-            return (p * p + q * q).sqrt() / vi;
         }
     }
     0.0

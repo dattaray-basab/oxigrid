@@ -415,4 +415,110 @@ mod tests {
         assert_eq!(stats.n_points_bad, 1);
         assert!((stats.coverage_pct - 50.0).abs() < 1e-9); // 2/4
     }
+
+    #[test]
+    fn test_scada_point_is_good_quality_zero() {
+        let good = ScadaPoint::new(1, 1_000_000, ScadaMeasType::VoltageMagnitude, 0, 1.0, 0);
+        let bad = ScadaPoint::new(2, 1_000_000, ScadaMeasType::VoltageMagnitude, 0, 1.0, 7);
+        assert!(good.is_good());
+        assert!(!bad.is_good());
+    }
+
+    #[test]
+    fn test_batch_is_empty_and_len() {
+        let mut batch = TelemetryBatch::new(TelemetrySource::Scada, 0);
+        assert!(batch.is_empty());
+        assert_eq!(batch.len(), 0);
+        batch.add_scada(make_voltage_point(0, 1.0, 0, 0));
+        assert!(!batch.is_empty());
+        assert_eq!(batch.len(), 1);
+    }
+
+    #[test]
+    fn test_bad_quality_points_excluded_from_se_measurements() {
+        let mut batch = TelemetryBatch::new(TelemetrySource::Scada, 1_000_000);
+        // Good voltage
+        batch.add_scada(make_voltage_point(0, 1.01, 1_000_000, 0));
+        // Bad quality active power
+        batch.add_scada(ScadaPoint::new(
+            99,
+            1_000_000,
+            ScadaMeasType::ActivePower,
+            1,
+            100.0,
+            1,
+        ));
+        let meas = batch.to_se_measurements(100.0);
+        // Only the good voltage should appear
+        assert_eq!(meas.len(), 1);
+        assert!(
+            meas[0].mtype == crate::powerflow::state_estimation::MeasurementType::VoltageMagnitude
+        );
+    }
+
+    #[test]
+    fn test_reactive_power_normalised_to_pu() {
+        let mut batch = TelemetryBatch::new(TelemetrySource::Scada, 1_000_000);
+        batch.add_scada(ScadaPoint::new(
+            10,
+            1_000_000,
+            ScadaMeasType::ReactivePower,
+            2,
+            30.0,
+            0,
+        ));
+        let meas = batch.to_se_measurements(100.0);
+        assert_eq!(meas.len(), 1);
+        // 30 MVAr / 100 MVA base = 0.3 pu
+        assert!(
+            (meas[0].value - 0.3).abs() < 1e-9,
+            "value = {:.6}",
+            meas[0].value
+        );
+    }
+
+    #[test]
+    fn test_filter_quality_keeps_only_good_and_fresh() {
+        let mut batch = TelemetryBatch::new(TelemetrySource::Scada, 3_000_000);
+        // Good and fresh (age = 100_000 µs < 500_000)
+        batch.add_scada(make_voltage_point(0, 1.0, 2_900_000, 0));
+        // Good but stale (age = 2_000_000 µs > 500_000)
+        batch.add_scada(make_voltage_point(1, 1.0, 1_000_000, 0));
+        // Bad quality and stale
+        batch.add_scada(make_voltage_point(2, 1.0, 1_000_000, 1));
+        let filtered = batch.filter_quality(500_000);
+        assert_eq!(filtered.len(), 1, "only one fresh+good point");
+    }
+
+    #[test]
+    fn test_frequency_and_tap_position_not_in_se_measurements() {
+        let mut batch = TelemetryBatch::new(TelemetrySource::Scada, 1_000_000);
+        batch.add_scada(ScadaPoint::new(
+            5,
+            1_000_000,
+            ScadaMeasType::Frequency,
+            0,
+            50.1,
+            0,
+        ));
+        batch.add_scada(ScadaPoint::new(
+            6,
+            1_000_000,
+            ScadaMeasType::TapPosition,
+            0,
+            1.0,
+            0,
+        ));
+        batch.add_scada(ScadaPoint::new(
+            7,
+            1_000_000,
+            ScadaMeasType::BreakerStatus,
+            0,
+            1.0,
+            0,
+        ));
+        let meas = batch.to_se_measurements(100.0);
+        // None of these types produce SE measurements
+        assert!(meas.is_empty(), "expected empty, got {}", meas.len());
+    }
 }

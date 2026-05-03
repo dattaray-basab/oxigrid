@@ -67,12 +67,12 @@ pub enum BusTimeSeriesType {
     Load,
     /// Solar PV generator.
     SolarGeneration {
-        /// Installed capacity [MW].
+        /// Installed capacity `MW`.
         installed_mw: f64,
     },
     /// Wind generator.
     WindGeneration {
-        /// Installed capacity [MW].
+        /// Installed capacity `MW`.
         installed_mw: f64,
     },
     /// Battery / pumped-hydro storage.
@@ -107,10 +107,10 @@ impl BusTimeSeriesType {
 pub struct BusTimeSeries {
     /// Bus index (0-based) in [`TimeSeriesNetwork`].
     pub bus_id: usize,
-    /// Active power profile [MW], one value per timestep.
+    /// Active power profile `MW`, one value per timestep.
     /// For loads the convention is positive = consuming; for generators positive = generating.
     pub p_mw: Vec<f64>,
-    /// Reactive power profile [MVAr], one value per timestep.
+    /// Reactive power profile `MVAr`, one value per timestep.
     pub q_mvar: Vec<f64>,
     /// Semantic type of this series.
     pub series_type: BusTimeSeriesType,
@@ -147,13 +147,13 @@ pub struct GeneratorProfile {
     pub generator_id: usize,
     /// Bus index (0-based) where this generator is connected.
     pub bus: usize,
-    /// Active power dispatch schedule [MW], one value per timestep.
+    /// Active power dispatch schedule `MW`, one value per timestep.
     pub p_dispatch_mw: Vec<f64>,
-    /// Reactive power dispatch schedule [MVAr], one value per timestep.
+    /// Reactive power dispatch schedule `MVAr`, one value per timestep.
     pub q_dispatch_mvar: Vec<f64>,
-    /// Maximum active power output [MW].
+    /// Maximum active power output `MW`.
     pub p_max_mw: f64,
-    /// Minimum active power output [MW] (may be negative for storage charging).
+    /// Minimum active power output `MW` (may be negative for storage charging).
     pub p_min_mw: f64,
     /// Energy cost [$/MWh] (used by price-arbitrage storage strategy).
     pub cost_per_mwh: f64,
@@ -186,21 +186,21 @@ impl GeneratorProfile {
 pub struct TimeSeriesNetwork {
     /// Number of buses.
     pub n_buses: usize,
-    /// Nodal conductance matrix G [n×n], real part of Y-bus [pu].
+    /// Nodal conductance matrix G [n×n], real part of Y-bus `pu`.
     pub g_matrix: Vec<Vec<f64>>,
-    /// Nodal susceptance matrix B [n×n], imaginary part of Y-bus [pu].
+    /// Nodal susceptance matrix B [n×n], imaginary part of Y-bus `pu`.
     pub b_matrix: Vec<Vec<f64>>,
     /// Bus-level time-series injections (loads and renewables).
     pub bus_series: Vec<BusTimeSeries>,
     /// Conventional generator dispatch profiles.
     pub generators: Vec<GeneratorProfile>,
-    /// Thermal rating per branch [MVA].
+    /// Thermal rating per branch `MVA`.
     pub branch_ratings_mva: Vec<f64>,
     /// Branch connectivity: `(from_bus, to_bus)` indices (0-based).
     pub branches: Vec<(usize, usize)>,
     /// Slack bus index (0-based).
     pub slack_bus: usize,
-    /// System base [MVA].
+    /// System base `MVA`.
     pub base_mva: f64,
 }
 
@@ -267,25 +267,25 @@ impl TimeSeriesNetwork {
 pub struct TimeStepResult {
     /// Timestep index (0-based).
     pub timestep: usize,
-    /// Elapsed simulation time [h] from t = 0.
+    /// Elapsed simulation time `h` from t = 0.
     pub time_hours: f64,
     /// Whether the DC power flow converged (always `true` for DC unless singular B').
     pub converged: bool,
-    /// Bus voltage magnitudes [pu] — flat (1.0) for DC, Q-adjusted for estimate.
+    /// Bus voltage magnitudes `pu` — flat (1.0) for DC, Q-adjusted for estimate.
     pub voltage_magnitude: Vec<f64>,
-    /// Bus voltage angles [rad].
+    /// Bus voltage angles `rad`.
     pub voltage_angle: Vec<f64>,
     /// Branch loading as percentage of thermal rating [%].
     pub branch_loading_pct: Vec<f64>,
-    /// Total conventional + renewable generation [MW].
+    /// Total conventional + renewable generation `MW`.
     pub total_generation_mw: f64,
-    /// Total demand load [MW].
+    /// Total demand load `MW`.
     pub total_load_mw: f64,
-    /// Approximate DC losses [MW] (= 0 for lossless DC).
+    /// Approximate DC losses `MW` (= 0 for lossless DC).
     pub total_losses_mw: f64,
-    /// Renewable (solar + wind) generation [MW] after curtailment.
+    /// Renewable (solar + wind) generation `MW` after curtailment.
     pub renewable_generation_mw: f64,
-    /// Renewable curtailment applied this timestep [MW].
+    /// Renewable curtailment applied this timestep `MW`.
     pub renewable_curtailment_mw: f64,
     /// State-of-charge per storage unit (0–1).
     pub storage_soc: Vec<f64>,
@@ -304,25 +304,25 @@ pub struct TimeSeriesStatistics {
     pub n_converged: usize,
     /// Fraction of converged timesteps (0–1).
     pub convergence_rate: f64,
-    /// Maximum bus voltage across all buses and timesteps [pu].
+    /// Maximum bus voltage across all buses and timesteps `pu`.
     pub max_voltage_pu: f64,
-    /// Minimum bus voltage across all buses and timesteps [pu].
+    /// Minimum bus voltage across all buses and timesteps `pu`.
     pub min_voltage_pu: f64,
-    /// Average bus voltage across all buses and all timesteps [pu].
+    /// Average bus voltage across all buses and all timesteps `pu`.
     pub avg_voltage_pu: f64,
-    /// Peak total load observed [MW].
+    /// Peak total load observed `MW`.
     pub peak_load_mw: f64,
-    /// Average total load [MW].
+    /// Average total load `MW`.
     pub avg_load_mw: f64,
     /// Load factor = avg_load / peak_load (0–1).
     pub load_factor: f64,
-    /// Total energy consumed [TWh].
+    /// Total energy consumed `TWh`.
     pub total_energy_twh: f64,
     /// Renewable generation as percentage of total generation [%].
     pub renewable_fraction_pct: f64,
-    /// Total curtailed renewable energy [MWh].
+    /// Total curtailed renewable energy `MWh`.
     pub total_curtailment_mwh: f64,
-    /// Total system losses [MWh].
+    /// Total system losses `MWh`.
     pub total_losses_mwh: f64,
     /// Maximum single-branch loading observed [%].
     pub max_branch_loading_pct: f64,
@@ -332,7 +332,7 @@ pub struct TimeSeriesStatistics {
     pub n_overload_hours: usize,
     /// Number of timesteps with at least one bus voltage violation.
     pub n_voltage_violation_hours: usize,
-    /// Estimated hosting capacity [MW] — set by `estimate_hosting_capacity`, else 0.0.
+    /// Estimated hosting capacity `MW` — set by `estimate_hosting_capacity`, else 0.0.
     pub hosting_capacity_estimate_mw: f64,
 }
 
@@ -368,7 +368,7 @@ pub struct TimeSeriesResult {
     pub timestep_results: Vec<TimeStepResult>,
     /// Aggregated statistics.
     pub statistics: TimeSeriesStatistics,
-    /// Approximate wall-clock time for the simulation [s].
+    /// Approximate wall-clock time for the simulation `s`.
     pub duration_s: f64,
 }
 
@@ -379,7 +379,7 @@ pub struct TimeSeriesResult {
 pub enum StorageStrategy {
     /// Discharge when total load exceeds the threshold; charge otherwise.
     PeakShaving {
-        /// Load threshold [MW] above which storage discharges.
+        /// Load threshold `MW` above which storage discharges.
         threshold_mw: f64,
     },
     /// Discharge at high prices; charge at low prices (vs. median price).
@@ -389,7 +389,7 @@ pub enum StorageStrategy {
     },
     /// Inject reactive power to support voltage toward the target.
     VoltageSupport {
-        /// Voltage setpoint [pu].
+        /// Voltage setpoint `pu`.
         target_pu: f64,
     },
     /// Use the `p_dispatch_mw` from `GeneratorProfile` directly.
@@ -405,13 +405,13 @@ pub struct TimeSeriesConfig {
     pub n_timesteps: usize,
     /// Time resolution (controls `dt_hours`).
     pub resolution: TimeResolution,
-    /// Lower voltage limit [pu] — below this is a violation. Default 0.95.
+    /// Lower voltage limit `pu` — below this is a violation. Default 0.95.
     pub voltage_lower_pu: f64,
-    /// Upper voltage limit [pu] — above this is a violation. Default 1.05.
+    /// Upper voltage limit `pu` — above this is a violation. Default 1.05.
     pub voltage_upper_pu: f64,
     /// DC power flow iteration cap per timestep (informational; DC is 1-shot).
     pub max_pf_iterations: usize,
-    /// Power flow convergence tolerance [pu]. Default 1e-4.
+    /// Power flow convergence tolerance `pu`. Default 1e-4.
     pub pf_tolerance: f64,
     /// When `true`, renewable generation is curtailed to resolve over-voltage.
     pub enable_curtailment: bool,
@@ -445,9 +445,9 @@ struct StorageUnit {
     bus_id: usize,
     /// Current state-of-charge (0–1).
     soc: f64,
-    /// Energy capacity [MWh].
+    /// Energy capacity `MWh`.
     capacity_mwh: f64,
-    /// Maximum charge/discharge rate [MW].
+    /// Maximum charge/discharge rate `MW`.
     power_mw: f64,
 }
 
@@ -749,10 +749,10 @@ impl TimeSeriesSimulator {
         (p, q)
     }
 
-    /// Solve a DC power flow for the given active power injections [MW].
+    /// Solve a DC power flow for the given active power injections `MW`.
     ///
     /// Builds the reduced B' matrix (excluding slack bus), solves **B'·θ = P**,
-    /// and returns the full angle vector [rad] with slack = 0.
+    /// and returns the full angle vector `rad` with slack = 0.
     fn solve_dc_powerflow(&self, p_injections: &[f64]) -> Result<Vec<f64>> {
         let n = self.network.n_buses;
         let slack = self.network.slack_bus;
@@ -838,7 +838,7 @@ impl TimeSeriesSimulator {
         Ok(())
     }
 
-    /// Compute DC branch flows [MW] from bus angle vector [rad].
+    /// Compute DC branch flows `MW` from bus angle vector `rad`.
     ///
     /// `P_ij = (θ_i - θ_j) × B_ij × base_mva`
     /// where `B_ij` is the off-diagonal entry of the nodal susceptance matrix.
@@ -886,7 +886,7 @@ impl TimeSeriesSimulator {
             .collect()
     }
 
-    /// Estimate bus voltage magnitudes [pu] from reactive power injections.
+    /// Estimate bus voltage magnitudes `pu` from reactive power injections.
     ///
     /// Uses a first-order Q-sensitivity: Δv ≈ -Q / (B_ii × base_mva).
     /// Clamps result to [0.5, 1.5] pu.
@@ -911,7 +911,7 @@ impl TimeSeriesSimulator {
     }
 
     /// Dispatch storage units according to the configured strategy.
-    /// Updates SoC in-place and returns actual power [MW] per storage unit.
+    /// Updates SoC in-place and returns actual power `MW` per storage unit.
     fn dispatch_storage(&mut self, t: usize, p_inj: &[f64], median_price: f64) -> Vec<f64> {
         match &self.config.storage_dispatch_strategy.clone() {
             StorageStrategy::PeakShaving { threshold_mw } => {
@@ -1030,7 +1030,7 @@ impl TimeSeriesSimulator {
     /// Apply renewable curtailment to resolve over-voltage conditions.
     ///
     /// Reduces generation at renewable buses proportionally until `voltage_upper_pu`
-    /// is no longer exceeded. Returns total curtailment [MW].
+    /// is no longer exceeded. Returns total curtailment `MW`.
     fn apply_curtailment(&self, p_injections: &mut [f64], voltages: &[f64]) -> f64 {
         let upper = self.config.voltage_upper_pu;
         let mut total_curtailed = 0.0_f64;

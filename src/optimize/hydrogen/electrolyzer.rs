@@ -228,7 +228,7 @@ const R_GAS: f64 = 8.314;
 const N_ELECTRONS: f64 = 2.0;
 /// Molar mass of H2 [g/mol]
 const H2_MOLAR_MASS_G: f64 = 2.016;
-/// Standard reversible cell voltage at 25°C, 1 bar [V]
+/// Standard reversible cell voltage at 25°C, 1 bar `V`
 const V_REV_STD: f64 = 1.229;
 
 /// Electrolyzer stack model based on IV (current-voltage) curves.

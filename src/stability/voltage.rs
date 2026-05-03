@@ -15,7 +15,7 @@ use serde::{Deserialize, Serialize};
 /// A single point on a PV or QV curve.
 #[derive(Debug, Clone, Copy, Serialize, Deserialize)]
 pub struct CurvePoint {
-    /// Horizontal axis: P [MW] for PV curves, Q [MVAr] for QV curves
+    /// Horizontal axis: P `MW` for PV curves, Q `MVAr` for QV curves
     pub x: f64,
     /// Bus voltage magnitude [p.u.]
     pub voltage_pu: f64,
@@ -30,7 +30,7 @@ pub struct PvCurve {
     pub points: Vec<CurvePoint>,
     /// Index into `points` of the nose point (maximum P)
     pub nose_idx: usize,
-    /// Maximum loadability [MW] at the nose point
+    /// Maximum loadability `MW` at the nose point
     pub p_max_mw: f64,
     /// Voltage at the nose point [p.u.]
     pub v_nose_pu: f64,
@@ -50,9 +50,9 @@ impl PvCurve {
 pub struct QvCurve {
     /// Bus index
     pub bus_idx: usize,
-    /// Curve points (Q injection [MVAr], voltage [p.u.])
+    /// Curve points (Q injection `MVAr`, voltage [p.u.])
     pub points: Vec<CurvePoint>,
-    /// Reactive power margin: Q at operating voltage minus Q at nose [MVAr]
+    /// Reactive power margin: Q at operating voltage minus Q at nose `MVAr`
     pub q_margin_mvar: f64,
     /// Critical voltage [p.u.] at minimum Q
     pub v_critical_pu: f64,
@@ -132,7 +132,7 @@ pub fn compute_pv_curve(
 /// # Arguments
 /// - `base_network` — network at operating point
 /// - `test_bus`     — bus index to inject Q at and monitor
-/// - `q_step_mvar`  — Q injection step [MVAr]
+/// - `q_step_mvar`  — Q injection step `MVAr`
 /// - `q_range_mvar` — total Q sweep range (0 → q_range, symmetric)
 pub fn compute_qv_curve(
     base_network: &PowerNetwork,
@@ -213,7 +213,7 @@ pub fn voltage_stability_index(result: &crate::powerflow::PowerFlowResult) -> f6
 ///
 /// L_j = |1 + Σ_{i∈PV∪Slack} F_ji · V_i / V_j|
 ///
-/// where F = −[Y_LL]⁻¹ · Y_LG is the F-matrix relating load buses to
+/// where F = −`Y_LL`⁻¹ · Y_LG is the F-matrix relating load buses to
 /// generator buses.  L_j ∈ [0, 1]; L_j → 1 indicates proximity to collapse.
 ///
 /// This implementation uses an approximation based on the admittance submatrix
@@ -400,7 +400,7 @@ pub struct CpfPoint {
     pub lambda: f64,
     /// Bus voltage magnitudes [p.u.]
     pub voltage_magnitude: Vec<f64>,
-    /// Bus voltage angles [rad]
+    /// Bus voltage angles `rad`
     pub voltage_angle: Vec<f64>,
     /// Tangent vector norm (indicator of proximity to nose)
     pub tangent_norm: f64,

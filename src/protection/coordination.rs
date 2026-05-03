@@ -21,13 +21,13 @@ pub struct CoordinationPair {
     pub primary_idx: usize,
     /// Index of backup relay
     pub backup_idx: usize,
-    /// Maximum fault current seen by the backup relay [A]
+    /// Maximum fault current seen by the backup relay `A`
     pub i_fault_a: f64,
-    /// Operating time of primary relay at i_fault_a [s]
+    /// Operating time of primary relay at i_fault_a `s`
     pub t_primary_s: f64,
-    /// Operating time of backup relay at i_fault_a [s]
+    /// Operating time of backup relay at i_fault_a `s`
     pub t_backup_s: f64,
-    /// Coordination margin = t_backup − t_primary [s]
+    /// Coordination margin = t_backup − t_primary `s`
     pub margin_s: f64,
     /// True if margin ≥ CTI
     pub coordinated: bool,
@@ -47,7 +47,7 @@ pub struct CoordinationViolation {
 pub struct CoordinationStudy {
     pub pairs: Vec<CoordinationPair>,
     pub violations: Vec<CoordinationViolation>,
-    /// Required coordination time interval [s]
+    /// Required coordination time interval `s`
     pub cti_s: f64,
 }
 
@@ -68,7 +68,7 @@ impl CoordinationStudy {
 /// # Arguments
 /// * `pairs` — list of `(primary_relay_idx, backup_relay_idx, i_fault_a)` tuples
 /// * `relays` — slice of all relays (indexed by the pair tuples)
-/// * `cti_s`  — required coordination time interval [s] (typically 0.2–0.3 s)
+/// * `cti_s`  — required coordination time interval `s` (typically 0.2–0.3 s)
 pub fn check_coordination(
     relays: &[OcRelay],
     pairs: &[(usize, usize, f64)],
@@ -112,7 +112,7 @@ pub fn check_coordination(
 
 /// Generate a time–current characteristic curve for a relay.
 ///
-/// Returns `(current [A], time [s])` pairs over the range `[i_min, i_max]`
+/// Returns `(current `A`, time `s`)` pairs over the range `[i_min, i_max]`
 /// with `n_points` logarithmically spaced values.
 pub fn tcc_curve(relay: &OcRelay, i_min: f64, i_max: f64, n_points: usize) -> Vec<(f64, f64)> {
     let log_min = i_min.ln();

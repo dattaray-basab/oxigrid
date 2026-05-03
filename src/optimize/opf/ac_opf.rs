@@ -64,13 +64,13 @@ impl Default for AcOpfConfig {
 /// Result of an AC-OPF solve.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct AcOpfResult {
-    /// Optimal generation active power dispatch [MW] (same order as `gen_costs`)
+    /// Optimal generation active power dispatch `MW` (same order as `gen_costs`)
     pub p_gen_mw: Vec<f64>,
-    /// Optimal generation reactive power dispatch [MVAr]
+    /// Optimal generation reactive power dispatch `MVAr`
     pub q_gen_mvar: Vec<f64>,
     /// Bus voltage magnitudes [p.u.]
     pub voltage_magnitudes: Vec<f64>,
-    /// Bus voltage angles [rad]
+    /// Bus voltage angles `rad`
     pub voltage_angles: Vec<f64>,
     /// Total generation cost [$/h]
     pub total_cost: f64,
@@ -87,7 +87,7 @@ pub struct AcOpfResult {
 }
 
 impl AcOpfResult {
-    /// Active power loss [MW] = sum(generation) - sum(load).
+    /// Active power loss `MW` = sum(generation) - sum(load).
     pub fn active_power_loss_mw(&self, network: &PowerNetwork) -> f64 {
         let p_gen: f64 = self.p_gen_mw.iter().sum();
         let p_load: f64 = network.buses.iter().map(|b| b.pd.0).sum();

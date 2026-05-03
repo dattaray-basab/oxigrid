@@ -305,7 +305,7 @@ pub fn compute_l_index_from_result(
 
     // Convert sparse Y-bus to dense Vec<Vec<Complex64>>
     let mut ybus_dense: Vec<Vec<Complex64>> = vec![vec![Complex64::new(0.0, 0.0); n]; n];
-    for (i, j, &val) in ybus_sparse.iter() {
+    for (&val, (i, j)) in ybus_sparse.iter() {
         if i < n && j < n {
             ybus_dense[i][j] = val;
         }
@@ -358,7 +358,7 @@ pub struct ModalVsaResult {
 pub fn modal_voltage_stability(
     jacobian: &[Vec<f64>],
     n_pq_buses: usize,
-    n_branches: usize,
+    branches_pq_indices: &[(usize, usize)],
 ) -> Result<ModalVsaResult> {
     if jacobian.is_empty() || n_pq_buses == 0 {
         return Err(OxiGridError::InvalidParameter(
@@ -366,6 +366,7 @@ pub fn modal_voltage_stability(
         ));
     }
 
+    let n_branches = branches_pq_indices.len();
     let j_size = jacobian.len();
     let npq = n_pq_buses;
 
@@ -457,8 +458,26 @@ pub fn modal_voltage_stability(
         vec![1.0 / npq as f64; npq]
     };
 
-    // Branch participation: proportional to voltage differences (placeholder sizing)
-    let branch_participation = vec![0.0f64; n_branches];
+    // Branch participation: proportional to squared voltage-magnitude differences
+    // across branch endpoints in the PQ-bus subvector.
+    let branch_participation: Vec<f64> = if branches_pq_indices.is_empty() {
+        Vec::new()
+    } else {
+        let diffs: Vec<f64> = branches_pq_indices
+            .iter()
+            .map(|&(fi, ti)| {
+                let vf = right_sv.get(fi).copied().unwrap_or(0.0);
+                let vt = right_sv.get(ti).copied().unwrap_or(0.0);
+                (vf - vt).powi(2)
+            })
+            .collect();
+        let total: f64 = diffs.iter().sum();
+        if total > 1e-14 {
+            diffs.iter().map(|&d| d / total).collect()
+        } else {
+            vec![1.0 / n_branches as f64; n_branches]
+        }
+    };
 
     Ok(ModalVsaResult {
         min_singular_value: min_sv,
@@ -593,7 +612,6 @@ pub fn compute_voltage_stability_margin(
         max_iter: 100,
         tolerance: 1e-6,
         enforce_q_limits: false,
-        warm_start: None,
     };
 
     let base_load_mw = network.total_load_mw();
@@ -933,7 +951,6 @@ impl VoltageStabilityScreener {
             max_iter: 100,
             tolerance: 1e-6,
             enforce_q_limits: false,
-            warm_start: None,
         };
 
         // Compute pre-contingency L-index
@@ -1306,7 +1323,6 @@ mod tests {
             max_iter: 100,
             tolerance: 1e-6,
             enforce_q_limits: false,
-            warm_start: None,
         };
         // Power flow may or may not converge under heavy loading
         if let Ok(result) = heavy.solve_powerflow(&config) {
@@ -1340,7 +1356,6 @@ mod tests {
             max_iter: 100,
             tolerance: 1e-6,
             enforce_q_limits: false,
-            warm_start: None,
         };
 
         // Base case
@@ -1411,7 +1426,21 @@ mod tests {
             }
         }
 
-        let modal = modal_voltage_stability(&jac, npq, net.branches.len()).expect("modal VSA");
+        // Map branch endpoints to PQ-bus subvector indices.
+        let pq_ids: Vec<usize> = net
+            .buses
+            .iter()
+            .filter(|b| b.bus_type == BusType::PQ)
+            .map(|b| b.id)
+            .collect();
+        let pq_idx = |id: usize| pq_ids.iter().position(|&p| p == id);
+        let branches_pq: Vec<(usize, usize)> = net
+            .branches
+            .iter()
+            .filter_map(|br| Some((pq_idx(br.from_bus)?, pq_idx(br.to_bus)?)))
+            .collect();
+
+        let modal = modal_voltage_stability(&jac, npq, &branches_pq).expect("modal VSA");
 
         assert!(
             modal.min_singular_value > 0.0,
@@ -1419,6 +1448,31 @@ mod tests {
             modal.min_singular_value
         );
         assert!(modal.stable, "Stable system should have stable=true");
+    }
+
+    #[test]
+    fn test_branch_participation_normalized() {
+        // 3-bus fully meshed (bus 0 slack, buses 1 and 2 PQ, branches 0-1, 0-2, 1-2)
+        let jacobian = vec![
+            vec![4.0, -2.0, -2.0, 0.0],
+            vec![-2.0, 4.0, 0.0, -2.0],
+            vec![-2.0, 0.0, 4.0, 0.0],
+            vec![0.0, -2.0, 0.0, 4.0],
+        ];
+        // Branches between PQ bus indices: (0,1), (0,1) double, (0,0) self-loop as edge case
+        let branches = vec![(0_usize, 1_usize), (1_usize, 0_usize)];
+        let result = modal_voltage_stability(&jacobian, 2, &branches)
+            .expect("modal VSA branch participation");
+        let sum: f64 = result.branch_participation.iter().sum();
+        assert!(
+            (sum - 1.0).abs() < 1e-10 || result.branch_participation.is_empty(),
+            "branch participation must sum to 1 or be empty; got {}",
+            sum
+        );
+        assert!(
+            !result.branch_participation.iter().all(|&p| p == 0.0),
+            "at least one branch participation factor must be non-zero"
+        );
     }
 
     #[test]
@@ -1488,7 +1542,6 @@ mod tests {
             max_iter: 100,
             tolerance: 1e-6,
             enforce_q_limits: false,
-            warm_start: None,
         };
 
         let result = net.solve_powerflow(&config).expect("2-bus power flow");

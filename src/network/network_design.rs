@@ -26,11 +26,11 @@ pub struct NetworkEdge {
     pub from: usize,
     /// Destination node index.
     pub to: usize,
-    /// Physical length of the line [km].
+    /// Physical length of the line `km`.
     pub length_km: f64,
-    /// Nominal voltage level [kV].
+    /// Nominal voltage level `kV`.
     pub voltage_kv: f64,
-    /// Thermal capacity [MW].
+    /// Thermal capacity `MW`.
     pub capacity_mw: f64,
     /// Capital cost [million EUR].
     pub cost_million_eur: f64,
@@ -40,7 +40,7 @@ pub struct NetworkEdge {
     pub reactance_pu: f64,
     /// `true` if the line is already built (no investment required).
     pub is_existing: bool,
-    /// Construction lead time [years].
+    /// Construction lead time `years`.
     pub build_years: f64,
 }
 
@@ -64,13 +64,13 @@ pub struct TopologyNode {
     pub is_terminal: bool,
     /// `true` if this node can serve as a Steiner (relay) point.
     pub is_substation: bool,
-    /// Peak active load [MW].
+    /// Peak active load `MW`.
     pub peak_load_mw: f64,
-    /// Peak active generation [MW].
+    /// Peak active generation `MW`.
     pub peak_generation_mw: f64,
-    /// X geographic coordinate [km].
+    /// X geographic coordinate `km`.
     pub x: f64,
-    /// Y geographic coordinate [km].
+    /// Y geographic coordinate `km`.
     pub y: f64,
 }
 
@@ -593,7 +593,7 @@ pub struct ExpansionPlanner {
     pub candidate_lines: Vec<NetworkEdge>,
     /// All planning nodes.
     pub nodes: Vec<TopologyNode>,
-    /// Planning horizon [years].
+    /// Planning horizon `years`.
     pub planning_years: usize,
     /// Annual discount rate (e.g. 0.07 for 7 %).
     pub discount_rate: f64,
@@ -616,7 +616,7 @@ pub struct ExpansionCandidate {
     pub npv_cost_million_eur: f64,
     /// Benefit-cost ratio (BCR = benefit / cost).
     pub bcr: f64,
-    /// Estimated congestion relief [MW].
+    /// Estimated congestion relief `MW`.
     pub congestion_relief_mw: f64,
 }
 
@@ -878,7 +878,7 @@ pub struct SubstationSiting {
     pub load_points: Vec<(f64, f64, f64)>,
     /// Desired number of substations.
     pub n_substations: usize,
-    /// Nominal voltage of the distribution feeder [kV].
+    /// Nominal voltage of the distribution feeder `kV`.
     pub voltage_kv: f64,
     /// Cable cost per km [million EUR/km].
     pub cable_cost_million_eur_per_km: f64,
@@ -893,9 +893,9 @@ pub struct SitingResult {
     pub assignments: Vec<usize>,
     /// Estimated total cable investment cost [million EUR].
     pub total_cable_cost_million_eur: f64,
-    /// Length of the longest feeder [km].
+    /// Length of the longest feeder `km`.
     pub max_feeder_length_km: f64,
-    /// Mean feeder length weighted by number of load points [km].
+    /// Mean feeder length weighted by number of load points `km`.
     pub avg_feeder_length_km: f64,
 }
 

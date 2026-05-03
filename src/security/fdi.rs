@@ -652,4 +652,73 @@ mod tests {
         assert!(result.attack_detected);
         assert_eq!(result.suspicious_meters, vec![2]);
     }
+
+    #[test]
+    fn load_redistribution_attack_sums_to_zero_across_buses() {
+        let h = vec![
+            vec![1.0, 0.0, 0.0],
+            vec![0.0, 1.0, 0.0],
+            vec![0.0, 0.0, 1.0],
+            vec![1.0, -1.0, 0.0],
+        ];
+        let gen = FdiAttackGenerator::new(4);
+        let attack = gen.generate_load_redistribution(&h, 0, 1, 10.0);
+        // For a 3×3 identity-like H, attacking bus0→bus1 perturbs rows 0 and 1 with opposite signs
+        let sum: f64 = attack.attack_vector[0] + attack.attack_vector[1];
+        assert!(
+            sum.abs() < 1e-10,
+            "bus0+bus1 entries should cancel: sum={:.4e}",
+            sum
+        );
+    }
+
+    #[test]
+    fn chi_squared_detects_large_attack() {
+        let det = FdiDetector::new(DetectionMethod::ChiSquared { significance: 0.05 });
+        // Very large residuals → should trigger detection
+        let residuals = vec![100.0; 6];
+        let weights = vec![1.0; 6];
+        let result = det.chi_squared_test(&residuals, &weights, 0.05);
+        assert!(result.attack_detected, "score = {:.2}", result.score);
+    }
+
+    #[test]
+    fn sparse_attack_magnitude_bounded_by_argument() {
+        let gen = FdiAttackGenerator::new(5);
+        let magnitude = 2.0;
+        let attack = gen.generate_sparse(20, magnitude, 12345);
+        for &v in &attack.attack_vector {
+            assert!(
+                v.abs() <= magnitude + 1e-12,
+                "component {:.4} exceeds magnitude bound {:.4}",
+                v,
+                magnitude
+            );
+        }
+    }
+
+    #[test]
+    fn lnr_test_all_small_residuals_no_attack() {
+        let det = FdiDetector::new(DetectionMethod::Lnr { threshold: 3.0 });
+        let residuals = vec![0.01, 0.02, 0.015, 0.005];
+        let noise = vec![0.1; 4];
+        let result = det.lnr_test(&residuals, &noise, 3.0);
+        assert!(!result.attack_detected, "score = {:.4}", result.score);
+        assert!(result.suspicious_meters.is_empty());
+    }
+
+    #[test]
+    fn stealthy_attack_magnitude_is_l2_norm_of_vector() {
+        let h = vec![vec![3.0, 0.0], vec![0.0, 4.0]];
+        let c = vec![1.0, 0.0];
+        let gen = FdiAttackGenerator::new(2);
+        let attack = gen.generate_stealthy(&h, &c);
+        // a = H*c = [3, 0]; ‖a‖ = 3
+        let expected_mag = 3.0;
+        assert!(
+            (attack.attack_magnitude - expected_mag).abs() < 1e-9,
+            "mag = {:.4}",
+            attack.attack_magnitude
+        );
+    }
 }

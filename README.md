@@ -1,7 +1,7 @@
 # OxiGrid
 
 [![Build](https://img.shields.io/badge/build-passing-brightgreen)](https://github.com/cool-japan/oxigrid)
-[![Tests](https://img.shields.io/badge/tests-3830%20passing-brightgreen)](https://github.com/cool-japan/oxigrid)
+[![Tests](https://img.shields.io/badge/tests-5036%20passing-brightgreen)](https://github.com/cool-japan/oxigrid)
 [![License](https://img.shields.io/badge/license-Apache--2.0-blue)](LICENSE)
 [![Rust](https://img.shields.io/badge/rust-2021%20%E2%80%A2%20MSRV%201.75-orange)](https://www.rust-lang.org)
 [![COOLJAPAN](https://img.shields.io/badge/COOLJAPAN-ecosystem-blue)](https://github.com/cool-japan)
@@ -187,14 +187,14 @@ Add OxiGrid to `Cargo.toml`:
 
 ```toml
 [dependencies]
-oxigrid = "0.1.0"
+oxigrid = "0.1.1"
 ```
 
 To enable specific subsystems only:
 
 ```toml
 [dependencies]
-oxigrid = { version = "0.1.0", default-features = false, features = ["powerflow", "battery"] }
+oxigrid = { version = "0.1.1", default-features = false, features = ["powerflow", "battery"] }
 ```
 
 ### Newton-Raphson Power Flow
@@ -322,22 +322,33 @@ fn main() -> Result<()> {
 
 | Feature | Description | Default |
 |---------|-------------|---------|
-| `default` | Empty — opt-in to only what you need | yes |
-| `full` | Enables `optimize`, `oxiz`, and `simd` | no |
-| `optimize` | Enables optimization modules (opf, dispatch, market, storage, ev, hydrogen, microgrid, expansion, demand_response) | no |
-| `oxiz` | Enables oxiz-theories LP/MILP solver (MPC EMS, DC-OPF LP, MILP UC) | no |
-| `simd` | Enables AVX2 SIMD kernels for Newton-Raphson inner loop | no |
+| `std` | Standard library support | yes |
+| `powerflow` | AC/DC power flow solvers, state estimation | yes |
+| `stability` | Transient and small-signal stability analysis | yes |
+| `battery` | Equivalent circuit models, BMS, SoC estimation | yes |
+| `battery-p2d` | P2D DFN electrochemical model (requires `battery`) | yes |
+| `renewable` | Solar PV, wind, forecasting, grid codes | yes |
+| `optimize` | OPF, unit commitment, EV, hydrogen, market clearing | yes |
+| `harmonics` | THD/spectrum analysis, filter design | yes |
+| `protection` | Fault analysis, relay coordination | yes |
+| `powerelectronics` | Power electronics models | yes |
+| `forecast-ml` | ML-based forecasting bridge (requires `renewable`) | no |
+| `io-matpower` | MATPOWER format I/O (requires `powerflow`) | no |
+| `io-csv` | CSV time-series import/export | no |
+| `io-oxirs` | OxiRS knowledge graph integration | no |
+| `simd` | AVX2 SIMD kernels for Newton-Raphson inner loop | no |
+| `parallel` | Rayon parallelism for Jacobian construction | no |
 
 Disable the default feature set and opt-in selectively for minimal binary size:
 
 ```toml
-oxigrid = { version = "0.1.0", default-features = false, features = ["powerflow"] }
+oxigrid = { version = "0.1.1", default-features = false, features = ["powerflow"] }
 ```
 
 Enable the full library including LP/MILP solver and SIMD acceleration:
 
 ```toml
-oxigrid = { version = "0.1.0", features = ["full"] }
+oxigrid = { version = "0.1.1", features = ["simd", "parallel"] }
 ```
 
 ---
@@ -438,7 +449,7 @@ inspects the matrix dimensions at runtime.
 
 ## Testing
 
-OxiGrid ships 3,830 tests covering unit, integration, property-based, and benchmark scenarios.
+OxiGrid ships 5,036 tests covering unit, integration, property-based, and benchmark scenarios.
 
 ```bash
 # Run the full test suite (recommended: nextest for parallel execution)
@@ -491,18 +502,18 @@ cargo run --example renewable_forecast --features renewable
 
 ## Project Statistics
 
-Measured with `tokei` on the current codebase (2026-03-09):
+Measured with `tokei` on the current codebase (2026-05-03):
 
 | Language | Files | Code | Comments | Blanks |
 |----------|-------|------|----------|--------|
-| Rust | 438 | 229,309 | — | — |
-| TOML | — | — | — | — |
-| **Total** | **438** | **229,309** | — | — |
+| Rust | 466 | 231,930 | 18,132 | 29,017 |
+| TOML | 2 | 94 | — | 10 |
+| Markdown | 3 | — | 734 | 187 |
+| **Total** | **476** | **233,597** | — | — |
 
-- **Version**: 0.1.0
-- **Tests**: 3,830 passing
-- **Public items**: 6,237
-- **Modules**: 22
+- **Version**: 0.1.1
+- **Tests**: 5,036 passing
+- **Modules**: 19
 
 ---
 
@@ -512,7 +523,7 @@ Contributions are welcome. Please ensure:
 
 1. `cargo fmt --all` — code is formatted
 2. `cargo clippy --all-features -- -D warnings` — no clippy warnings
-3. `cargo nextest run --all-features` — all 3,830 tests pass
+3. `cargo nextest run --all-features` — all 5,036 tests pass
 4. New public API items carry `///` doc comments
 5. No `unwrap()` in production code paths — use `?` and `OxiGridError`
 6. Feature-gate any new optional subsystems in `Cargo.toml` and `src/lib.rs`

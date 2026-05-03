@@ -492,7 +492,7 @@ impl FlowDecomposer {
     /// For each transaction `t` recorded in `decomposition.attribution`:
     ///
     /// ```text
-    /// charge[t] = Σ_b  |F_{b,t}| × length_b × tariff   [USD]
+    /// charge[t] = Σ_b  |F_{b,t}| × length_b × tariff   `USD`
     /// ```
     ///
     /// where `tariff` is in \[$/MW·km\].

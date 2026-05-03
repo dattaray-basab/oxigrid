@@ -9,9 +9,9 @@ use serde::{Deserialize, Serialize};
 /// Position of a turbine in a wind farm layout.
 #[derive(Debug, Clone, Copy, Serialize, Deserialize)]
 pub struct TurbinePosition {
-    /// Downstream distance from reference origin [m]
+    /// Downstream distance from reference origin `m`
     pub x: f64,
-    /// Crosswind distance [m]
+    /// Crosswind distance `m`
     pub y: f64,
 }
 
@@ -20,7 +20,7 @@ pub struct TurbinePosition {
 pub struct WakeSource {
     /// Hub-height free-stream wind speed [m/s]
     pub u_inf: f64,
-    /// Rotor diameter [m]
+    /// Rotor diameter `m`
     pub d: f64,
     /// Thrust coefficient (−)
     pub ct: f64,

@@ -347,7 +347,16 @@ impl PqEventClassifier {
     }
 
     /// Generate a statistical summary from a slice of detected events.
-    pub fn event_summary(events: &[PqEvent], duration_hours: f64) -> PqEventSummary {
+    ///
+    /// # Arguments
+    /// * `events`          — slice of classified PQ events
+    /// * `duration_hours`  — observation window length \[hours\]
+    /// * `sample_rate_hz`  — waveform sampling rate \[Hz\] used to convert sample counts to seconds
+    pub fn event_summary(
+        events: &[PqEvent],
+        duration_hours: f64,
+        sample_rate_hz: f64,
+    ) -> PqEventSummary {
         let total_events = events.len();
         let events_per_hour = if duration_hours > 0.0 {
             total_events as f64 / duration_hours
@@ -400,10 +409,16 @@ impl PqEventClassifier {
             .cloned();
 
         // Cumulative duration.
-        let sample_rate = 1.0; // placeholder; caller must scale if needed
+        let seconds_per_sample = if sample_rate_hz > 0.0 {
+            1.0 / sample_rate_hz
+        } else {
+            0.0
+        };
         let cumulative_duration_s: f64 = events
             .iter()
-            .map(|ev| (ev.end_sample.saturating_sub(ev.start_sample) + 1) as f64 * sample_rate)
+            .map(|ev| {
+                (ev.end_sample.saturating_sub(ev.start_sample) + 1) as f64 * seconds_per_sample
+            })
             .sum();
 
         PqEventSummary {
@@ -621,7 +636,7 @@ mod tests {
             },
         ];
 
-        let summary = PqEventClassifier::event_summary(&events, 1.0);
+        let summary = PqEventClassifier::event_summary(&events, 1.0, 1.0_f64);
         assert_eq!(summary.total_events, 3);
         assert_eq!(summary.events_per_hour, 3.0);
 
@@ -684,7 +699,7 @@ mod tests {
                 frequency_impact: 0.0,
             },
         ];
-        let summary = PqEventClassifier::event_summary(&events, 2.0);
+        let summary = PqEventClassifier::event_summary(&events, 2.0, 1.0_f64);
         let ms = summary.most_severe.expect("Should have most_severe");
         assert_eq!(ms.severity, PqSeverity::Critical);
     }
@@ -704,5 +719,26 @@ mod tests {
             .collect();
         let harmonics = extract_harmonics(&wave, fs, f0, 5);
         assert!(!harmonics.is_empty());
+    }
+
+    #[test]
+    fn test_event_summary_sample_rate_scaling() {
+        // 1 event spanning 100 samples at 25600 Hz → expected duration = 100/25600 s
+        let event = PqEvent {
+            start_sample: 0,
+            end_sample: 99, // 100 samples inclusive (99 - 0 + 1 = 100)
+            event_class: PqEventClass::VoltageSag(VoltageEventType::InstantaneousSag),
+            severity: PqSeverity::Moderate,
+            rms_impact: 0.2,
+            frequency_impact: 0.0,
+        };
+        let summary = PqEventClassifier::event_summary(&[event], 1.0, 25_600.0);
+        let expected = 100.0 / 25_600.0;
+        assert!(
+            (summary.cumulative_duration_s - expected).abs() < 1e-9,
+            "got {}, expected {}",
+            summary.cumulative_duration_s,
+            expected
+        );
     }
 }

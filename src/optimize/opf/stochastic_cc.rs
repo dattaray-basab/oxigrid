@@ -167,9 +167,9 @@ pub enum UncertaintySource {
 pub struct UncertaintySet {
     /// Physical origin of the uncertainty.
     pub source: UncertaintySource,
-    /// Nominal (mean / forecast) power [MW].
+    /// Nominal (mean / forecast) power `MW`.
     pub nominal_value_mw: f64,
-    /// Standard deviation of the power [MW].
+    /// Standard deviation of the power `MW`.
     pub std_dev_mw: f64,
     /// Pearson correlation with other uncertain parameters (−1 … +1).
     pub correlation: f64,
@@ -214,7 +214,7 @@ impl UncertaintySet {
         }
     }
 
-    /// Sample a realisation [MW] for this source using a standard-normal draw `z`.
+    /// Sample a realisation `MW` for this source using a standard-normal draw `z`.
     fn sample_from_z(&self, z: f64) -> f64 {
         match self.distribution.as_str() {
             "Uniform" => {
@@ -244,7 +244,7 @@ pub struct ChanceConstraint {
     /// Quantity being constrained, e.g. `"branch_flow"`, `"bus_voltage"`,
     /// `"generation_limit"`.
     pub constraint_type: String,
-    /// Hard limit [MW] or [pu] for voltages.
+    /// Hard limit `MW` or `pu` for voltages.
     pub limit_mw: f64,
     /// Required probability of satisfaction, e.g. `0.95`.
     pub confidence_level: f64,
@@ -272,10 +272,10 @@ impl ChanceConstraint {
 pub struct CcopfScenario {
     /// Scenario index within the sample.
     pub id: usize,
-    /// Sampled output [MW] for each uncertain generator (same order as
+    /// Sampled output `MW` for each uncertain generator (same order as
     /// `uncertainty_sets` of type `SolarGeneration` / `WindGeneration`).
     pub renewable_outputs_mw: Vec<f64>,
-    /// Deviation from nominal load [MW] at each bus (same ordering as
+    /// Deviation from nominal load `MW` at each bus (same ordering as
     /// `base_load_mw`).
     pub load_deviations_mw: Vec<f64>,
     /// Importance weight (= 1/N for equally-weighted SAA).
@@ -287,11 +287,11 @@ pub struct CcopfScenario {
 pub struct CcopfResult {
     /// Solving approach that produced this result.
     pub approach: ChanceConstraintApproach,
-    /// Nominal (base) dispatch [MW] per generator.
+    /// Nominal (base) dispatch `MW` per generator.
     pub base_dispatch_mw: Vec<f64>,
-    /// Upward reserve [MW] per generator.
+    /// Upward reserve `MW` per generator.
     pub reserve_up_mw: Vec<f64>,
-    /// Downward reserve [MW] per generator.
+    /// Downward reserve `MW` per generator.
     pub reserve_down_mw: Vec<f64>,
     /// Expected (mean) dispatch cost [$/h].
     pub expected_cost_usd: f64,
@@ -339,13 +339,13 @@ pub struct ChanceConstrainedOpf {
     pub seed: u64,
     /// PTDF matrix [n_branch × n_bus], row-major.
     pub ptdf_matrix: Vec<Vec<f64>>,
-    /// Thermal ratings per branch [MW].
+    /// Thermal ratings per branch `MW`.
     pub branch_ratings_mw: Vec<f64>,
     /// Quadratic cost coefficients (a, b, c) per generator: cost = a·P² + b·P + c.
     pub gen_costs: Vec<(f64, f64, f64)>,
-    /// Generation limits (P_min, P_max) per generator [MW].
+    /// Generation limits (P_min, P_max) per generator `MW`.
     pub gen_limits: Vec<(f64, f64)>,
-    /// Nominal load per bus [MW].
+    /// Nominal load per bus `MW`.
     pub base_load_mw: Vec<f64>,
 }
 
@@ -390,7 +390,7 @@ impl ChanceConstrainedOpf {
     ///
     /// For `"Normal"` sources the full Box-Muller transform is applied.
     /// For `"Beta"` and `"Uniform"` sources the same standard-normal draw is
-    /// fed through a moment-matched approximation (see [`UncertaintySet::sample_from_z`]).
+    /// fed through a moment-matched approximation (see `UncertaintySet::sample_from_z`).
     pub fn generate_scenarios(&mut self) -> Vec<CcopfScenario> {
         let mut rng = LcgRng::new(self.seed);
         let n = self.n_scenarios;
@@ -680,8 +680,8 @@ impl ChanceConstrainedOpf {
     /// Solve via analytic moment method (Gaussian chance constraints).
     ///
     /// For each branch l with chance constraint `P(P_l ≤ rating_l) ≥ 1−α`:
-    ///   * μ_l  = Σ_k PTDF[l][k] · (nominal_dispatch[k] − base_load[k])
-    ///   * σ²_l = Σ_k PTDF[l][k]² · σ²_k   (σ_k from `uncertainty_sets`)
+    ///   * μ_l  = Σ_k `PTDF[l][k]` · (`nominal_dispatch[k]` − `base_load[k]`)
+    ///   * σ²_l = Σ_k `PTDF[l][k]`² · σ²_k   (σ_k from `uncertainty_sets`)
     ///   * Tightened rating: `rating_l − z_{1−α} · σ_l`
     ///
     /// The dispatch is then computed against the *most binding* tightened

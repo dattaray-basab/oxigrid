@@ -716,4 +716,128 @@ mod tests {
             );
         }
     }
+
+    // ── Additional tests (Round 27 coverage) ────────────────────────────────
+
+    #[test]
+    fn test_deterministic_flat_prices_no_arbitrage() {
+        // Reason: flat prices with a cycle cost and no initial stored energy make
+        // every charge+discharge round-trip unprofitable; optimizer should idle.
+        let config = ArbitrageConfig {
+            capacity_mwh: 10.0,
+            power_mw: 5.0,
+            efficiency_charge: 0.95,
+            efficiency_discharge: 0.95,
+            soc_min: 0.10,
+            soc_max: 0.90,
+            soc_initial: 0.10, // start at soc_min — no stored energy to discharge first
+            fixed_cost_per_h: 0.0,
+            cycle_cost_per_mwh: 5.0, // high cycle cost penalises round-trips
+            time_horizon_h: 4,
+            dt_h: 1.0,
+        };
+        let opt = ArbitrageOptimizer::new(config);
+
+        let prices = vec![50.0, 50.0, 50.0, 50.0]; // perfectly flat — zero spread
+        let result = opt
+            .optimize_deterministic(&prices)
+            .expect("flat prices should succeed");
+
+        // With flat prices, no spread, and positive cycle cost, any round-trip
+        // loses money. Starting at soc_min means no pre-charged energy, so
+        // net profit must be <= 0.
+        assert!(
+            result.net_profit_usd <= 1e-6,
+            "flat prices starting at soc_min with cycle cost must not produce positive profit: {:.4}",
+            result.net_profit_usd
+        );
+    }
+
+    #[test]
+    fn test_stochastic_rejects_invalid_probabilities() {
+        // Reason: scenario probabilities that don't sum to 1 should be rejected.
+        let config = default_config(2);
+        let opt = ArbitrageOptimizer::new(config);
+
+        let scenarios = vec![
+            PriceScenario {
+                prices: vec![10.0, 90.0],
+                probability: 0.3,
+            },
+            PriceScenario {
+                prices: vec![20.0, 80.0],
+                probability: 0.3, // sums to 0.6, not 1.0
+            },
+        ];
+
+        let result = opt.optimize_stochastic(&scenarios);
+        assert!(
+            result.is_err(),
+            "probabilities summing to 0.6 should produce an error"
+        );
+        match result {
+            Err(ArbitrageError::InvalidProbabilities { .. }) => {}
+            Err(e) => panic!("expected InvalidProbabilities, got {e}"),
+            Ok(_) => panic!("expected error but got Ok"),
+        }
+    }
+
+    #[test]
+    fn test_stochastic_rejects_empty_scenarios() {
+        // Reason: an empty scenario list is invalid and must return NoScenarios error.
+        let config = default_config(4);
+        let opt = ArbitrageOptimizer::new(config);
+
+        let result = opt.optimize_stochastic(&[]);
+        assert!(
+            result.is_err(),
+            "empty scenario list should produce an error"
+        );
+        match result {
+            Err(ArbitrageError::NoScenarios) => {}
+            Err(e) => panic!("expected NoScenarios, got {e}"),
+            Ok(_) => panic!("expected error but got Ok"),
+        }
+    }
+
+    #[test]
+    fn test_deterministic_price_length_mismatch_error() {
+        // Reason: price vector length must equal time_horizon_h; mismatch should error.
+        let config = default_config(8);
+        let opt = ArbitrageOptimizer::new(config);
+
+        // Provide only 4 prices for an 8-hour horizon
+        let prices = vec![10.0, 50.0, 100.0, 30.0];
+        let result = opt.optimize_deterministic(&prices);
+        assert!(
+            result.is_err(),
+            "mismatched price vector length must produce an error"
+        );
+        match result {
+            Err(ArbitrageError::PriceLengthMismatch {
+                got: 4,
+                expected: 8,
+            }) => {}
+            Err(e) => panic!("expected PriceLengthMismatch{{got:4, expected:8}}, got {e}"),
+            Ok(_) => panic!("expected error but got Ok"),
+        }
+    }
+
+    #[test]
+    fn test_rolling_horizon_rejects_zero_remaining_hours() {
+        // Reason: remaining_hours=0 is an infeasible query and must return an error.
+        let config = default_config(4);
+        let opt = ArbitrageOptimizer::new(config);
+
+        let realized = vec![50.0; 4];
+        let forecast = vec![60.0; 4];
+
+        let result = opt.optimize_rolling(&realized, &forecast, 0.5, 0);
+        assert!(result.is_err(), "remaining_hours=0 must produce an error");
+        match result {
+            Err(ArbitrageError::Infeasible(_)) => {}
+            Err(e) => panic!("expected Infeasible, got {e}"),
+            Ok(_) => panic!("expected error but got Ok"),
+        }
+    }
 }

@@ -82,7 +82,7 @@ impl Default for StochasticLfConfig {
 pub enum StochasticMethod {
     /// Full Monte Carlo: sample all inputs from their distributions each iteration.
     MonteCarlo,
-    /// Latin Hypercube Sampling: stratify `[0,1]` into equal intervals for each input.
+    /// Latin Hypercube Sampling: stratify ``0,1`` into equal intervals for each input.
     LatinHypercubeSampling,
     /// Hong 2m+1 Point Estimate Method: `2m+1` deterministic evaluations.
     PointEstimate2m,

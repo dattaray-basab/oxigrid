@@ -345,15 +345,15 @@ impl CosimEngine {
 
                     if attack_active {
                         match &cfg.cyber_attack_type {
-                            Some(CyberAttack::FalseDataInjection { bus, bias_pu }) => {
-                                if *bus < n_buses {
-                                    meas_received[*bus] += bias_pu;
-                                }
+                            Some(CyberAttack::FalseDataInjection { bus, bias_pu })
+                                if *bus < n_buses =>
+                            {
+                                meas_received[*bus] += bias_pu;
                             }
-                            Some(CyberAttack::ManInTheMiddle { bus, scale_factor }) => {
-                                if *bus < n_buses {
-                                    meas_received[*bus] *= scale_factor;
-                                }
+                            Some(CyberAttack::ManInTheMiddle { bus, scale_factor })
+                                if *bus < n_buses =>
+                            {
+                                meas_received[*bus] *= scale_factor;
                             }
                             Some(CyberAttack::ReplayAttack { .. }) => {
                                 // Use measurements from replay_offset_steps ago

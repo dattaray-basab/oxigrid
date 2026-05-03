@@ -30,11 +30,11 @@ use serde::{Deserialize, Serialize};
 pub struct PeriodProfile {
     /// Period index (0-based)
     pub period: usize,
-    /// Duration of this period [hours]
+    /// Duration of this period `hours`
     pub duration_h: f64,
-    /// Total active load [MW]
+    /// Total active load `MW`
     pub load_mw: f64,
-    /// Required spinning reserve [MW]
+    /// Required spinning reserve `MW`
     pub reserve_mw: f64,
 }
 
@@ -61,7 +61,7 @@ pub struct RampParams {
     pub ramp_up_mwh: f64,
     /// Maximum ramp-down rate [MW/h]
     pub ramp_down_mwh: f64,
-    /// Maximum spinning-reserve contribution [MW] (≤ P_max − P_g)
+    /// Maximum spinning-reserve contribution `MW` (≤ P_max − P_g)
     pub reserve_max_mw: f64,
 }
 
@@ -98,15 +98,15 @@ pub struct MpContingencyViolation {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct PeriodResult {
     pub period: usize,
-    /// Optimal generation dispatch [MW] (same order as generators)
+    /// Optimal generation dispatch `MW` (same order as generators)
     pub p_gen_mw: Vec<f64>,
     /// Total generation cost for this period [$/h · duration_h]
     pub cost: f64,
     /// System marginal price [$/MWh]
     pub lambda: f64,
-    /// Branch flows [MW]
+    /// Branch flows `MW`
     pub branch_flows_mw: Vec<f64>,
-    /// Spinning reserve available per generator [MW]
+    /// Spinning reserve available per generator `MW`
     pub reserve_mw: Vec<f64>,
     /// Reserve requirement satisfied?
     pub reserve_satisfied: bool,
@@ -158,7 +158,7 @@ impl MpScopfResult {
 pub struct MpScopfConfig {
     /// Emergency thermal rating fraction (1.0 = normal, 1.25 = 25% emergency)
     pub emergency_rating: f64,
-    /// Minimum base-case branch flow for contingency screening [MW]
+    /// Minimum base-case branch flow for contingency screening `MW`
     pub flow_threshold_mw: f64,
     /// Window size for rolling horizon (0 = solve all at once)
     pub horizon_window: usize,

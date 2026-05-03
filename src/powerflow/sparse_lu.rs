@@ -166,6 +166,22 @@ impl CrsMatrix {
     }
 }
 
+/// Convert a `sprs::CsMat<f64>` directly into a `CrsMatrix` without going through
+/// a dense intermediate.
+///
+/// This avoids the O(n²) cost of [`CrsMatrix::from_dense`] on the sparse NR hot
+/// path.  The sprs iterator yields `(&value, (row, col))` non-zeros in storage
+/// order; we collect them as triplets and delegate to [`CrsMatrix::from_triplets`].
+impl CrsMatrix {
+    pub fn from_csmat(csmat: &sprs::CsMat<f64>) -> Self {
+        let n = csmat.rows();
+        let m = csmat.cols();
+        let triplets: Vec<(usize, usize, f64)> =
+            csmat.iter().map(|(&v, (r, c))| (r, c, v)).collect();
+        Self::from_triplets(n, m, &triplets)
+    }
+}
+
 /// Sparse LU solver using Doolittle factorisation with partial pivoting.
 ///
 /// Converts the input to dense for factorisation, then solves via forward/

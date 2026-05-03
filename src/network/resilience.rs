@@ -1085,4 +1085,137 @@ mod tests {
             );
         }
     }
+
+    // ─── New tests (Round 27) ────────────────────────────────────────────────
+
+    #[test]
+    fn test_nk_analysis_k_zero_returns_err() {
+        // Reason: k=0 is an invalid contingency order and must return an error.
+        let net = make_radial_network();
+        let analyzer = NkAnalysis::new(0);
+        let result = analyzer.analyze(&net);
+        assert!(result.is_err(), "k=0 must return Err");
+    }
+
+    #[test]
+    fn test_nk_analysis_k_exceeds_branches_returns_err() {
+        // Reason: requesting more removed branches than exist must return an error.
+        let net = make_radial_network(); // 2 branches
+        let analyzer = NkAnalysis::new(5);
+        let result = analyzer.analyze(&net);
+        assert!(result.is_err(), "k > branch_count must return Err");
+    }
+
+    #[test]
+    fn test_load_performance_evaluate_in_unit_interval() {
+        // Reason: LoadPerformance::evaluate must always return a value in [0, 1].
+        let metric = LoadPerformance;
+        let state_partial = NetworkState {
+            load_served_mw: 60.0,
+            total_load_mw: 100.0,
+            connected_buses: 3,
+            total_buses: 4,
+            generation_online_mw: 70.0,
+        };
+        let score = metric.evaluate(&state_partial);
+        assert!(
+            (0.0..=1.0).contains(&score),
+            "LoadPerformance score must be in [0,1], got {score:.6}"
+        );
+        approx::assert_relative_eq!(score, 0.6, max_relative = 1e-9);
+    }
+
+    #[test]
+    fn test_connectivity_performance_evaluate_full() {
+        // Reason: ConnectivityPerformance must return 1.0 when all buses are energised.
+        let metric = ConnectivityPerformance;
+        let state_full = NetworkState {
+            load_served_mw: 100.0,
+            total_load_mw: 100.0,
+            connected_buses: 5,
+            total_buses: 5,
+            generation_online_mw: 110.0,
+        };
+        let score = metric.evaluate(&state_full);
+        approx::assert_relative_eq!(score, 1.0, max_relative = 1e-9);
+    }
+
+    #[test]
+    fn test_generation_performance_evaluate_partial() {
+        // Reason: GenerationPerformance must correctly compute capacity fraction.
+        let metric = GenerationPerformance {
+            total_capacity_mw: 200.0,
+        };
+        let state = NetworkState {
+            load_served_mw: 80.0,
+            total_load_mw: 100.0,
+            connected_buses: 4,
+            total_buses: 4,
+            generation_online_mw: 100.0,
+        };
+        let score = metric.evaluate(&state);
+        approx::assert_relative_eq!(score, 0.5, max_relative = 1e-9);
+    }
+
+    #[test]
+    fn test_compute_reliability_indices_empty_events() {
+        // Reason: zero events must produce zero SAIDI/SAIFI and ASAI=1.0.
+        let idx = compute_reliability_indices(&[], 1000, 1.0);
+        approx::assert_relative_eq!(idx.saidi, 0.0, max_relative = 1e-9, epsilon = 1e-12);
+        approx::assert_relative_eq!(idx.saifi, 0.0, max_relative = 1e-9, epsilon = 1e-12);
+        approx::assert_relative_eq!(idx.asai, 1.0, max_relative = 1e-9);
+    }
+
+    #[test]
+    fn test_compute_reliability_indices_zero_customers_returns_default() {
+        // Reason: zero total_customers must return the default (zero) indices.
+        let events = vec![make_event(0, 100, 2.0, 10.0, false)];
+        let idx = compute_reliability_indices(&events, 0, 1.0);
+        approx::assert_relative_eq!(idx.saidi, 0.0, max_relative = 1e-9, epsilon = 1e-12);
+        approx::assert_relative_eq!(idx.saifi, 0.0, max_relative = 1e-9, epsilon = 1e-12);
+    }
+
+    #[test]
+    fn test_compute_analytical_reliability_simple_radial() {
+        // Reason: analytical reliability indices for a radial network must be non-negative.
+        let net = make_radial_network();
+        let failure_rates = vec![0.1, 0.2]; // failures/year per branch
+        let repair_times = vec![4.0, 6.0]; // hours per repair
+        let customers_per_bus = vec![0usize, 50, 30]; // slack has none
+        let idx =
+            compute_analytical_reliability(&net, &failure_rates, &repair_times, &customers_per_bus);
+        assert!(
+            idx.saidi >= 0.0,
+            "SAIDI must be non-negative, got {:.6}",
+            idx.saidi
+        );
+        assert!(
+            idx.saifi >= 0.0,
+            "SAIFI must be non-negative, got {:.6}",
+            idx.saifi
+        );
+        assert!(
+            (0.0..=1.0).contains(&idx.asai),
+            "ASAI must be in [0,1], got {:.6}",
+            idx.asai
+        );
+    }
+
+    #[test]
+    fn test_compute_analytical_reliability_empty_network_returns_default() {
+        // Reason: an empty network (no buses, no branches) must return default zero indices.
+        let net = PowerNetwork::new(100.0);
+        let idx = compute_analytical_reliability(&net, &[], &[], &[]);
+        approx::assert_relative_eq!(idx.saidi, 0.0, max_relative = 1e-9, epsilon = 1e-12);
+        approx::assert_relative_eq!(idx.saifi, 0.0, max_relative = 1e-9, epsilon = 1e-12);
+    }
+
+    #[test]
+    fn test_resilience_trapezoid_min_performance_from_trajectory() {
+        // Reason: min_performance() must return the minimum value in the trajectory.
+        let traj = vec![(0.0, 1.0), (1.0, 0.3), (2.0, 0.4), (3.0, 0.9)];
+        let trap = ResilienceTrapezoid::new(1.0, 0.0, 1.0, 2.0, 3.0, 0.9, traj);
+        let min_p = trap.min_performance();
+        approx::assert_relative_eq!(min_p, 0.3, max_relative = 1e-9);
+    }
 }

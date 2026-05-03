@@ -502,7 +502,7 @@ impl BlackStartPlanner {
                 .iter()
                 .filter(|b| !restored_blocks.contains(&b.block_id))
                 .collect();
-            sorted_blocks.sort_by(|a, b| a.priority.cmp(&b.priority));
+            sorted_blocks.sort_by_key(|a| a.priority);
 
             let mut picked_up = false;
             for block in sorted_blocks {
@@ -794,5 +794,147 @@ impl BlackStartPlanner {
             }
         }
         paths
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::network::branch::Branch;
+    use crate::network::bus::{Bus, BusType};
+    use crate::network::topology::{Generator, PowerNetwork};
+
+    fn simple_network() -> PowerNetwork {
+        let mut net = PowerNetwork::new(100.0);
+        net.buses.push(Bus::new(1, BusType::Slack));
+        net.buses.push(Bus::new(2, BusType::PQ));
+        net.buses.push(Bus::new(3, BusType::PQ));
+        net.branches.push(Branch {
+            from_bus: 1,
+            to_bus: 2,
+            r: 0.01,
+            x: 0.10,
+            b: 0.01,
+            rate_a: 100.0,
+            rate_b: 100.0,
+            rate_c: 100.0,
+            tap: 0.0,
+            shift: 0.0,
+            status: true,
+        });
+        net.branches.push(Branch {
+            from_bus: 2,
+            to_bus: 3,
+            r: 0.01,
+            x: 0.10,
+            b: 0.01,
+            rate_a: 100.0,
+            rate_b: 100.0,
+            rate_c: 100.0,
+            tap: 0.0,
+            shift: 0.0,
+            status: true,
+        });
+        net.generators.push(Generator {
+            bus_id: 1,
+            pg: 80.0,
+            qg: 0.0,
+            qmax: 50.0,
+            qmin: -50.0,
+            vg: 1.0,
+            mbase: 100.0,
+            status: true,
+            pmax: 100.0,
+            pmin: 10.0,
+        });
+        net
+    }
+
+    fn make_bs_unit(gen_id: usize, bus: usize) -> BlackStartUnit {
+        BlackStartUnit {
+            gen_id,
+            bus,
+            p_rated_mw: 100.0,
+            p_min_mw: 10.0,
+            ramp_rate_mw_per_min: 5.0,
+            crank_time_min: 15.0,
+            max_crank_distance_km: 100.0,
+            auxiliary_load_mw: 2.0,
+            priority: 1,
+        }
+    }
+
+    fn make_load_block(block_id: usize, bus: usize, demand_mw: f64) -> LoadBlock {
+        LoadBlock {
+            block_id,
+            buses: vec![bus],
+            base_demand_mw: demand_mw,
+            cold_load_pickup_factor: 2.5,
+            cold_load_decay_min: 30.0,
+            priority: 1,
+            can_defer: false,
+        }
+    }
+
+    #[test]
+    fn test_plan_no_bs_units_returns_err() {
+        let net = simple_network();
+        let planner = BlackStartPlanner::new(BlackStartConfig::default());
+        assert!(planner.plan(&net).is_err());
+    }
+
+    #[test]
+    fn test_plan_with_bs_unit_returns_ok() {
+        let net = simple_network();
+        let cfg = BlackStartConfig {
+            black_start_units: vec![make_bs_unit(0, 1)],
+            load_blocks: vec![make_load_block(0, 2, 20.0)],
+            ..BlackStartConfig::default()
+        };
+        let planner = BlackStartPlanner::new(cfg);
+        let plan = planner.plan(&net).expect("plan should succeed");
+        assert!(!plan.steps.is_empty());
+        assert!(plan.n_black_start_units_used >= 1);
+    }
+
+    #[test]
+    fn test_simulate_frequency_response_drops_after_load_step() {
+        let planner = BlackStartPlanner::new(BlackStartConfig::default());
+        // 10 MW load step on a 5 MWs inertia system, no governor
+        let freq = planner.simulate_frequency_response(10.0, 5.0, 0.0, 0.1, 2.0);
+        assert!(!freq.is_empty());
+        // Frequency should drop below nominal (50 Hz) immediately
+        assert!(freq[0] < 50.0, "freq[0] = {:.4}", freq[0]);
+    }
+
+    #[test]
+    fn test_find_cranking_path_same_bus_returns_empty_sequence() {
+        let net = simple_network();
+        let planner = BlackStartPlanner::new(BlackStartConfig::default());
+        let path = planner.find_cranking_path(&net, 1, 1, &[1]);
+        let ep = path.expect("same-bus must return Some");
+        assert!(ep.branch_sequence.is_empty());
+        assert!((ep.total_length_km).abs() < 1e-9);
+    }
+
+    #[test]
+    fn test_cold_load_pickup_at_restore_time_is_peak() {
+        let planner = BlackStartPlanner::new(BlackStartConfig::default());
+        let block = make_load_block(0, 1, 100.0);
+        // At t = t_restore the exponential term = 1 → value = base * factor = 250
+        let demand = planner.cold_load_pickup(&block, 10.0, 10.0);
+        let expected = 100.0 * 2.5;
+        assert!((demand - expected).abs() < 1e-6, "demand = {:.4}", demand);
+    }
+
+    #[test]
+    fn test_check_feasibility_boundary() {
+        let planner = BlackStartPlanner::new(BlackStartConfig::default());
+        // Exactly at capacity boundary → feasible
+        assert!(planner.check_feasibility(100.0, 60.0, 40.0));
+        // One MW over → infeasible
+        assert!(!planner.check_feasibility(100.0, 60.0, 41.0));
+        // Zero step load is always feasible when gen >= current
+        assert!(planner.check_feasibility(50.0, 50.0, 0.0));
     }
 }

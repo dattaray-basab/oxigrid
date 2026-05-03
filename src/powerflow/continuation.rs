@@ -24,7 +24,7 @@ pub struct CpfPoint {
     pub lambda: f64,
     /// Voltage magnitudes at each bus [p.u.]
     pub voltages: Vec<f64>,
-    /// Voltage angle at each bus [rad]
+    /// Voltage angle at each bus `rad`
     pub angles: Vec<f64>,
     /// Whether this point is on the upper (stable) voltage solution
     pub upper_solution: bool,

@@ -1,3 +1,4 @@
+#![cfg_attr(not(feature = "std"), no_std)]
 //! OxiGrid — Pure Rust Energy Systems Simulation & Optimization Library.
 //!
 //! # Feature Flags
@@ -16,8 +17,12 @@
 //! | `io-matpower` | MATPOWER `.m` file parser | included in `powerflow` |
 //! | `parallel` | rayon-based parallelisation (future) | requires `std` |
 
+#[cfg(feature = "std")]
 pub mod error;
+
+#[cfg(feature = "std")]
 pub mod io;
+
 pub mod units;
 
 #[cfg(feature = "powerflow")]
@@ -53,10 +58,19 @@ pub mod powerelectronics;
 #[cfg(feature = "powerflow")]
 pub mod digitaltwin;
 
+#[cfg(feature = "std")]
 pub mod analytics;
+
+#[cfg(feature = "std")]
 pub mod monitoring;
+
+#[cfg(feature = "std")]
 pub mod powerquality;
+
+#[cfg(feature = "std")]
 pub mod security;
+
+#[cfg(feature = "std")]
 pub mod simulation;
 
 #[cfg(feature = "powerflow")]

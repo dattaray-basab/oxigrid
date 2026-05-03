@@ -141,7 +141,7 @@ impl Ensemble {
             .collect()
     }
 
-    /// Extract empirical quantile `q` ∈ [0,1] at each step.
+    /// Extract empirical quantile `q` ∈ `0,1` at each step.
     pub fn quantile(&self, q: f64) -> Vec<f64> {
         (0..self.n_steps)
             .map(|t| {
@@ -306,9 +306,9 @@ impl Default for AnEnConfig {
 /// Similarity metric: Euclidean distance in feature space.
 ///
 /// # Arguments
-/// - `current_features` — feature vector for the current (forecast) time [n_predictors]
+/// - `current_features` — feature vector for the current (forecast) time `n_predictors`
 /// - `historical_features` — matrix [n_time, n_predictors] of past feature vectors
-/// - `historical_targets` — corresponding target observations [n_time]
+/// - `historical_targets` — corresponding target observations `n_time`
 /// - `config` — AnEn configuration
 ///
 /// Returns the selected analog values (sorted by similarity, best first).

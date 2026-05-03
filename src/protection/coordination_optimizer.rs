@@ -66,17 +66,17 @@ pub struct OvercurrentRelay {
     pub protected_branch: (usize, usize),
     /// Relay curve characteristic.
     pub characteristic: RelayCharacteristic,
-    /// Pickup current setting Is [A].
+    /// Pickup current setting Is `A`.
     pub pickup_current_a: f64,
     /// Time-dial setting TDS (0.1–10.0).
     pub time_dial: f64,
-    /// Instantaneous overcurrent pickup [A], or `None` if disabled.
+    /// Instantaneous overcurrent pickup `A`, or `None` if disabled.
     pub instantaneous_pickup_a: Option<f64>,
     /// Current transformer ratio (e.g., 200/5 → 40.0).
     pub ct_ratio: f64,
-    /// Maximum through-fault current seen at this relay location [A].
+    /// Maximum through-fault current seen at this relay location `A`.
     pub max_fault_current_a: f64,
-    /// Minimum fault current for sensitivity check [A].
+    /// Minimum fault current for sensitivity check `A`.
     pub min_fault_current_a: f64,
 }
 
@@ -118,13 +118,13 @@ pub struct CoordinationPair {
     pub primary_relay_id: usize,
     /// ID of the backup relay.
     pub backup_relay_id: usize,
-    /// Fault current at the primary relay location used for the check [A].
+    /// Fault current at the primary relay location used for the check `A`.
     pub fault_current_a: f64,
-    /// Primary relay operating time at `fault_current_a` [s].
+    /// Primary relay operating time at `fault_current_a` `s`.
     pub primary_time_s: f64,
-    /// Backup relay operating time at `fault_current_a` [s].
+    /// Backup relay operating time at `fault_current_a` `s`.
     pub backup_time_s: f64,
-    /// Coordination time interval CTI = backup_time − primary_time [s].
+    /// Coordination time interval CTI = backup_time − primary_time `s`.
     pub coordination_time_interval_s: f64,
     /// `true` when CTI ≥ 0.3 s (or the configured minimum).
     pub is_coordinated: bool,
@@ -135,9 +135,9 @@ pub struct CoordinationPair {
 pub struct FaultPoint {
     /// Bus at which the fault is applied.
     pub location_bus: usize,
-    /// Fault current magnitude [A].
+    /// Fault current magnitude `A`.
     pub fault_current_a: f64,
-    /// Distance from the relay to the fault [km].
+    /// Distance from the relay to the fault `km`.
     pub distance_from_relay_km: f64,
 }
 
@@ -154,7 +154,7 @@ pub struct CoordinationSolution {
     pub n_pairs_coordinated: usize,
     /// Fraction of pairs that are coordinated (0.0 – 1.0).
     pub selectivity_index: f64,
-    /// Sum of primary relay operating times at their respective max fault currents [s].
+    /// Sum of primary relay operating times at their respective max fault currents `s`.
     pub total_operating_time_s: f64,
     /// Number of optimizer iterations performed.
     pub iterations: usize,
@@ -192,7 +192,7 @@ pub struct ProtectionCoordinationOptimizer {
     pub fault_points: Vec<FaultPoint>,
     /// Optimization objective.
     pub objective: CoordinationObjective,
-    /// Minimum required coordination time interval [s] (default 0.3 s).
+    /// Minimum required coordination time interval `s` (default 0.3 s).
     pub cti_min_s: f64,
     /// Maximum number of iterations before declaring non-convergence.
     pub max_iterations: usize,
@@ -646,7 +646,7 @@ pub struct FaultCoordinationAnalyzer;
 impl FaultCoordinationAnalyzer {
     /// Compute the time–current characteristic curve for `relay` at the given currents.
     ///
-    /// Returns a vector of `(current [A], operating_time [s])` pairs.
+    /// Returns a vector of `(current `A`, operating_time `s`)` pairs.
     /// Entries where the relay does not operate (time ≥ 1e8) are excluded.
     pub fn compute_time_current_curve(
         relay: &OvercurrentRelay,

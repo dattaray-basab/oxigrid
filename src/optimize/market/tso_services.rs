@@ -554,7 +554,7 @@ impl TsoMarket {
     /// **Frequency nadir** (steady-state frequency deviation due to droop):
     /// ```text
     /// Δf_nadir = -ΔP / (D + R)   [p.u.]
-    /// f_nadir  =  f0 × (1 + Δf_nadir)   [Hz]
+    /// f_nadir  =  f0 × (1 + Δf_nadir)   `Hz`
     /// ```
     /// where D = damping coefficient \[p.u./p.u.\], R = primary reserve
     /// response droop gain (approximated as `primary_cleared_mw / S_rated`
@@ -562,12 +562,12 @@ impl TsoMarket {
     ///
     /// **Time to nadir** (simplified swing-equation estimate):
     /// ```text
-    /// t_nadir ≈ sqrt(2 × H × S_rated / (f0 × ΔP))   [s]
+    /// t_nadir ≈ sqrt(2 × H × S_rated / (f0 × ΔP))   `s`
     /// ```
     ///
     /// **Recovery time** (empirical: ~3 × t_nadir for primary-dominated systems):
     /// ```text
-    /// t_recovery ≈ 3 × t_nadir   [s]
+    /// t_recovery ≈ 3 × t_nadir   `s`
     /// ```
     ///
     /// # Arguments

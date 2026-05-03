@@ -46,7 +46,7 @@ pub enum BlackStartCapability {
     Full {
         /// Maximum MW available for cranking / initial energisation.
         startup_mw: f64,
-        /// How long the unit can hold at startup output before needing load [min].
+        /// How long the unit can hold at startup output before needing load `min`.
         hold_time_min: f64,
     },
 }
@@ -126,17 +126,17 @@ pub struct BlackStartGenerator {
     pub id: usize,
     /// Bus to which this generator is connected.
     pub bus: usize,
-    /// Nameplate rating [MW].
+    /// Nameplate rating `MW`.
     pub rated_mw: f64,
     /// Black-start capability level.
     pub capability: BlackStartCapability,
-    /// Time from cold state to minimum stable output [min].
+    /// Time from cold state to minimum stable output `min`.
     pub startup_time_min: f64,
-    /// Minimum stable generation [MW].
+    /// Minimum stable generation `MW`.
     pub min_stable_mw: f64,
     /// Maximum ramp rate [MW/min].
     pub max_ramp_mw_per_min: f64,
-    /// Self-auxiliary power consumption [MW].
+    /// Self-auxiliary power consumption `MW`.
     pub aux_power_mw: f64,
     /// Technology type.
     pub technology: GeneratorType,
@@ -183,13 +183,13 @@ pub struct RestorationLoad {
     pub bus: usize,
     /// Restoration priority class.
     pub priority: RestorePriority,
-    /// Nominal active power [MW].
+    /// Nominal active power `MW`.
     pub p_mw: f64,
-    /// Nominal reactive power [MVAR].
+    /// Nominal reactive power `MVAR`.
     pub q_mvar: f64,
     /// Cold-load-pickup multiplier (typically 1.5 – 3.0).
     pub cold_load_pickup_factor: f64,
-    /// Duration of elevated demand during cold pickup [min].
+    /// Duration of elevated demand during cold pickup `min`.
     pub pickup_duration_min: f64,
     /// Minimum acceptable voltage during restoration [p.u.].
     pub min_voltage_pu: f64,
@@ -208,9 +208,9 @@ pub struct CrankingPath {
     pub branch_sequence: Vec<usize>,
     /// Total series impedance of the path [p.u.].
     pub path_impedance_pu: f64,
-    /// Total capacitive charging MVAR of energised lines [MVAR].
+    /// Total capacitive charging MVAR of energised lines `MVAR`.
     pub charging_mvar: f64,
-    /// Approximate physical length [km].
+    /// Approximate physical length `km`.
     pub path_length_km: f64,
 }
 
@@ -221,9 +221,9 @@ pub struct BlackStartStep {
     pub step_id: usize,
     /// What action this step represents.
     pub step_type: BlackStartStepType,
-    /// Planned start time relative to T=0 [min].
+    /// Planned start time relative to T=0 `min`.
     pub start_time_min: f64,
-    /// Estimated time to complete this step [min].
+    /// Estimated time to complete this step `min`.
     pub estimated_duration_min: f64,
     /// Step IDs that must be fully completed before this step begins.
     pub prerequisites: Vec<usize>,
@@ -242,13 +242,13 @@ pub struct PowerIsland {
     pub energized_buses: Vec<usize>,
     /// Generator IDs currently online in this island.
     pub online_generators: Vec<usize>,
-    /// Total load connected [MW].
+    /// Total load connected `MW`.
     pub connected_loads_mw: f64,
-    /// Current frequency [Hz].
+    /// Current frequency `Hz`.
     pub frequency_hz: f64,
     /// Average voltage at the island centre [p.u.].
     pub voltage_center_pu: f64,
-    /// Available headroom for additional load pickup [MW].
+    /// Available headroom for additional load pickup `MW`.
     pub headroom_mw: f64,
     /// `true` for the island anchored by the first BS unit (reference frame).
     pub is_reference_island: bool,
@@ -261,9 +261,9 @@ pub struct BlackStartPlan {
     pub steps: Vec<BlackStartStep>,
     /// Cranking paths used during the plan.
     pub cranking_paths: Vec<CrankingPath>,
-    /// Total estimated time from T=0 to full restoration [min].
+    /// Total estimated time from T=0 to full restoration `min`.
     pub estimated_restoration_time_min: f64,
-    /// Estimated time to restore all critical/priority loads [min].
+    /// Estimated time to restore all critical/priority loads `min`.
     pub priority_load_restoration_min: f64,
     /// Total MW of load included in restoration plan.
     pub total_load_restored_mw: f64,
@@ -295,13 +295,13 @@ pub struct BlackStartSimulationResult {
     pub restored_fraction_pct: f64,
     /// Whether all critical-infrastructure loads have been restored.
     pub critical_load_restored: bool,
-    /// Time at which 100 % of planned load was restored [min].
+    /// Time at which 100 % of planned load was restored `min`.
     pub time_to_full_restoration_min: f64,
     /// Frequency violations: (time_min, observed_freq_hz).
     pub frequency_violations: Vec<(f64, f64)>,
     /// Voltage violations: (time_min, bus_id, V_pu).
     pub voltage_violations: Vec<(f64, usize, f64)>,
-    /// Contribution to SAIDI from this blackout event [min].
+    /// Contribution to SAIDI from this blackout event `min`.
     pub saidi_contribution_min: f64,
 }
 
@@ -430,7 +430,7 @@ impl BlackStartPlanner {
     ///
     /// `time_since_outage_h` — hours since the load was de-energised.
     ///
-    /// Returns the *current* demand [MW] immediately after energisation.
+    /// Returns the *current* demand `MW` immediately after energisation.
     pub fn estimate_cold_load_pickup(load: &RestorationLoad, time_since_outage_h: f64) -> f64 {
         // CLPU factor grows with outage duration (saturates at the configured
         // maximum after approximately 8 h).
@@ -753,11 +753,11 @@ impl BlackStartPlanner {
 pub struct BlackStartSimulator {
     /// The planner containing network and generator data.
     pub planner: BlackStartPlanner,
-    /// Simulation time-step [min].
+    /// Simulation time-step `min`.
     pub dt_min: f64,
-    /// Nominal system frequency [Hz].
+    /// Nominal system frequency `Hz`.
     pub frequency_nominal_hz: f64,
-    /// Aggregate system inertia constant H [s].
+    /// Aggregate system inertia constant H `s`.
     pub frequency_h_constant_s: f64,
 }
 
@@ -784,7 +784,7 @@ impl BlackStartSimulator {
     /// where T_gov is the governor time constant.  The minimum is found
     /// numerically over a 30-second window (0.5 min).
     ///
-    /// Returns the minimum (nadir) frequency [Hz].
+    /// Returns the minimum (nadir) frequency `Hz`.
     pub fn simulate_frequency_nadir(
         &self,
         delta_p_mw: f64,

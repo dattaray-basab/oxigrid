@@ -5,6 +5,25 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.1.1] - 2026-05-03
+
+### Fixed
+- Disambiguate `solve_dense` method call in `SimdAvx2Backend` — resolves E0034 "multiple applicable
+  items in scope" compilation error by using `LinearSolver::solve_dense` UFCS syntax instead of
+  bare `self.inner.solve_dense` when both `LinearAlgebraBackend` and `LinearSolver` traits are in
+  scope (`src/powerflow/linalg.rs`)
+
+### Added
+- PSS designer module with automated parameter tuning (`src/stability/pss_design/`)
+- Linear algebra backend trait abstraction for power flow solvers (`src/powerflow/linalg.rs`)
+- Asset digitization types for power grid assets (`src/digitaltwin/asset_digitization/`)
+- Expanded unit tests: EV-grid integration, distribution planning, power quality compliance
+
+### Changed
+- Battery ECM and digital twin modules refactored for improved structure
+- Code structure improved for readability and maintainability across multiple modules
+- 5,036 tests now passing (up from 3,830 at v0.1.0)
+
 ## [0.1.0] - 2026-03-09
 
 ### Added
@@ -126,4 +145,5 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Synthetic topologies (Ring/Radial/Meshed/Geographic/SmallWorld/ScaleFree)
 - Benchmark suite with reference solutions
 
+[0.1.1]: https://github.com/cool-japan/oxigrid/releases/tag/v0.1.1
 [0.1.0]: https://github.com/cool-japan/oxigrid/releases/tag/v0.1.0

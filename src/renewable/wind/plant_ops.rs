@@ -58,7 +58,7 @@ pub enum ActivePowerMode {
     MaximumPower,
     /// Delta control: maintain a spinning reserve headroom.
     DeltaControl,
-    /// Fixed absolute power output [MW].
+    /// Fixed absolute power output `MW`.
     AbsolutePower,
     /// Follow an external balancing regulation signal.
     BalancingMode,
@@ -86,7 +86,7 @@ pub enum WakeSteeringMode {
 pub struct TurbineSetpoint {
     /// Zero-based turbine index within the farm.
     pub turbine_id: usize,
-    /// Active power setpoint [kW].
+    /// Active power setpoint `kW`.
     pub power_setpoint_kw: f64,
     /// Yaw offset applied for wake steering [°].
     pub yaw_offset_deg: f64,
@@ -99,7 +99,7 @@ pub struct TurbineSetpoint {
 /// Snapshot of farm operating conditions and setpoints at a single time step.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct FarmOperatingPoint {
-    /// Simulation timestamp [h].
+    /// Simulation timestamp `h`.
     pub timestamp_h: f64,
     /// Ambient wind speed [m/s].
     pub wind_speed_ms: f64,
@@ -107,11 +107,11 @@ pub struct FarmOperatingPoint {
     pub wind_direction_deg: f64,
     /// Ambient temperature [°C].
     pub ambient_temperature_c: f64,
-    /// Total farm active power output [MW].
+    /// Total farm active power output `MW`.
     pub total_power_mw: f64,
-    /// Total power available without curtailment [MW].
+    /// Total power available without curtailment `MW`.
     pub available_power_mw: f64,
-    /// Power withheld due to curtailment [MW].
+    /// Power withheld due to curtailment `MW`.
     pub curtailed_power_mw: f64,
     /// Turbine-level setpoints.
     pub turbine_setpoints: Vec<TurbineSetpoint>,
@@ -128,15 +128,15 @@ pub struct PlantController {
     pub name: String,
     /// Number of turbines in the farm.
     pub n_turbines: usize,
-    /// Rated power per turbine [MW].
+    /// Rated power per turbine `MW`.
     pub rated_power_mw: f64,
-    /// Total farm rated power [MW].
+    /// Total farm rated power `MW`.
     pub farm_rated_mw: f64,
     /// Active power control mode.
     pub control_mode: ActivePowerMode,
-    /// Power setpoint received from grid operator [MW].
+    /// Power setpoint received from grid operator `MW`.
     pub power_setpoint_mw: f64,
-    /// Frequency deadband; no response within ±deadband [Hz].
+    /// Frequency deadband; no response within ±deadband `Hz`.
     pub frequency_deadband_hz: f64,
     /// Droop characteristic [%].
     pub frequency_droop_pct: f64,
@@ -152,7 +152,7 @@ impl PlantController {
     /// # Arguments
     /// - `farm_id`         — Unique farm identifier.
     /// - `n_turbines`      — Number of turbines.
-    /// - `rated_power_mw`  — Rated power per turbine [MW].
+    /// - `rated_power_mw`  — Rated power per turbine `MW`.
     pub fn new(farm_id: usize, n_turbines: usize, rated_power_mw: f64) -> Self {
         let farm_rated_mw = rated_power_mw * n_turbines as f64;
         Self {
@@ -209,7 +209,7 @@ impl PlantController {
             .collect()
     }
 
-    /// Compute incremental frequency response power [MW] (positive = increase).
+    /// Compute incremental frequency response power `MW` (positive = increase).
     ///
     /// Returns zero within the deadband; outside uses a linear droop.
     pub fn compute_frequency_response(&self, grid_frequency_hz: f64, current_power_mw: f64) -> f64 {
@@ -232,7 +232,7 @@ impl PlantController {
         (current_mw + delta).clamp(0.0, self.farm_rated_mw)
     }
 
-    /// Compute headroom [MW] reserved for up-regulation under delta control.
+    /// Compute headroom `MW` reserved for up-regulation under delta control.
     pub fn compute_delta_reserve(&self, available_mw: f64) -> f64 {
         available_mw * self.delta_reserve_pct / 100.0
     }
@@ -279,9 +279,9 @@ impl PlantController {
 pub struct WakeSteering {
     /// Steering operational mode.
     pub mode: WakeSteeringMode,
-    /// Turbine positions in farm coordinates [m], (x, y).
+    /// Turbine positions in farm coordinates `m`, (x, y).
     pub layout: Vec<(f64, f64)>,
-    /// Rotor diameter [m].
+    /// Rotor diameter `m`.
     pub rotor_diameter_m: f64,
     /// Maximum allowable yaw offset [°].
     pub max_yaw_offset_deg: f64,
@@ -467,9 +467,9 @@ impl WakeSteering {
 /// Time-based curtailment rule for a subset of turbines.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct CurtailmentSchedule {
-    /// Schedule start time [h] (0–24 or within simulation horizon).
+    /// Schedule start time `h` (0–24 or within simulation horizon).
     pub start_hour: f64,
-    /// Schedule end time [h].
+    /// Schedule end time `h`.
     pub end_hour: f64,
     /// Maximum allowed power output as percentage of rated (0–100 %).
     pub max_power_pct: f64,
@@ -503,13 +503,13 @@ impl CurtailmentSchedule {
 pub struct FrequencyResponseController {
     /// Droop characteristic [%].
     pub droop_setting_pct: f64,
-    /// Response time constant [s].
+    /// Response time constant `s`.
     pub response_time_s: f64,
-    /// Frequency deadband [Hz]; no response within ±deadband.
+    /// Frequency deadband `Hz`; no response within ±deadband.
     pub deadband_hz: f64,
     /// Minimum spinning reserve that must be kept available [%].
     pub reserved_capacity_pct: f64,
-    /// Nominal system frequency [Hz].
+    /// Nominal system frequency `Hz`.
     pub nominal_freq_hz: f64,
 }
 
@@ -525,7 +525,7 @@ impl FrequencyResponseController {
         }
     }
 
-    /// Compute the frequency response power delta [MW].
+    /// Compute the frequency response power delta `MW`.
     ///
     /// Positive delta means the farm should increase output (under-frequency event).
     pub fn response_power_mw(
@@ -563,7 +563,7 @@ pub struct PlantOperationsManager {
     pub curtailment_schedule: Vec<CurtailmentSchedule>,
     /// Frequency response controller.
     pub frequency_controller: FrequencyResponseController,
-    /// Turbine positions in farm coordinates [m], (x, y).
+    /// Turbine positions in farm coordinates `m`, (x, y).
     pub turbine_positions: Vec<(f64, f64)>,
 }
 
@@ -588,8 +588,8 @@ impl PlantOperationsManager {
     /// - `wind_speed_ms`    — Hub-height wind speed [m/s].
     /// - `wind_dir_deg`     — Wind direction (met. convention) [°].
     /// - `ambient_temp_c`   — Ambient temperature [°C].
-    /// - `grid_freq_hz`     — Grid frequency [Hz].
-    /// - `timestamp_h`      — Current simulation time [h].
+    /// - `grid_freq_hz`     — Grid frequency `Hz`.
+    /// - `timestamp_h`      — Current simulation time `h`.
     pub fn run_operating_step(
         &mut self,
         wind_speed_ms: f64,
@@ -678,7 +678,7 @@ impl PlantOperationsManager {
         setpoints
     }
 
-    /// Compute farm power [MW] at each wind speed in `wind_speeds`.
+    /// Compute farm power `MW` at each wind speed in `wind_speeds`.
     ///
     /// Uses the simplified power curve without wake effects.
     pub fn compute_farm_power_curve(&self, wind_speeds: &[f64]) -> Vec<f64> {
@@ -761,7 +761,7 @@ impl PlantOperationsManager {
 
 // ── Stand-alone turbine power curve ───────────────────────────────────────────
 
-/// Simplified turbine power curve [kW].
+/// Simplified turbine power curve `kW`.
 ///
 /// - Below cut-in (3 m/s) or at/above cut-out (25 m/s): 0 kW
 /// - Cut-in to rated (12 m/s): cubic ramp — `P = P_rated × ((v−3)/(12−3))^3`

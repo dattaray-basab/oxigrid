@@ -33,7 +33,7 @@ pub struct PvSubstring {
 
 /// Simple I-V model for a shaded PV substring using one-diode approximation.
 ///
-/// At a given terminal voltage `v_s` [V per cell], returns the current [A].
+/// At a given terminal voltage `v_s` [V per cell], returns the current `A`.
 /// When shading causes reverse bias the bypass diode conducts (clamps at -V_d).
 pub fn substring_current(
     sub: &PvSubstring,
@@ -74,15 +74,15 @@ pub fn substring_current(
 /// Standard cell parameters (silicon, 60-cell panel).
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct CellParams {
-    /// Short-circuit current at STC [A]
+    /// Short-circuit current at STC `A`
     pub i_sc_ref: f64,
-    /// Reverse saturation current [A]
+    /// Reverse saturation current `A`
     pub i_o_ref: f64,
     /// Diode ideality factor
     pub a_factor: f64,
     /// Series resistance [Ω per cell]
     pub r_s: f64,
-    /// Thermal voltage at STC [V]
+    /// Thermal voltage at STC `V`
     pub vt_ref: f64,
     /// Open-circuit voltage at STC [V per cell]
     pub v_oc_cell: f64,
@@ -179,7 +179,7 @@ impl PvArray {
         }
     }
 
-    /// Compute array current at a given terminal voltage [V].
+    /// Compute array current at a given terminal voltage `V`.
     pub fn array_current(&self, v_array: f64) -> f64 {
         let p = &self.cell_params;
         let n_sub = self.substrings.len();
@@ -211,12 +211,12 @@ impl PvArray {
         i_per_string * self.n_parallel as f64
     }
 
-    /// Compute array power at voltage [W].
+    /// Compute array power at voltage `W`.
     pub fn power(&self, v: f64) -> f64 {
         v * self.array_current(v)
     }
 
-    /// Maximum array voltage (sum of Voc across all substrings) [V].
+    /// Maximum array voltage (sum of Voc across all substrings) `V`.
     pub fn v_oc_array(&self) -> f64 {
         self.cell_params.v_oc_cell * self.cells_per_substring as f64 * self.substrings.len() as f64
     }
@@ -275,7 +275,7 @@ pub struct PsoMpptConfig {
     pub c2: f64,
     /// Velocity clamp: max velocity as fraction of search space
     pub v_max_fraction: f64,
-    /// Convergence tolerance [W]
+    /// Convergence tolerance `W`
     pub tol_w: f64,
 }
 
@@ -296,9 +296,9 @@ impl Default for PsoMpptConfig {
 /// PSO MPPT result.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct PsoMpptResult {
-    /// Global Maximum Power Point voltage [V]
+    /// Global Maximum Power Point voltage `V`
     pub v_gmpp: f64,
-    /// Power at GMPP [W]
+    /// Power at GMPP `W`
     pub p_gmpp: f64,
     /// Iterations to converge
     pub iterations: usize,
@@ -414,15 +414,15 @@ impl LcgRng {
 /// Shading loss analysis result.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ShadingLossResult {
-    /// Power without shading (STC uniform irradiance) [W]
+    /// Power without shading (STC uniform irradiance) `W`
     pub p_unshaded: f64,
-    /// Power with shading at GMPP [W]
+    /// Power with shading at GMPP `W`
     pub p_shaded: f64,
-    /// Absolute shading loss [W]
+    /// Absolute shading loss `W`
     pub loss_w: f64,
-    /// Relative shading loss [fraction]
+    /// Relative shading loss `fraction`
     pub loss_fraction: f64,
-    /// Mismatch loss (additional loss from non-uniform irradiance) [fraction]
+    /// Mismatch loss (additional loss from non-uniform irradiance) `fraction`
     pub mismatch_loss_fraction: f64,
     /// Bypass diode conduction detected in any substring?
     pub bypass_active: bool,

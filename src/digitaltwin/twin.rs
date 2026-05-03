@@ -872,4 +872,91 @@ mod tests {
         // Change detection is heuristic — we just verify the API returns a result.
         let _ = change; // may or may not detect based on flow threshold
     }
+
+    #[test]
+    fn test_twin_flat_start_dimensions() {
+        let state = TwinState::flat_start(5, 4, 2);
+        assert_eq!(state.voltage_magnitudes.len(), 5);
+        assert_eq!(state.branch_flows_mw.len(), 4);
+        assert_eq!(state.generation_mw.len(), 2);
+        // All voltages at 1 pu, all angles at 0
+        for &v in &state.voltage_magnitudes {
+            assert!((v - 1.0).abs() < 1e-12);
+        }
+    }
+
+    #[test]
+    fn test_twin_snapshot_matches_state() {
+        let net = three_bus_network();
+        let twin = GridDigitalTwin::new(net, TwinConfig::default());
+        let snap = twin.snapshot();
+        assert_eq!(
+            snap.voltage_magnitudes.len(),
+            twin.state.voltage_magnitudes.len()
+        );
+        for (a, b) in snap
+            .voltage_magnitudes
+            .iter()
+            .zip(twin.state.voltage_magnitudes.iter())
+        {
+            assert!((a - b).abs() < 1e-12);
+        }
+    }
+
+    #[test]
+    fn test_twin_compare_to_reference_identity_gives_zero_divergence() {
+        let net = three_bus_network();
+        let twin = GridDigitalTwin::new(net, TwinConfig::default());
+        let reference = twin.snapshot();
+        let div = twin.compare_to_reference(&reference);
+        assert!((div.max_voltage_error_pu).abs() < 1e-12);
+        assert!((div.rms_voltage_error).abs() < 1e-12);
+        assert!(div.diverged_buses.is_empty());
+    }
+
+    #[test]
+    fn test_twin_compare_to_reference_detects_large_voltage_error() {
+        let net = three_bus_network();
+        let twin = GridDigitalTwin::new(net, TwinConfig::default());
+        let n = twin.state.voltage_magnitudes.len();
+        let n_br = twin.state.branch_flows_mw.len();
+        let n_gen = twin.state.generation_mw.len();
+        // Build a reference state with a large voltage deviation at bus 1
+        let mut reference = TwinState::flat_start(n, n_br, n_gen);
+        reference.voltage_magnitudes[1] = 0.80; // 0.2 pu deviation
+        let div = twin.compare_to_reference(&reference);
+        assert!(
+            div.max_voltage_error_pu > 0.19,
+            "max_err={:.4}",
+            div.max_voltage_error_pu
+        );
+        assert!(div.diverged_buses.contains(&1));
+    }
+
+    #[test]
+    fn test_twin_predict_no_prev_state_returns_current() {
+        let net = three_bus_network();
+        let twin = GridDigitalTwin::new(net, TwinConfig::default());
+        // No ingestion done → no prev_state → predict returns current state
+        let predicted = twin.predict_state(1.0);
+        for (p, c) in predicted
+            .voltage_magnitudes
+            .iter()
+            .zip(twin.state.voltage_magnitudes.iter())
+        {
+            assert!((p - c).abs() < 1e-12, "predicted V differs from current");
+        }
+    }
+
+    #[test]
+    fn test_twin_update_count_increments_on_ingest() {
+        let net = three_bus_network();
+        let mut twin = GridDigitalTwin::new(net, TwinConfig::default());
+        let mut batch = TelemetryBatch::new(TelemetrySource::Scada, 1_000_000);
+        batch.add_scada(make_voltage_scada(0, 1.0, 1_000_000));
+        twin.ingest_telemetry(&batch).expect("ingest ok");
+        assert_eq!(twin.update_count, 1);
+        twin.ingest_telemetry(&batch).expect("ingest ok 2");
+        assert_eq!(twin.update_count, 2);
+    }
 }

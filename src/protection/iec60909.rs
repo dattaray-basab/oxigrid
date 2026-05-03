@@ -473,7 +473,6 @@ impl Iec60909Calculator {
             if tr.rated_mva < 1e-9 {
                 continue;
             }
-            let z_base = tr.rated_kv_sq_over_mva(); // kV²/MVA = Ω (on system base)
             let (ukr, pkr_pu) = match seq {
                 Sequence::Zero => (tr.uk0r_pct / 100.0, tr.pkr_kw / (1000.0 * tr.rated_mva)),
                 _ => (tr.ukr_pct / 100.0, tr.pkr_kw / (1000.0 * tr.rated_mva)),
@@ -491,7 +490,6 @@ impl Iec60909Calculator {
             let z_base_actual = from_vkv * from_vkv / tr.rated_mva;
             let r_ohm = r_pu * z_base_actual;
             let x_ohm = x_pu * z_base_actual;
-            let _ = z_base;
             let y_tr = cinv((r_ohm, x_ohm));
             if let (Some(fi), Some(ti)) = (bus_idx(tr.from_bus), bus_idx(tr.to_bus)) {
                 y[fi][fi] = cadd(y[fi][fi], y_tr);
@@ -601,14 +599,6 @@ impl Iec60909Calculator {
     }
 }
 
-// Helper for transformer — kV² / MVA base impedance.
-impl TransformerForSc {
-    fn rated_kv_sq_over_mva(&self) -> f64 {
-        // Use nominal voltage of the from-bus — placeholder here (correct version uses bus kV).
-        self.rated_mva
-    }
-}
-
 /// Sequence type for impedance matrix construction.
 #[derive(Clone, Copy)]
 pub enum Sequence {
@@ -625,6 +615,7 @@ pub enum Sequence {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use approx::assert_relative_eq;
 
     fn simple_2bus_network() -> NetworkForIec60909 {
         NetworkForIec60909 {
@@ -797,6 +788,120 @@ mod tests {
                 "Peak I_p {:.4} should be ≥ I_k3 {:.4}",
                 r.ip_ka,
                 r.i_k3_ka
+            );
+        }
+    }
+
+    #[test]
+    fn test_voltage_factor_c_scales_current_proportionally() {
+        // Reason: IEC 60909 voltage factor c directly scales the equivalent source voltage,
+        // so i_k3 with c=1.1 must be exactly 1.1x the current with c=1.0.
+        let net = simple_2bus_network();
+        let config_low = Iec60909Config {
+            voltage_factor_c: 1.0,
+            ..Iec60909Config::default()
+        };
+        let config_high = Iec60909Config {
+            voltage_factor_c: 1.1,
+            ..Iec60909Config::default()
+        };
+        let calc_low = Iec60909Calculator::new(config_low, net.clone());
+        let calc_high = Iec60909Calculator::new(config_high, net);
+        let res_low = calc_low.calculate_all().expect("c=1.0 ok");
+        let res_high = calc_high.calculate_all().expect("c=1.1 ok");
+        let i_low = res_low[0].i_k3_ka;
+        let i_high = res_high[0].i_k3_ka;
+        assert_relative_eq!(i_high / i_low, 1.1, epsilon = 1e-9);
+    }
+
+    #[test]
+    fn test_empty_network_returns_empty_results() {
+        // Reason: An empty network has no buses, so calculate_all must return an empty Vec without error.
+        let net = NetworkForIec60909 {
+            base_mva: 100.0,
+            buses: vec![],
+            lines: vec![],
+            transformers: vec![],
+            generators: vec![],
+            motors: vec![],
+        };
+        let calc = Iec60909Calculator::new(Iec60909Config::default(), net);
+        let results = calc.calculate_all().expect("empty network ok");
+        assert!(results.is_empty());
+    }
+
+    #[test]
+    fn test_calculate_at_nonexistent_bus_returns_error() {
+        // Reason: Requesting SC at a bus id not in the network must produce ScError::BusNotFound.
+        let net = simple_2bus_network();
+        let calc = Iec60909Calculator::new(Iec60909Config::default(), net);
+        let err = calc.calculate_at_bus(999, FaultType::ThreePhase);
+        assert!(
+            matches!(err, Err(ScError::BusNotFound(999))),
+            "Expected BusNotFound(999), got {:?}",
+            err
+        );
+    }
+
+    #[test]
+    fn test_kappa_factor_intermediate_rx() {
+        // Reason: Verifies the exact IEC 60909 formula κ = 1.02 + 0.98·exp(−3·R/X) at R/X = 0.1.
+        let calc = Iec60909Calculator::new(Iec60909Config::default(), simple_2bus_network());
+        let r_over_x = 0.1_f64;
+        let expected = 1.02 + 0.98 * (-3.0 * r_over_x).exp();
+        let got = calc.kappa_factor(r_over_x);
+        assert_relative_eq!(got, expected, epsilon = 1e-14);
+    }
+
+    #[test]
+    fn test_thermal_equivalent_pure_inductive_factor() {
+        // Reason: At R/X = 0 the DC component n = 0.5 and AC factor m = 1.0,
+        // so I_th = I_k · sqrt(1.5); verifies the thermal formula for a purely inductive circuit.
+        let calc = Iec60909Calculator::new(Iec60909Config::default(), simple_2bus_network());
+        let i_k = 4.0_f64; // kA
+                           // With r_over_x = 0.0, the branch goes to the `else` arm: n = 0.5, m = 1.0.
+        let ith = calc.thermal_equivalent(i_k, 0.0, 1.0);
+        let expected = i_k * 1.5_f64.sqrt();
+        assert_relative_eq!(ith, expected, epsilon = 1e-12);
+    }
+
+    #[test]
+    fn test_build_z_matrix_returns_correct_size() {
+        // Reason: build_z_matrix must return an n×n impedance matrix for an n-bus network.
+        let net = simple_2bus_network();
+        let n = net.buses.len();
+        let calc = Iec60909Calculator::new(Iec60909Config::default(), net);
+        let z = calc
+            .build_z_matrix(Sequence::Positive)
+            .expect("z matrix ok");
+        assert_eq!(z.len(), n);
+        for row in &z {
+            assert_eq!(row.len(), n);
+        }
+    }
+
+    #[test]
+    fn test_iec60909_config_default_values() {
+        // Reason: Pins the IEC 60909 default configuration so any unintended change is caught.
+        let cfg = Iec60909Config::default();
+        assert_relative_eq!(cfg.network_frequency_hz, 50.0, epsilon = 1e-14);
+        assert_relative_eq!(cfg.voltage_factor_c, 1.1, epsilon = 1e-14);
+        assert!(cfg.calculate_all_fault_types);
+        assert!(cfg.include_motor_contributions);
+        assert!(cfg.include_synchronous_machines);
+    }
+
+    #[test]
+    fn test_ll_and_dlg_currents_positive() {
+        // Reason: LL and DLG SC currents must both be non-negative for any valid network.
+        let calc = Iec60909Calculator::new(Iec60909Config::default(), simple_2bus_network());
+        let results = calc.calculate_all().expect("ok");
+        for r in &results {
+            assert!(r.i_k2_ka >= 0.0, "I_k2 (LL) must be ≥ 0 at bus {}", r.bus);
+            assert!(
+                r.i_k21_ka >= 0.0,
+                "I_k21 (DLG) must be ≥ 0 at bus {}",
+                r.bus
             );
         }
     }

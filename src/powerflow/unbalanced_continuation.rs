@@ -507,7 +507,7 @@ impl UnbalancedCpf {
             let voltages = [pt.v_a, pt.v_b, pt.v_c];
             for (ph, &v) in voltages.iter().enumerate() {
                 if v < self.config.collapse_voltage_pu && nose_idx.is_none() {
-                    nose_idx = Some(idx.saturating_sub(1).max(0));
+                    nose_idx = Some(idx.saturating_sub(1));
                     nose_phase = ph as u8;
                 }
             }

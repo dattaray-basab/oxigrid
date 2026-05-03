@@ -359,4 +359,77 @@ mod tests {
             inv.i_max_pu
         );
     }
+
+    #[test]
+    fn test_pll_60hz_nominal_frequency() {
+        let cfg = PllConfig::default_60hz();
+        let pll = PhaseLockedLoop::new(cfg.clone());
+        // At initialisation the PLL is at nominal frequency
+        assert!((pll.frequency_hz() - 60.0).abs() < 1e-6);
+    }
+
+    #[test]
+    fn test_pll_angle_advances_at_nominal_omega() {
+        let cfg = PllConfig::default_50hz();
+        let mut pll = PhaseLockedLoop::new(cfg);
+        let dt = 1.0 / 50.0; // one cycle
+                             // Feed zero v_q (no error) — omega_pll = omega_0
+        let omega_ret = pll.step(0.0, dt);
+        assert!(
+            (omega_ret - pll.config.omega_0).abs() < 1e-6,
+            "omega = {:.4}",
+            omega_ret
+        );
+    }
+
+    #[test]
+    fn test_inverter_reset_clears_integral_states() {
+        let cfg = PllConfig::default_50hz();
+        let mut inv = GridFollowingInverter::new(1.0, cfg);
+        // Run a few steps to accumulate integral state
+        for _ in 0..10 {
+            inv.step(0.8, 0.2, (1.0, 0.01), 1e-3);
+        }
+        inv.reset();
+        assert!((inv.id_int).abs() < 1e-12, "id_int = {:.4e}", inv.id_int);
+        assert!((inv.iq_int).abs() < 1e-12, "iq_int = {:.4e}", inv.iq_int);
+    }
+
+    #[test]
+    fn test_inverter_q_ref_produces_negative_iq() {
+        let pll_cfg = PllConfig::default_50hz();
+        let mut inv = GridFollowingInverter::new(1.0, pll_cfg);
+        // Positive reactive power reference → i_q_ref = -(2/3)*Q/v_d < 0
+        let (_id, iq) = inv.step(0.0, 0.5, (1.0, 0.0), 1e-3);
+        assert!(
+            iq < 0.0,
+            "i_q should be negative for positive Q ref, got {:.4}",
+            iq
+        );
+        let expected_iq = -(2.0 / 3.0) * 0.5 / 1.0;
+        assert!(
+            (iq - expected_iq).abs() < 1e-6,
+            "iq = {:.6}, expected {:.6}",
+            iq,
+            expected_iq
+        );
+    }
+
+    #[test]
+    fn test_inverter_zero_vd_gives_zero_current() {
+        let pll_cfg = PllConfig::default_50hz();
+        let mut inv = GridFollowingInverter::new(1.0, pll_cfg);
+        // v_d = 0 → division guard → currents must be zero
+        let (id, iq) = inv.step(1.0, 0.5, (0.0, 0.0), 1e-3);
+        assert!(
+            (id).abs() < 1e-9,
+            "id should be zero for v_d=0, got {:.4e}",
+            id
+        );
+        assert!(
+            (iq).abs() < 1e-9,
+            "iq should be zero for v_d=0, got {:.4e}",
+            iq
+        );
+    }
 }

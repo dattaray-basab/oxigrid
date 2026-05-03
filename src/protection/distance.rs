@@ -61,11 +61,11 @@ impl Zone {
 pub struct MhoCharacteristic {
     /// Reach impedance [p.u. or Ω — must be consistent with measured Z]
     pub z_reach: Complex64,
-    /// Line impedance angle [degrees] (positive sequence)
+    /// Line impedance angle `degrees` (positive sequence)
     pub line_angle_deg: f64,
     /// Zone identifier
     pub zone: Zone,
-    /// Trip time delay [s]
+    /// Trip time delay `s`
     pub time_delay_s: f64,
 }
 
@@ -123,11 +123,11 @@ pub struct QuadrilateralCharacteristic {
     pub r_reach: f64,
     /// Reactance offset (lower boundary — slightly below zero for ground faults)
     pub x_offset: f64,
-    /// Line impedance angle [degrees] — tilts the resistance blinders
+    /// Line impedance angle `degrees` — tilts the resistance blinders
     pub line_angle_deg: f64,
     /// Zone identifier
     pub zone: Zone,
-    /// Trip time delay [s]
+    /// Trip time delay `s`
     pub time_delay_s: f64,
 }
 
@@ -198,7 +198,7 @@ impl QuadrilateralCharacteristic {
 pub struct LoadBlinder {
     /// Minimum load impedance magnitude [p.u.] — loads have |Z| > Z_load_min
     pub z_load_min: f64,
-    /// Maximum load impedance angle [degrees] — loads have |angle| < phi_load_max
+    /// Maximum load impedance angle `degrees` — loads have |angle| < phi_load_max
     pub phi_load_max_deg: f64,
 }
 

@@ -67,7 +67,7 @@ impl FaultType {
 pub struct FaultEvent {
     /// Fault type
     pub fault_type: FaultType,
-    /// Time of detection [s]
+    /// Time of detection `s`
     pub time_s: f64,
     /// Residual magnitude at detection
     pub residual: f64,
@@ -111,9 +111,9 @@ fn recommended_action(ft: FaultType) -> &'static str {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct FaultDetectorConfig {
     // ── Open-circuit detector ──
-    /// Voltage residual threshold for open-circuit [V]
+    /// Voltage residual threshold for open-circuit `V`
     pub oc_voltage_threshold_v: f64,
-    /// Window length for voltage spike detection [samples]
+    /// Window length for voltage spike detection `samples`
     pub oc_window: usize,
 
     // ── Internal short circuit ──
@@ -123,7 +123,7 @@ pub struct FaultDetectorConfig {
     pub isc_temp_rate_c_s: f64,
 
     // ── Isolation resistance ──
-    /// Minimum acceptable isolation resistance [kΩ]
+    /// Minimum acceptable isolation resistance `kΩ`
     pub imr_min_kohm: f64,
 
     // ── Thermal runaway ──
@@ -133,11 +133,11 @@ pub struct FaultDetectorConfig {
     pub tr_max_temp_c: f64,
 
     // ── Sensor faults ──
-    /// Maximum plausible cell voltage [V]
+    /// Maximum plausible cell voltage `V`
     pub v_max_plausible: f64,
-    /// Minimum plausible cell voltage [V]
+    /// Minimum plausible cell voltage `V`
     pub v_min_plausible: f64,
-    /// Maximum plausible current magnitude [A]
+    /// Maximum plausible current magnitude `A`
     pub i_max_plausible: f64,
 
     // ── Capacity fade ──
@@ -186,23 +186,23 @@ impl FaultDetectorConfig {
 /// Instantaneous battery measurement.
 #[derive(Debug, Clone, Copy, Serialize, Deserialize)]
 pub struct BatterySample {
-    /// Time [s]
+    /// Time `s`
     pub time_s: f64,
-    /// Terminal voltage [V]
+    /// Terminal voltage `V`
     pub voltage_v: f64,
-    /// Applied current [A] (positive = discharge)
+    /// Applied current `A` (positive = discharge)
     pub current_a: f64,
     /// Cell/module temperature [°C]
     pub temp_c: f64,
     /// State of charge (0–1)
     pub soc: f64,
-    /// Model-predicted voltage [V] (from ECM)
+    /// Model-predicted voltage `V` (from ECM)
     pub v_pred: f64,
-    /// Isolation resistance measurement [kΩ] (from IMD)
+    /// Isolation resistance measurement `kΩ` (from IMD)
     pub isolation_kohm: f64,
-    /// Remaining capacity estimate [Ah] (from SoC integrator)
+    /// Remaining capacity estimate `Ah` (from SoC integrator)
     pub capacity_ah: f64,
-    /// Nominal capacity [Ah]
+    /// Nominal capacity `Ah`
     pub capacity_nominal_ah: f64,
 }
 
@@ -456,9 +456,9 @@ impl FaultDetector {
 /// Tracks isolation resistance history and computes trend.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct InsulationMonitor {
-    /// Historical (time, R_isolation [kΩ]) measurements
+    /// Historical (time, R_isolation `kΩ`) measurements
     pub history: Vec<(f64, f64)>,
-    /// Minimum acceptable resistance [kΩ]
+    /// Minimum acceptable resistance `kΩ`
     pub r_min_kohm: f64,
 }
 
@@ -474,7 +474,7 @@ impl InsulationMonitor {
         self.history.push((time_s, r_kohm));
     }
 
-    /// Current isolation resistance [kΩ].
+    /// Current isolation resistance `kΩ`.
     pub fn current_r(&self) -> Option<f64> {
         self.history.last().map(|(_, r)| *r)
     }
@@ -496,7 +496,7 @@ impl InsulationMonitor {
         (n * sum_tr - sum_t * sum_r) / denom
     }
 
-    /// Estimated time to reach minimum acceptable resistance [s].
+    /// Estimated time to reach minimum acceptable resistance `s`.
     pub fn time_to_alarm_s(&self) -> Option<f64> {
         let r = self.current_r()?;
         let trend = self.trend_kohm_per_s();

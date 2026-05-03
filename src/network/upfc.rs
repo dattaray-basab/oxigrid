@@ -379,7 +379,7 @@ mod tests {
 
     /// Build a simple 2-bus Y-bus for tests.
     ///
-    /// Branch impedance Z = r + jx [pu], buses 0 and 1.
+    /// Branch impedance Z = r + jx `pu`, buses 0 and 1.
     fn two_bus_ybus(r: f64, x: f64) -> Vec<Vec<(f64, f64)>> {
         let z_mag2 = r * r + x * x;
         let g = r / z_mag2;

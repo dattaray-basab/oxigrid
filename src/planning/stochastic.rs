@@ -48,7 +48,7 @@ pub struct ScenarioNode {
     pub probability: f64,
     /// Demand multiplier relative to base (e.g., 1.2 = 20 % growth).
     pub load_multiplier: f64,
-    /// Renewable capacity available at this node [MW].
+    /// Renewable capacity available at this node `MW`.
     pub renewable_capacity_mw: f64,
     /// Fuel price at this node [EUR/MWh].
     pub fuel_price_eur_per_mwh: f64,

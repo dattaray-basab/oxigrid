@@ -5,6 +5,36 @@ use crate::powerflow::{PowerFlowConfig, PowerFlowResult, PowerFlowSolver};
 use nalgebra::DMatrix;
 use nalgebra::DVector;
 
+/// DC power flow solver using the linearised B'·θ = P formulation.
+///
+/// Lossless approximation: unity voltage magnitudes, no shunts, no reactive power.
+///
+/// # Examples
+///
+/// ```rust
+/// # fn main() -> Result<(), Box<dyn std::error::Error>> {
+/// use oxigrid::network::topology::PowerNetwork;
+/// use oxigrid::network::bus::{Bus, BusType};
+/// use oxigrid::network::branch::Branch;
+/// use oxigrid::powerflow::{PowerFlowConfig, PowerFlowSolver};
+/// use oxigrid::powerflow::dc_powerflow::DcPowerFlowSolver;
+///
+/// let mut net = PowerNetwork::new(100.0);
+/// net.buses.push(Bus::new(1, BusType::Slack));
+/// net.buses.push(Bus::new(2, BusType::PQ));
+/// net.branches.push(Branch {
+///     from_bus: 1, to_bus: 2,
+///     r: 0.0, x: 0.1, b: 0.0,
+///     rate_a: 100.0, rate_b: 100.0, rate_c: 100.0,
+///     tap: 0.0, shift: 0.0, status: true,
+/// });
+///
+/// let solver = DcPowerFlowSolver;
+/// let config = PowerFlowConfig::default();
+/// let result = solver.solve(&net, &config)?;
+/// assert!(result.converged);
+/// # Ok(()) }
+/// ```
 pub struct DcPowerFlowSolver;
 
 impl PowerFlowSolver for DcPowerFlowSolver {

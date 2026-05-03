@@ -33,9 +33,9 @@ use serde::{Deserialize, Serialize};
 pub struct MilpUnit {
     /// Unit name
     pub name: String,
-    /// Minimum stable output [MW]
+    /// Minimum stable output `MW`
     pub p_min_mw: f64,
-    /// Rated capacity [MW]
+    /// Rated capacity `MW`
     pub p_max_mw: f64,
     /// Linear production cost [$/MWh]
     pub cost_mwh: f64,
@@ -47,13 +47,13 @@ pub struct MilpUnit {
     pub startup_cost_warm: f64,
     /// Hot start-up cost (if cooled < hot_time) [$]
     pub startup_cost_hot: f64,
-    /// Time threshold for warm start [h]
+    /// Time threshold for warm start `h`
     pub warm_time_h: f64,
-    /// Time threshold for hot start [h]
+    /// Time threshold for hot start `h`
     pub hot_time_h: f64,
-    /// Minimum up time [h]
+    /// Minimum up time `h`
     pub min_up_h: f64,
-    /// Minimum down time [h]
+    /// Minimum down time `h`
     pub min_down_h: f64,
     /// Ramp-up limit [MW/h]
     pub ramp_up_mw_h: f64,
@@ -63,7 +63,7 @@ pub struct MilpUnit {
     pub initially_on: bool,
     /// Hours the unit has already been in current state at start
     pub initial_hours: f64,
-    /// Initial output if on [MW]
+    /// Initial output if on `MW`
     pub initial_output_mw: f64,
 }
 
@@ -154,11 +154,11 @@ impl MilpUnit {
 /// MILP UC problem configuration.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct UcConfig {
-    /// Time step [h]
+    /// Time step `h`
     pub dt_h: f64,
-    /// Demand per period [MW]
+    /// Demand per period `MW`
     pub demand_mw: Vec<f64>,
-    /// Required spinning reserve per period [MW]
+    /// Required spinning reserve per period `MW`
     pub reserve_mw: Vec<f64>,
     /// Lagrangian relaxation: max sub-gradient iterations
     pub max_iter: usize,
@@ -192,9 +192,9 @@ impl UcConfig {
 pub struct UcPeriod {
     /// Commitment status per unit (true = on)
     pub commitment: Vec<bool>,
-    /// Output per unit [MW]
+    /// Output per unit `MW`
     pub output_mw: Vec<f64>,
-    /// Spinning reserve per unit [MW]
+    /// Spinning reserve per unit `MW`
     pub reserve_mw: Vec<f64>,
     /// Start-up cost incurred [$ total]
     pub startup_cost_total: f64,
@@ -202,11 +202,11 @@ pub struct UcPeriod {
     pub production_cost_total: f64,
     /// No-load cost [$ total]
     pub no_load_cost_total: f64,
-    /// Demand served [MW]
+    /// Demand served `MW`
     pub demand_served_mw: f64,
-    /// Reserve available [MW]
+    /// Reserve available `MW`
     pub reserve_available_mw: f64,
-    /// Load not served [MW]
+    /// Load not served `MW`
     pub lns_mw: f64,
 }
 
@@ -225,7 +225,7 @@ pub struct UcResult {
     pub total_production_cost: f64,
     /// Total no-load cost [$]
     pub total_no_load_cost: f64,
-    /// Total load not served [MWh]
+    /// Total load not served `MWh`
     pub total_lns_mwh: f64,
     /// Number of start-up events
     pub n_startups: usize,

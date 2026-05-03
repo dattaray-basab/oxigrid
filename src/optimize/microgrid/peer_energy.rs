@@ -14,7 +14,7 @@ use serde::{Deserialize, Serialize};
 pub struct EnergyOffer {
     /// Prosumer/node identifier
     pub node_id: usize,
-    /// Energy quantity offered [kWh]
+    /// Energy quantity offered `kWh`
     pub quantity_kwh: f64,
     /// Minimum acceptable price [$/kWh]
     pub min_price: f64,
@@ -25,7 +25,7 @@ pub struct EnergyOffer {
 pub struct EnergyBid {
     /// Prosumer/node identifier
     pub node_id: usize,
-    /// Energy quantity desired [kWh]
+    /// Energy quantity desired `kWh`
     pub quantity_kwh: f64,
     /// Maximum acceptable price [$/kWh]
     pub max_price: f64,
@@ -36,7 +36,7 @@ pub struct EnergyBid {
 pub struct Trade {
     pub seller_id: usize,
     pub buyer_id: usize,
-    /// Energy traded [kWh]
+    /// Energy traded `kWh`
     pub quantity_kwh: f64,
     /// Settlement price [$/kWh]
     pub price: f64,
@@ -56,11 +56,11 @@ pub struct MarketResult {
     pub trades: Vec<Trade>,
     /// Market clearing price [$/kWh] (volume-weighted average)
     pub clearing_price: f64,
-    /// Total energy traded [kWh]
+    /// Total energy traded `kWh`
     pub total_traded_kwh: f64,
-    /// Unmatched supply [kWh]
+    /// Unmatched supply `kWh`
     pub unmatched_supply_kwh: f64,
-    /// Unmatched demand [kWh]
+    /// Unmatched demand `kWh`
     pub unmatched_demand_kwh: f64,
 }
 
@@ -172,9 +172,9 @@ pub fn clear_market(offers: &[EnergyOffer], bids: &[EnergyBid]) -> MarketResult 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Prosumer {
     pub id: usize,
-    /// Current generation [kW]
+    /// Current generation `kW`
     pub generation_kw: f64,
-    /// Current load [kW]
+    /// Current load `kW`
     pub load_kw: f64,
     /// Minimum sell price (marginal cost of PV ≈ 0, but opportunity cost > 0) [$/kWh]
     pub sell_price: f64,

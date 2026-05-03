@@ -27,11 +27,11 @@ use serde::{Deserialize, Serialize};
 /// Physical and economic parameters of a single BESS.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct BessParams {
-    /// Usable energy capacity [MWh]
+    /// Usable energy capacity `MWh`
     pub energy_capacity_mwh: f64,
-    /// Maximum charge power [MW]
+    /// Maximum charge power `MW`
     pub p_charge_max_mw: f64,
-    /// Maximum discharge power [MW]
+    /// Maximum discharge power `MW`
     pub p_discharge_max_mw: f64,
     /// Round-trip charge efficiency (0–1)
     pub eta_charge: f64,
@@ -86,9 +86,9 @@ impl BessParams {
 pub struct GenData {
     /// Generator name or id
     pub id: usize,
-    /// Minimum power output [MW]
+    /// Minimum power output `MW`
     pub p_min_mw: f64,
-    /// Maximum power output [MW]
+    /// Maximum power output `MW`
     pub p_max_mw: f64,
     /// Linear cost coefficient [$/MWh]
     pub cost_per_mwh: f64,
@@ -110,9 +110,9 @@ impl GenData {
 /// Configuration for the BESS OPF.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct BessOPFConfig {
-    /// Time step duration [h]
+    /// Time step duration `h`
     pub dt_h: f64,
-    /// Load demand per period [MW] (length = number of periods)
+    /// Load demand per period `MW` (length = number of periods)
     pub demand_mw: Vec<f64>,
     /// Optional price signal [$/MWh] per period (for arbitrage objective)
     pub prices: Option<Vec<f64>>,
@@ -143,11 +143,11 @@ impl BessOPFConfig {
 /// Optimised dispatch for one time period.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct PeriodDispatch {
-    /// Generator outputs [MW] (same order as `gens`)
+    /// Generator outputs `MW` (same order as `gens`)
     pub p_gen_mw: Vec<f64>,
-    /// BESS charge power [MW] (≥ 0)
+    /// BESS charge power `MW` (≥ 0)
     pub p_charge_mw: f64,
-    /// BESS discharge power [MW] (≥ 0)
+    /// BESS discharge power `MW` (≥ 0)
     pub p_discharge_mw: f64,
     /// SOC at end of period (fraction)
     pub soc_end: f64,
@@ -172,11 +172,11 @@ pub struct BessOPFResult {
     pub total_deg_cost: f64,
     /// Total objective [$]
     pub total_cost: f64,
-    /// Total BESS energy discharged [MWh]
+    /// Total BESS energy discharged `MWh`
     pub energy_discharged_mwh: f64,
-    /// Total BESS energy charged [MWh]
+    /// Total BESS energy charged `MWh`
     pub energy_charged_mwh: f64,
-    /// Peak generation [MW]
+    /// Peak generation `MW`
     pub peak_gen_mw: f64,
     /// Whether cyclic SOC constraint was satisfied (|SOC_T - SOC_0| < 0.01)
     pub cyclic_soc_ok: bool,
@@ -413,7 +413,7 @@ impl SocStats {
 /// Maps cumulative throughput → remaining capacity (Wöhler-like model).
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ThroughputDegModel {
-    /// Total lifetime throughput [MWh] before EOL (80% capacity)
+    /// Total lifetime throughput `MWh` before EOL (80% capacity)
     pub lifetime_throughput_mwh: f64,
     /// Capacity at start (1.0 = new)
     pub initial_capacity: f64,

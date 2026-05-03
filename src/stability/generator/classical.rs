@@ -18,7 +18,7 @@ use serde::{Deserialize, Serialize};
 /// Parameters for the classical generator model.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ClassicalGeneratorParams {
-    /// Inertia constant H [s]
+    /// Inertia constant H `s`
     pub h: f64,
     /// Damping coefficient D [p.u.]
     pub d: f64,
@@ -26,7 +26,7 @@ pub struct ClassicalGeneratorParams {
     pub x_d_prime: f64,
     /// Internal voltage magnitude E' [p.u.] (constant in classical model)
     pub e_prime: f64,
-    /// Nominal frequency [Hz]
+    /// Nominal frequency `Hz`
     pub freq_hz: f64,
     /// Machine MVA rating
     pub mva_rating: f64,
@@ -84,7 +84,7 @@ impl ClassicalGeneratorParams {
 /// State of the classical generator model at a point in time.
 #[derive(Debug, Clone, Copy, Serialize, Deserialize)]
 pub struct ClassicalGeneratorState {
-    /// Rotor angle [rad]
+    /// Rotor angle `rad`
     pub delta: f64,
     /// Rotor speed deviation from synchronous [rad/s]
     pub omega: f64,
@@ -92,27 +92,27 @@ pub struct ClassicalGeneratorState {
     pub te: f64,
     /// Mechanical torque input [p.u.]
     pub tm: f64,
-    /// Time [s]
+    /// Time `s`
     pub time_s: f64,
 }
 
 /// Classical generator model integrator.
 pub struct ClassicalGenerator {
     pub params: ClassicalGeneratorParams,
-    /// Current rotor angle [rad]
+    /// Current rotor angle `rad`
     pub delta: f64,
     /// Current rotor speed deviation [rad/s]
     pub omega: f64,
     /// Mechanical torque setpoint [p.u.]
     pub tm: f64,
-    /// Simulation time [s]
+    /// Simulation time `s`
     pub time_s: f64,
 }
 
 impl ClassicalGenerator {
     /// Create a generator at steady-state equilibrium.
     ///
-    /// `delta0` — initial rotor angle [rad]
+    /// `delta0` — initial rotor angle `rad`
     /// `tm`     — mechanical torque [p.u.] (= steady-state Pe)
     pub fn new(params: ClassicalGeneratorParams, delta0: f64, tm: f64) -> Self {
         Self {
@@ -205,7 +205,7 @@ impl ClassicalGenerator {
         self.time_s = 0.0;
     }
 
-    /// Critical clearing angle [rad] for equal-area criterion (SMIB).
+    /// Critical clearing angle `rad` for equal-area criterion (SMIB).
     ///
     /// δ_cc = arccos((π − 2·δ_s)·sin(δ_s) − cos(δ_s))
     /// where δ_s is the steady-state rotor angle.

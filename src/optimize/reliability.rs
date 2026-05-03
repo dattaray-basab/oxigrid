@@ -30,7 +30,7 @@ use serde::{Deserialize, Serialize};
 pub struct ReliabilityUnit {
     /// Unit name / identifier
     pub name: String,
-    /// Installed capacity [MW]
+    /// Installed capacity `MW`
     pub capacity_mw: f64,
     /// Forced Outage Rate (FOR) — probability of being unavailable [0, 1]
     pub forced_outage_rate: f64,
@@ -55,7 +55,7 @@ impl ReliabilityUnit {
         (1.0 - self.forced_outage_rate) * (1.0 - planned_rate)
     }
 
-    /// Expected available capacity [MW].
+    /// Expected available capacity `MW`.
     pub fn expected_capacity_mw(&self) -> f64 {
         self.capacity_mw * self.availability()
     }
@@ -78,7 +78,7 @@ impl ReliabilityUnit {
 /// A single entry in the Capacity Outage Probability Table.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct CoptEntry {
-    /// Capacity on outage [MW]
+    /// Capacity on outage `MW`
     pub outage_mw: f64,
     /// Exact probability of this outage state
     pub probability: f64,
@@ -92,7 +92,7 @@ pub struct CoptEntry {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Copt {
     pub entries: Vec<CoptEntry>,
-    /// Total installed capacity [MW]
+    /// Total installed capacity `MW`
     pub total_capacity_mw: f64,
 }
 
@@ -152,7 +152,7 @@ impl Copt {
         }
     }
 
-    /// Probability that available capacity ≤ threshold [MW].
+    /// Probability that available capacity ≤ threshold `MW`.
     /// Equivalently, P(outage ≥ total_capacity - threshold).
     pub fn prob_capacity_below(&self, threshold_mw: f64) -> f64 {
         let required_outage = self.total_capacity_mw - threshold_mw;
@@ -166,7 +166,7 @@ impl Copt {
             .sum()
     }
 
-    /// Expected available capacity [MW].
+    /// Expected available capacity `MW`.
     pub fn expected_available_capacity(&self) -> f64 {
         self.entries
             .iter()
@@ -181,15 +181,15 @@ impl Copt {
 
 /// Discretised load duration curve.
 ///
-/// `loads[i]` is the load [MW] at hour `i` of the year (8760 hours total).
+/// `loads[i]` is the load `MW` at hour `i` of the year (8760 hours total).
 /// The LDC is derived by sorting in descending order.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct LoadDurationCurve {
     /// Sorted load levels (descending), length = 8760
     pub ldc: Vec<f64>,
-    /// Peak load [MW]
+    /// Peak load `MW`
     pub peak_load_mw: f64,
-    /// Average load [MW]
+    /// Average load `MW`
     pub average_load_mw: f64,
     /// Total energy [MWh/year]
     pub total_energy_mwh: f64,
@@ -262,9 +262,9 @@ pub struct ReliabilityIndices {
     pub installed_reserve_margin_pct: f64,
     /// Effective reserve margin accounting for FOR [%]
     pub effective_reserve_margin_pct: f64,
-    /// Total installed capacity [MW]
+    /// Total installed capacity `MW`
     pub total_capacity_mw: f64,
-    /// Peak load [MW]
+    /// Peak load `MW`
     pub peak_load_mw: f64,
 }
 
@@ -350,7 +350,7 @@ impl ReliabilityIndices {
 /// # Arguments
 /// - `base_units`   — existing generation fleet
 /// - `new_unit`     — candidate new resource (e.g., wind farm)
-/// - `hourly_loads` — hourly load profile [MW]
+/// - `hourly_loads` — hourly load profile `MW`
 ///
 /// Returns the ELCC in MW (fraction of the new unit's capacity).
 pub fn capacity_credit_elcc(

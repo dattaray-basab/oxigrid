@@ -17,15 +17,15 @@ use serde::{Deserialize, Serialize};
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct RintModel {
     pub ocv_curve: OcvSocCurve,
-    /// Internal resistance at reference temperature [Ω]
+    /// Internal resistance at reference temperature `Ω`
     pub r0: f64,
-    /// Nominal capacity [Ah]
+    /// Nominal capacity `Ah`
     pub capacity_ah: f64,
     /// Coulombic efficiency (discharge / charge ratio)
     pub coulombic_efficiency: f64,
     /// Temperature coefficient for R0 [1/K]
     pub r0_temp_coeff: f64,
-    /// Reference temperature [K]
+    /// Reference temperature `K`
     pub t_ref: f64,
 
     // State

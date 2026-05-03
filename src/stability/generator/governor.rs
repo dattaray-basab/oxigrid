@@ -16,11 +16,11 @@ use serde::{Deserialize, Serialize};
 pub struct Tgov1Params {
     /// Droop (speed regulation) R [p.u.]
     pub r: f64,
-    /// Inlet/valve time constant T1 [s]
+    /// Inlet/valve time constant T1 `s`
     pub t1: f64,
-    /// Reheater time constant T2 [s] (≈ 0 for simple model)
+    /// Reheater time constant T2 `s` (≈ 0 for simple model)
     pub t2: f64,
-    /// Turbine power fraction T3 [s]
+    /// Turbine power fraction T3 `s`
     pub t3: f64,
     /// Maximum valve gate position (p.u.)
     pub v_max: f64,
@@ -96,7 +96,7 @@ impl Tgov1 {
     /// Advance one time step using Euler integration.
     ///
     /// `omega_pu` — rotor speed in p.u. (1.0 = synchronous)
-    /// `dt`       — time step [s]
+    /// `dt`       — time step `s`
     ///
     /// Returns mechanical power output [p.u.].
     pub fn step(&mut self, omega_pu: f64, dt: f64) -> f64 {
