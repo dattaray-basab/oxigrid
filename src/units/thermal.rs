@@ -125,4 +125,51 @@ mod tests {
         assert!(s.contains("298.15 K"));
         assert!(s.contains("25.00"));
     }
+
+    #[test]
+    fn test_kelvin_to_celsius_roundtrip() {
+        let celsius = Temperature::from_kelvin(300.0).to_celsius();
+        assert!((celsius - 26.85).abs() < 1e-10);
+    }
+
+    #[test]
+    fn test_celsius_at_absolute_zero() {
+        let t = Temperature::from_celsius(-273.15);
+        assert!(t.0.abs() < 1e-10);
+    }
+
+    #[test]
+    fn test_kelvin_always_positive_from_celsius() {
+        for c in [0.0_f64, 100.0, -50.0] {
+            let t = Temperature::from_celsius(c);
+            assert!(
+                t.0 > 0.0,
+                "expected positive Kelvin for {}°C, got {}",
+                c,
+                t.0
+            );
+        }
+    }
+
+    #[test]
+    fn test_thermal_conductivity_scaling() {
+        let scaled = ThermalConductivity(50.0) * 2.0;
+        assert!((scaled.0 - 100.0).abs() < 1e-10);
+        let divided = ThermalConductivity(60.0) / 3.0;
+        assert!((divided.0 - 20.0).abs() < 1e-10);
+    }
+
+    #[test]
+    fn test_heat_capacity_scaling() {
+        let scaled = HeatCapacity(1000.0) * 2.0;
+        assert!((scaled.0 - 2000.0).abs() < 1e-10);
+        let divided = HeatCapacity(900.0) / 3.0;
+        assert!((divided.0 - 300.0).abs() < 1e-10);
+    }
+
+    #[test]
+    fn test_temperature_ordering() {
+        assert!(Temperature::from_celsius(0.0) < Temperature::from_celsius(100.0));
+        assert!(Temperature::from_kelvin(300.0) > Temperature::from_kelvin(200.0));
+    }
 }

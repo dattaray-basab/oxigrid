@@ -278,6 +278,12 @@ impl StochasticLfSolver {
         if self.config.n_samples == 0 {
             return Err(SlfError::InvalidConfig("n_samples must be > 0".into()));
         }
+        if self.base_load_mw.len() != self.base_load_mvar.len() {
+            return Err(SlfError::LoadSizeMismatch(
+                self.base_load_mw.len(),
+                self.base_load_mvar.len(),
+            ));
+        }
 
         match self.config.method {
             StochasticMethod::MonteCarlo => self.solve_mc(false),
@@ -1031,5 +1037,186 @@ mod tests {
         let result = solver.solve().expect("PEM solve");
         // 2m+1 = 5 evaluations
         assert_eq!(result.n_converged, 5, "2m+1=5 evaluations for m=2");
+    }
+
+    /// `sample_distribution` with Uniform: result must lie within [low, high].
+    #[test]
+    fn test_sample_uniform_in_range() {
+        let dist = Distribution::Uniform {
+            low: 3.0,
+            high: 7.0,
+        };
+        let mut rng = 42u64;
+        for _ in 0..200 {
+            let v = sample_distribution(&dist, &mut rng);
+            assert!(
+                (3.0..=7.0).contains(&v),
+                "Uniform sample {v} outside [3.0, 7.0]"
+            );
+        }
+    }
+
+    /// `sample_distribution` with Normal std_dev=0.0 must return the mean exactly.
+    #[test]
+    fn test_sample_normal_zero_std_returns_mean() {
+        let dist = Distribution::Normal {
+            mean: 5.5,
+            std_dev: 0.0,
+        };
+        let mut rng = 1u64;
+        for _ in 0..50 {
+            let v = sample_distribution(&dist, &mut rng);
+            assert!(
+                (v - 5.5).abs() < 1e-12,
+                "Normal with std_dev=0 must return mean; got {v}"
+            );
+        }
+    }
+
+    /// `sample_distribution` with Weibull must return a strictly positive value.
+    #[test]
+    fn test_sample_weibull_positive() {
+        let dist = Distribution::Weibull {
+            scale: 2.0,
+            shape: 1.5,
+        };
+        let mut rng = 77u64;
+        for _ in 0..200 {
+            let v = sample_distribution(&dist, &mut rng);
+            assert!(v > 0.0, "Weibull sample must be positive; got {v}");
+        }
+    }
+
+    /// `sample_distribution` with Beta must return a value in [0, 1].
+    #[test]
+    fn test_sample_beta_in_unit_interval() {
+        let dist = Distribution::Beta {
+            alpha: 2.0,
+            beta: 3.0,
+        };
+        let mut rng = 55u64;
+        for _ in 0..200 {
+            let v = sample_distribution(&dist, &mut rng);
+            assert!((0.0..=1.0).contains(&v), "Beta sample {v} outside [0, 1]");
+        }
+    }
+
+    /// `sample_distribution` with LogNormal must return a strictly positive value.
+    #[test]
+    fn test_sample_lognormal_positive() {
+        let dist = Distribution::LogNormal {
+            mu: 0.0,
+            sigma: 0.5,
+        };
+        let mut rng = 33u64;
+        for _ in 0..200 {
+            let v = sample_distribution(&dist, &mut rng);
+            assert!(v > 0.0, "LogNormal sample must be positive; got {v}");
+        }
+    }
+
+    /// Same seed must produce identical sample sequences (determinism).
+    #[test]
+    fn test_sample_determinism_same_seed() {
+        let dist = Distribution::Normal {
+            mean: 1.0,
+            std_dev: 0.3,
+        };
+        let mut rng_a = 9999u64;
+        let mut rng_b = 9999u64;
+        for _ in 0..100 {
+            let a = sample_distribution(&dist, &mut rng_a);
+            let b = sample_distribution(&dist, &mut rng_b);
+            assert_eq!(
+                a, b,
+                "Same seed must yield identical samples; got a={a}, b={b}"
+            );
+        }
+    }
+
+    /// `SlfError` variants must be distinguishable via pattern matching.
+    #[test]
+    fn test_slf_error_variants() {
+        let e1 = SlfError::InvalidConfig("bad config".to_string());
+        let e2 = SlfError::NoInputs;
+        let e3 = SlfError::LoadSizeMismatch(3, 5);
+
+        assert!(
+            matches!(e1, SlfError::InvalidConfig(_)),
+            "Expected InvalidConfig variant"
+        );
+        assert!(
+            matches!(e2, SlfError::NoInputs),
+            "Expected NoInputs variant"
+        );
+        assert!(
+            matches!(e3, SlfError::LoadSizeMismatch(3, 5)),
+            "Expected LoadSizeMismatch(3,5) variant"
+        );
+    }
+
+    /// solve() must return `Err(SlfError::NoInputs)` when no uncertain inputs are added.
+    #[test]
+    fn test_solve_no_inputs_returns_error() {
+        let cfg = StochasticLfConfig {
+            n_samples: 10,
+            confidence_level: 0.95,
+            method: StochasticMethod::MonteCarlo,
+            seed: 1,
+        };
+        let mut solver = StochasticLfSolver::new(cfg, 3);
+        solver.set_base_loads(vec![0.0, 1.0, 1.0], vec![0.0, 0.2, 0.2]);
+        let err = solver.solve().expect_err("expected NoInputs error");
+        assert!(
+            matches!(err, SlfError::NoInputs),
+            "Expected NoInputs, got {err:?}"
+        );
+    }
+
+    /// set_base_loads with mismatched P/Q sizes must cause solve() to return LoadSizeMismatch.
+    #[test]
+    fn test_solve_load_size_mismatch_returns_error() {
+        let cfg = StochasticLfConfig {
+            n_samples: 10,
+            confidence_level: 0.95,
+            method: StochasticMethod::MonteCarlo,
+            seed: 2,
+        };
+        let mut solver = StochasticLfSolver::new(cfg, 3);
+        // P has 3 elements, Q has 2 — mismatched
+        solver.set_base_loads(vec![0.0, 1.0, 1.0], vec![0.0, 0.2]);
+        solver.add_uncertain_input(UncertainInput {
+            bus: 1,
+            variable: InputVariable::LoadP,
+            distribution: Distribution::Normal {
+                mean: 1.0,
+                std_dev: 0.1,
+            },
+        });
+        let err = solver.solve().expect_err("expected LoadSizeMismatch error");
+        assert!(
+            matches!(err, SlfError::LoadSizeMismatch(_, _)),
+            "Expected LoadSizeMismatch, got {err:?}"
+        );
+    }
+
+    /// `StochasticLfConfig::default()` must have sensible field values.
+    #[test]
+    fn test_config_default_fields() {
+        let cfg = StochasticLfConfig::default();
+        assert!(
+            cfg.n_samples > 0,
+            "Default n_samples must be positive; got {}",
+            cfg.n_samples
+        );
+        assert!(
+            cfg.confidence_level > 0.0 && cfg.confidence_level < 1.0,
+            "Default confidence_level must be in (0,1); got {}",
+            cfg.confidence_level
+        );
+        assert!(
+            matches!(cfg.method, StochasticMethod::MonteCarlo),
+            "Default method must be MonteCarlo"
+        );
     }
 }

@@ -861,4 +861,185 @@ mod tests {
             pf.voltage_magnitude[1]
         );
     }
+
+    // ── Additional tests ─────────────────────────────────────────────────────
+
+    #[test]
+    fn test_statcom_q_within_rated_limits() {
+        let sc = Statcom {
+            bus: 0,
+            q_min: -0.8,
+            q_max: 0.8,
+            v_ref: 1.0,
+            droop: 0.05,
+            loss_factor: 0.01,
+        };
+        for i in 0..9usize {
+            let v = 0.80 + i as f64 * 0.05;
+            let q = sc.compute_q_injection(v);
+            assert!(
+                (sc.q_min..=sc.q_max).contains(&q),
+                "Q={q} out of [{}, {}] at v={v}",
+                sc.q_min,
+                sc.q_max
+            );
+        }
+    }
+
+    #[test]
+    fn test_statcom_zero_droop_capacitive() {
+        let sc = Statcom {
+            bus: 0,
+            q_min: -1.0,
+            q_max: 1.0,
+            v_ref: 1.0,
+            droop: 0.0,
+            loss_factor: 0.0,
+        };
+        // zero droop + v < v_ref → unclamped Q is infinite → clamps to q_max
+        let q = sc.compute_q_injection(0.95);
+        assert!(
+            (q - sc.q_max).abs() < 1e-10,
+            "expected q_max={} with zero droop below v_ref, got {q}",
+            sc.q_max
+        );
+    }
+
+    #[test]
+    fn test_svc_susceptance_sign() {
+        let svc = Svc {
+            bus: 0,
+            b_min: -3.0,
+            b_max: 3.0,
+            v_ref: 1.0,
+            slope: 10.0,
+        };
+        // v > v_ref → inductive (B <= 0)
+        let b_high = svc.compute_susceptance(1.05);
+        assert!(
+            b_high <= 0.0,
+            "susceptance should be <= 0 (inductive) at v>v_ref, got {b_high}"
+        );
+        // v < v_ref → capacitive (B >= 0)
+        let b_low = svc.compute_susceptance(0.95);
+        assert!(
+            b_low >= 0.0,
+            "susceptance should be >= 0 (capacitive) at v<v_ref, got {b_low}"
+        );
+    }
+
+    #[test]
+    fn test_tcsc_impedance_finite() {
+        let z_base = Complex64::new(0.0, 0.1);
+        for &x in &[-0.3_f64, 0.0, 0.3] {
+            let tcsc = Tcsc {
+                branch_idx: 0,
+                x_min: -0.3,
+                x_max: 0.3,
+                x_current: x,
+                control_mode: TcscMode::ConstantReactance,
+            };
+            let z_mod = tcsc.modified_branch_impedance(z_base);
+            assert!(
+                z_mod.re.is_finite(),
+                "z_mod.re is not finite at x_current={x}"
+            );
+            assert!(
+                z_mod.im.is_finite(),
+                "z_mod.im is not finite at x_current={x}"
+            );
+        }
+    }
+
+    #[test]
+    fn test_tcsc_limits_enforced() {
+        let mut tcsc = Tcsc {
+            branch_idx: 0,
+            x_min: -0.3,
+            x_max: 0.3,
+            x_current: 0.0,
+            control_mode: TcscMode::PowerFlow { target_p_mw: 50.0 },
+        };
+        let mut toggle = true;
+        for _i in 0..40usize {
+            let p_actual = if toggle { 1000.0 } else { -1000.0 };
+            toggle = !toggle;
+            let x = tcsc.update_reactance(p_actual);
+            assert!(
+                (tcsc.x_min..=tcsc.x_max).contains(&x),
+                "x_current={x} out of [{}, {}]",
+                tcsc.x_min,
+                tcsc.x_max
+            );
+        }
+    }
+
+    #[test]
+    fn test_upfc_shunt_q_within_limits() {
+        let upfc = Upfc {
+            from_bus: 0,
+            to_bus: 1,
+            branch_idx: 0,
+            v_series_max: 0.2,
+            q_shunt_min: -0.5,
+            q_shunt_max: 0.5,
+            p_target: Some(0.3),
+            q_target: Some(0.1),
+            v_target: None,
+        };
+        let v_from = Complex64::new(1.0, 0.0);
+        let v_to = Complex64::new(0.98, -0.02);
+        let z_branch = Complex64::new(0.01, 0.05);
+
+        let result = upfc.compute_injections(v_from, v_to, z_branch);
+        assert!(
+            result.is_ok(),
+            "compute_injections should return Ok for valid inputs"
+        );
+        let (_v_se, i_sh) = result.expect("already checked Ok");
+        assert!(
+            i_sh.norm().is_finite(),
+            "shunt current magnitude must be finite, got {}",
+            i_sh.norm()
+        );
+    }
+
+    #[test]
+    fn test_upfc_voltage_target_tracking() {
+        let upfc = Upfc {
+            from_bus: 0,
+            to_bus: 1,
+            branch_idx: 0,
+            v_series_max: 0.2,
+            q_shunt_min: -0.5,
+            q_shunt_max: 0.5,
+            p_target: None,
+            q_target: None,
+            v_target: Some(1.02),
+        };
+        let v_from = Complex64::new(1.0, 0.0);
+        let v_to = Complex64::new(0.98, -0.01);
+        let z_branch = Complex64::new(0.01, 0.05);
+
+        let result = upfc.compute_injections(v_from, v_to, z_branch);
+        assert!(
+            result.is_ok(),
+            "UPFC with v_target should return Ok for valid voltages: {:?}",
+            result
+        );
+    }
+
+    #[test]
+    fn test_facts_network_empty_apply() {
+        let mut net = make_2bus_net();
+        let facts = FactsNetwork::new();
+        let v_mag = vec![1.0_f64; 2];
+        let v_ang = vec![0.0_f64; 2];
+        let result = facts.apply_to_network(&mut net, &v_mag, &v_ang);
+        assert!(
+            result.is_ok(),
+            "empty FactsNetwork::apply_to_network should return Ok, got {:?}",
+            result
+        );
+    }
 }

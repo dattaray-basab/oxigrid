@@ -1162,4 +1162,174 @@ mod tests {
             }
         }
     }
+
+    #[test]
+    fn test_dam_offer_simple_zero_pmin() {
+        let offer = DamOffer::simple(5, 3, 0.0, 200.0, 25.0);
+        assert_eq!(offer.p_min, 0.0);
+        assert_eq!(offer.p_max, 200.0);
+        assert_eq!(offer.unit_id, 5);
+        assert_eq!(offer.bus, 3);
+        assert_eq!(offer.cost_segments.len(), 1);
+        assert!((offer.cost_segments[0].1 - 25.0).abs() < 1e-10);
+    }
+
+    #[test]
+    fn test_production_cost_at_pmin() {
+        // When p_mw == p_min, the block size in each segment is 0 => cost should be 0.0
+        let offer = DamOffer::simple(0, 0, 50.0, 100.0, 30.0);
+        let cost = offer.production_cost(50.0);
+        assert!(
+            cost.abs() < 1e-9,
+            "production_cost at p_min should be 0.0, got {cost:.6}"
+        );
+    }
+
+    #[test]
+    fn test_production_cost_above_pmax() {
+        // p_mw > p_max: last segment extrapolates; for simple offer with one segment capped at p_max
+        // the loop exits after the single segment, so cost covers only [p_min..p_max]
+        let offer = DamOffer::simple(0, 0, 0.0, 100.0, 20.0);
+        let cost_at_max = offer.production_cost(100.0);
+        let cost_above = offer.production_cost(150.0);
+        // Above p_max should produce the same result as at p_max (no extra segments to integrate)
+        assert!(
+            (cost_above - cost_at_max).abs() < 1e-6,
+            "production_cost above p_max should equal cost at p_max: at_max={cost_at_max:.2} above={cost_above:.2}"
+        );
+    }
+
+    #[test]
+    fn test_marginal_cost_at_pmin_boundary() {
+        let offer = DamOffer {
+            unit_id: 0,
+            bus: 0,
+            p_min: 10.0,
+            p_max: 100.0,
+            cost_segments: vec![(50.0, 15.0), (100.0, 25.0)],
+            startup_cost: 0.0,
+            shutdown_cost: 0.0,
+            no_load_cost: 0.0,
+            min_up_time: 1,
+            min_down_time: 1,
+            ramp_up: f64::INFINITY,
+            ramp_down: f64::INFINITY,
+        };
+        // At exactly p_min (10.0), which is <= first segment limit (50.0), should return first segment cost
+        let mc = offer.marginal_cost_at(10.0);
+        assert!(
+            (mc - 15.0).abs() < 1e-10,
+            "Marginal cost at p_min boundary should be 15.0, got {mc:.6}"
+        );
+    }
+
+    #[test]
+    fn test_dam_config_default_values() {
+        let config = DamConfig::default();
+        assert_eq!(config.horizon_hours, 24);
+        assert!(config.transmission_limits.is_empty());
+        assert!(config.reserve_requirement.is_empty());
+        assert!((config.reserve_cost - 500.0).abs() < 1e-10);
+        assert!(!config.use_security_constraints);
+    }
+
+    #[test]
+    fn test_dam_bid_construction_and_fields() {
+        let bid = DamBid {
+            load_id: 7,
+            bus: 3,
+            p_profile: vec![50.0, 60.0, 70.0],
+            bid_price: vec![80.0, 90.0, 100.0],
+            elastic: true,
+            p_min_fraction: 0.5,
+        };
+        assert_eq!(bid.load_id, 7);
+        assert_eq!(bid.bus, 3);
+        assert_eq!(bid.p_profile.len(), 3);
+        assert!((bid.p_profile[1] - 60.0).abs() < 1e-10);
+        assert!((bid.bid_price[2] - 100.0).abs() < 1e-10);
+        assert!(bid.elastic);
+        assert!((bid.p_min_fraction - 0.5).abs() < 1e-10);
+    }
+
+    #[test]
+    fn test_day_ahead_market_new_stores_fields() {
+        let offers = vec![
+            DamOffer::simple(0, 1, 0.0, 100.0, 20.0),
+            DamOffer::simple(1, 2, 10.0, 80.0, 35.0),
+            DamOffer::simple(2, 1, 5.0, 50.0, 50.0),
+        ];
+        let bids = vec![DamBid {
+            load_id: 0,
+            bus: 2,
+            p_profile: flat_profile(70.0, 24),
+            bid_price: flat_prices(100.0, 24),
+            elastic: false,
+            p_min_fraction: 1.0,
+        }];
+        let config = DamConfig::default();
+        let dam = DayAheadMarket::new(offers, bids, config);
+        assert_eq!(dam.offers.len(), 3);
+        assert_eq!(dam.bids.len(), 1);
+        assert_eq!(dam.config.horizon_hours, 24);
+    }
+
+    #[test]
+    fn test_lagrangian_uc_single_unit() {
+        let offers = vec![DamOffer::simple(0, 0, 0.0, 200.0, 30.0)];
+        let load = flat_profile(100.0, 4);
+        let reserve = vec![0.0; 4];
+        let mut lambda = vec![30.0f64; 4];
+        let (commitment, dispatch) = lagrangian_uc(&offers, &load, &reserve, &mut lambda, 50, 1.0)
+            .expect("single-unit lagrangian UC should succeed");
+        assert_eq!(commitment.len(), 1, "should have 1 unit commitment vector");
+        assert_eq!(dispatch.len(), 1, "should have 1 unit dispatch vector");
+        assert_eq!(
+            commitment[0].len(),
+            4,
+            "commitment horizon should be 4 hours"
+        );
+        assert_eq!(dispatch[0].len(), 4, "dispatch horizon should be 4 hours");
+        // All dispatched values must be within bounds
+        for t in 0..4 {
+            if commitment[0][t] {
+                assert!(
+                    dispatch[0][t] >= -1e-6,
+                    "t={t}: dispatch {:.2} below p_min 0.0",
+                    dispatch[0][t]
+                );
+                assert!(
+                    dispatch[0][t] <= 200.0 + 1e-6,
+                    "t={t}: dispatch {:.2} above p_max 200.0",
+                    dispatch[0][t]
+                );
+            }
+        }
+    }
+
+    #[test]
+    fn test_compute_ptdf_matrix_dimensions() {
+        let net = make_two_bus_network();
+        let ptdf = compute_ptdf_matrix(&net);
+        // 1 branch, 2 buses => ptdf is 1×2
+        assert_eq!(ptdf.len(), 1, "PTDF should have 1 row (1 branch)");
+        assert_eq!(ptdf[0].len(), 2, "PTDF row should have 2 columns (2 buses)");
+    }
+
+    #[test]
+    fn test_compute_lmp_length_equals_n_buses() {
+        let net = make_two_bus_network();
+        let ptdf = compute_ptdf_matrix(&net);
+        let shadow_prices = vec![0.0; ptdf.len()];
+        let dispatch: Vec<Vec<f64>> = vec![vec![50.0f64; 24]];
+        for n_buses in [1usize, 2, 5] {
+            let lmps = DayAheadMarket::compute_lmp(&dispatch, 30.0, &ptdf, &shadow_prices, n_buses);
+            assert_eq!(
+                lmps.len(),
+                n_buses,
+                "LMP vector length should equal n_buses={n_buses}, got {}",
+                lmps.len()
+            );
+        }
+    }
 }

@@ -17,6 +17,7 @@
 pub mod carbon;
 pub mod carbon_forecast;
 pub mod energy_equity;
+pub mod grid_health;
 pub mod grid_operations;
 pub mod metrics;
 pub mod operational_analytics;
@@ -33,6 +34,11 @@ pub use carbon_forecast::{
 pub use energy_equity::{
     AffordabilityMethod, EnergyEquityAnalyzer, EnergyEquityConfig, EnergyEquityResult, EquityError,
     EquityMetrics, HouseholdGroup, HousingType, PolicyIntervention,
+};
+pub use grid_health::{
+    components_below_threshold, weighted_average_score, CategoryAggregate, CategoryWeight,
+    ComponentCategory, ComponentHealth, GridHealthError, GridHealthReport, GridHealthScorer,
+    HealthStatus,
 };
 pub use grid_operations::{
     AlertSeverity, CongestionAnalyzer, DayType, DemandAnalytics, GeneratorFuelType,

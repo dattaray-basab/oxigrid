@@ -385,7 +385,12 @@ fn economic_dispatch_internal(costs: &[GenCost], total_load_mw: f64) -> Result<V
     if costs.iter().all(|c| c.c.abs() < 1e-12) {
         // Linear: merit order
         let mut order: Vec<usize> = (0..costs.len()).collect();
-        order.sort_by(|&a, &b| costs[a].b.partial_cmp(&costs[b].b).unwrap());
+        order.sort_by(|&a, &b| {
+            costs[a]
+                .b
+                .partial_cmp(&costs[b].b)
+                .unwrap_or(std::cmp::Ordering::Equal)
+        });
         let mut p = costs.iter().map(|c| c.p_min).collect::<Vec<_>>();
         let mut remaining = total_load_mw - p_min_total;
         for &i in &order {

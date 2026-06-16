@@ -111,7 +111,11 @@ impl ModalResult {
     /// Modes sorted by damping ratio ascending (worst first).
     pub fn modes_by_damping(&self) -> Vec<&OscillatoryMode> {
         let mut refs: Vec<&OscillatoryMode> = self.modes.iter().collect();
-        refs.sort_by(|a, b| a.damping_ratio.partial_cmp(&b.damping_ratio).unwrap());
+        refs.sort_by(|a, b| {
+            a.damping_ratio
+                .partial_cmp(&b.damping_ratio)
+                .unwrap_or(std::cmp::Ordering::Equal)
+        });
         refs
     }
 
@@ -220,7 +224,11 @@ pub fn modal_analysis(
     }
 
     // Sort by frequency ascending
-    modes.sort_by(|a, b| a.frequency_hz.partial_cmp(&b.frequency_hz).unwrap());
+    modes.sort_by(|a, b| {
+        a.frequency_hz
+            .partial_cmp(&b.frequency_hz)
+            .unwrap_or(std::cmp::Ordering::Equal)
+    });
 
     let n_unstable = modes.iter().filter(|m| m.is_unstable()).count();
     let n_poorly_damped = modes
@@ -542,7 +550,11 @@ pub fn recommend_pss_placement(
         .collect();
 
     // Sort by participation descending, assign priority
-    recs.sort_by(|a, b| b.participation.partial_cmp(&a.participation).unwrap());
+    recs.sort_by(|a, b| {
+        b.participation
+            .partial_cmp(&a.participation)
+            .unwrap_or(std::cmp::Ordering::Equal)
+    });
     for (i, rec) in recs.iter_mut().enumerate() {
         rec.priority = i + 1;
     }

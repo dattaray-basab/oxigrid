@@ -40,3 +40,5 @@ rustc-ice-*.txt
 
 # Coverage reports
 coverage/
+
+target

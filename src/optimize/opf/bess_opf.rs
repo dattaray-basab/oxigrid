@@ -223,7 +223,7 @@ impl<'a> BessOpfSolver<'a> {
             self.gens[a]
                 .cost_per_mwh
                 .partial_cmp(&self.gens[b].cost_per_mwh)
-                .unwrap()
+                .unwrap_or(std::cmp::Ordering::Equal)
         });
 
         for t in 0..n_periods {
@@ -350,7 +350,11 @@ impl<'a> BessOpfSolver<'a> {
     fn marginal_gen_cost(&self, demand: f64) -> f64 {
         let mut cumulative = 0.0;
         let mut sorted: Vec<&GenData> = self.gens.iter().collect();
-        sorted.sort_by(|a, b| a.cost_per_mwh.partial_cmp(&b.cost_per_mwh).unwrap());
+        sorted.sort_by(|a, b| {
+            a.cost_per_mwh
+                .partial_cmp(&b.cost_per_mwh)
+                .unwrap_or(std::cmp::Ordering::Equal)
+        });
 
         for g in &sorted {
             cumulative += g.p_max_mw;

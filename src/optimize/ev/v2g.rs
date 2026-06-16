@@ -509,4 +509,151 @@ mod tests {
         // net_benefit can be positive or negative depending on degradation, just check no panic
         let _ = result.net_benefit;
     }
+
+    #[test]
+    fn test_available_capacity_at_slot_zero() {
+        let fleet = make_fleet(0);
+        let service = GridService::FrequencyRegulation {
+            capacity_mw: 0.1,
+            price_mwh: 80.0,
+        };
+        let agg = V2gAggregator::new(vec![fleet], service);
+        // slot 0 → time 0.0h, all sessions arrive at 17.0h or later — none are plugged in
+        let cap = agg.available_capacity(0);
+        assert_eq!(cap, 0.0, "no vehicles plugged in at slot 0 (0.0h)");
+    }
+
+    #[test]
+    fn test_available_capacity_past_departure() {
+        let fleet = make_fleet(0);
+        let service = GridService::FrequencyRegulation {
+            capacity_mw: 0.1,
+            price_mwh: 80.0,
+        };
+        let agg = V2gAggregator::new(vec![fleet], service);
+        // all sessions depart at 31.0h; slot 200 → time 50.0h → none plugged in
+        let cap = agg.available_capacity(200);
+        assert_eq!(
+            cap, 0.0,
+            "no vehicles plugged in at slot 200 (50.0h), past departure"
+        );
+    }
+
+    #[test]
+    fn test_available_capacity_middle_slot() {
+        let fleet = make_fleet(0);
+        let service = GridService::FrequencyRegulation {
+            capacity_mw: 0.1,
+            price_mwh: 80.0,
+        };
+        let agg = V2gAggregator::new(vec![fleet], service);
+        // slot 76 → time 19.0h; all 3 sessions (arrivals 17, 18, 19h) are plugged in
+        // each has max_discharge_kw = 7.4, so total = 3 × 7.4 = 22.2 kW
+        let cap = agg.available_capacity(76);
+        let expected = 3.0 * 7.4_f64;
+        assert!(
+            (cap - expected).abs() < 1e-9,
+            "expected {:.1} kW at slot 76 (all 3 vehicles), got {:.6}",
+            expected,
+            cap
+        );
+    }
+
+    #[test]
+    fn test_weighted_availability_zero_weight() {
+        let fleet = make_fleet(0);
+        let service = GridService::FrequencyRegulation {
+            capacity_mw: 0.1,
+            price_mwh: 80.0,
+        };
+        let agg = V2gAggregator::new(vec![fleet], service);
+        // At slot 76, 3 vehicles are plugged in, but soc_weight=0.0 zeroes every contribution
+        let wa = agg.weighted_availability(76, 0.0);
+        assert_eq!(
+            wa, 0.0,
+            "weighted_availability with soc_weight=0.0 must return 0.0"
+        );
+    }
+
+    #[test]
+    fn test_weighted_availability_soc_below_target() {
+        let fleet = make_fleet(0);
+        let service = GridService::SpinningReserve {
+            capacity_mw: 0.05,
+            price_mwh: 60.0,
+        };
+        let agg = V2gAggregator::new(vec![fleet], service);
+        // Sessions: soc_arrival=0.5, soc_target=0.8 → headroom = 0.5 - 0.8 = -0.3 → clamped to 0.0
+        // Therefore weighted_availability must return 0.0 regardless of soc_weight
+        let wa = agg.weighted_availability(76, 1.0);
+        assert_eq!(
+            wa, 0.0,
+            "weighted_availability must be 0.0 when soc_arrival < soc_target (no SoC headroom)"
+        );
+    }
+
+    #[test]
+    fn test_optimize_minimal_one_slot() {
+        // Sessions run 17h–31h with dt=0.25h, so need at least 125 slots to cover departure.
+        // Use 128 slots (32h total) to ensure all sessions are within range.
+        let fleet = make_fleet(0);
+        let service = GridService::SpinningReserve {
+            capacity_mw: 0.05,
+            price_mwh: 60.0,
+        };
+        let agg = V2gAggregator::new(vec![fleet], service);
+        let n_slots = 128usize;
+        let result = agg
+            .optimize(0.25, n_slots)
+            .expect("optimize with 128 slots should succeed");
+        assert_eq!(
+            result.total_v2g_mw.len(),
+            n_slots,
+            "total_v2g_mw must have exactly {} entries",
+            n_slots
+        );
+        assert!(
+            result.grid_service_revenue >= 0.0,
+            "grid_service_revenue must be non-negative, got {}",
+            result.grid_service_revenue
+        );
+        assert!(
+            result.total_battery_degradation >= 0.0,
+            "total_battery_degradation must be non-negative, got {}",
+            result.total_battery_degradation
+        );
+    }
+
+    #[test]
+    fn test_optimize_empty_fleet_list() {
+        let service = GridService::FrequencyRegulation {
+            capacity_mw: 0.1,
+            price_mwh: 80.0,
+        };
+        let agg = V2gAggregator::new(vec![], service);
+        let result = agg
+            .optimize(0.25, 96)
+            .expect("optimize with empty fleet list should succeed");
+        assert!(
+            result.fleet_schedules.is_empty(),
+            "fleet_schedules must be empty when no fleets provided"
+        );
+        assert_eq!(
+            result.total_v2g_mw.len(),
+            96,
+            "total_v2g_mw must have 96 entries matching n_slots"
+        );
+        assert_eq!(
+            result.participating_vehicles, 0,
+            "participating_vehicles must be 0 for empty fleet"
+        );
+        assert!(
+            result.total_v2g_mw.iter().all(|&v| v == 0.0),
+            "expected all zeros in empty fleet"
+        );
+        assert_eq!(
+            result.grid_service_revenue, 0.0,
+            "grid_service_revenue must be 0.0 for empty fleet"
+        );
+    }
 }

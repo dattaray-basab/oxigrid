@@ -858,3 +858,168 @@ pub struct ChargingLocation {
     /// Longitude (WGS-84).
     pub lon: f64,
 }
+
+#[cfg(test)]
+mod tests {
+    use super::{
+        ChargerType, ChargingDemandForecaster, ChargingPreference, DemandNode, GridConstraint,
+        InfrastructurePlanner, LocationType, PlanChargerType,
+    };
+
+    #[test]
+    fn charger_type_rated_kw() {
+        assert_eq!(ChargerType::Level1_1kw.rated_kw(), 1.0);
+        assert_eq!(ChargerType::Level2_7kw.rated_kw(), 7.0);
+        assert_eq!(ChargerType::Level2_22kw.rated_kw(), 22.0);
+        assert_eq!(ChargerType::Dcfc50kw.rated_kw(), 50.0);
+        assert_eq!(ChargerType::Dcfc150kw.rated_kw(), 150.0);
+        assert_eq!(ChargerType::Dcfc350kw.rated_kw(), 350.0);
+    }
+
+    #[test]
+    fn charger_type_capital_cost_ordering() {
+        let costs = [
+            ChargerType::Level1_1kw.capital_cost_usd(),
+            ChargerType::Level2_7kw.capital_cost_usd(),
+            ChargerType::Level2_22kw.capital_cost_usd(),
+            ChargerType::Dcfc50kw.capital_cost_usd(),
+            ChargerType::Dcfc150kw.capital_cost_usd(),
+            ChargerType::Dcfc350kw.capital_cost_usd(),
+        ];
+        for window in costs.windows(2) {
+            assert!(
+                window[0] < window[1],
+                "expected strict cost ordering but {:.0} >= {:.0}",
+                window[0],
+                window[1]
+            );
+        }
+    }
+
+    #[test]
+    fn plan_charger_type_power_kw() {
+        let l1 = PlanChargerType::Level1 { power_kw: 1.4 };
+        let l2 = PlanChargerType::Level2 { power_kw: 11.0 };
+        let dc = PlanChargerType::DcFastCharge { power_kw: 120.0 };
+        let mc = PlanChargerType::MegaCharge { power_kw: 400.0 };
+        assert!((l1.power_kw() - 1.4).abs() < 1e-9);
+        assert!((l2.power_kw() - 11.0).abs() < 1e-9);
+        assert!((dc.power_kw() - 120.0).abs() < 1e-9);
+        assert!((mc.power_kw() - 400.0).abs() < 1e-9);
+    }
+
+    #[test]
+    fn demand_forecaster_session_growth() {
+        let forecaster = ChargingDemandForecaster::new(100.0);
+        let growth = 0.10;
+        let sessions = forecaster.forecast_daily_sessions(growth, 3);
+        assert_eq!(sessions.len(), 3);
+        assert!(
+            (sessions[0] - 100.0).abs() < 1e-9,
+            "year 0 should equal base"
+        );
+        assert!(
+            (sessions[1] - 110.0).abs() < 1e-9,
+            "year 1 should be base*(1+g)"
+        );
+        assert!(
+            (sessions[2] - 121.0).abs() < 1e-6,
+            "year 2 should be base*(1+g)^2"
+        );
+    }
+
+    #[test]
+    fn demand_forecaster_peak_to_average() {
+        let forecaster = ChargingDemandForecaster::new(50.0);
+        assert!(
+            (forecaster.compute_peak_to_average_ratio() - 2.5).abs() < 1e-9,
+            "default peak-to-average ratio must be 2.5"
+        );
+    }
+
+    #[test]
+    fn seasonal_adjustment_values() {
+        assert!(
+            (ChargingDemandForecaster::seasonal_adjustment(1) - 1.15).abs() < 1e-9,
+            "January is winter"
+        );
+        assert!(
+            (ChargingDemandForecaster::seasonal_adjustment(12) - 1.15).abs() < 1e-9,
+            "December is winter"
+        );
+        assert!(
+            (ChargingDemandForecaster::seasonal_adjustment(7) - 0.85).abs() < 1e-9,
+            "July is summer"
+        );
+        assert!(
+            (ChargingDemandForecaster::seasonal_adjustment(4) - 1.0).abs() < 1e-9,
+            "April is neutral"
+        );
+    }
+
+    #[test]
+    fn charging_preference_variants() {
+        let smart = ChargingPreference::Smart {
+            price_sensitivity: 0.8,
+        };
+        let v2g = ChargingPreference::V2g { v2g_fraction: 0.3 };
+        let uncoord = ChargingPreference::Uncoordinated;
+
+        match smart {
+            ChargingPreference::Smart { price_sensitivity } => {
+                assert!((price_sensitivity - 0.8).abs() < 1e-9);
+            }
+            _ => panic!("expected Smart variant"),
+        }
+        match v2g {
+            ChargingPreference::V2g { v2g_fraction } => {
+                assert!((v2g_fraction - 0.3).abs() < 1e-9);
+            }
+            _ => panic!("expected V2g variant"),
+        }
+        assert_eq!(uncoord, ChargingPreference::Uncoordinated);
+    }
+
+    #[test]
+    fn infrastructure_planner_defaults() {
+        let node = DemandNode {
+            id: 0,
+            location: (35.68, 139.69),
+            daily_ev_demand_kwh: 200.0,
+            peak_power_kw: 50.0,
+            ev_count: 10,
+            preferred_charger_type: ChargerType::Level2_22kw,
+        };
+        let constraint = GridConstraint {
+            bus_id: 0,
+            max_additional_load_kw: 500.0,
+            available_capacity_kw: 500.0,
+        };
+        let planner =
+            InfrastructurePlanner::new(vec![node], vec![(35.68, 139.69)], vec![constraint]);
+        assert!((planner.planning_horizon_years - 10.0).abs() < 1e-9);
+        assert!((planner.discount_rate - 0.08).abs() < 1e-9);
+        assert!((planner.target_coverage_pct - 0.90).abs() < 1e-9);
+        assert_eq!(planner.budget_usd, f64::MAX);
+    }
+
+    #[test]
+    fn location_type_variants_distinct() {
+        let types = [
+            LocationType::Residential,
+            LocationType::Commercial,
+            LocationType::Highway,
+            LocationType::Fleet,
+            LocationType::MultiFamily,
+        ];
+        // Verify all 5 variants are distinct (no two are equal).
+        for i in 0..types.len() {
+            for j in (i + 1)..types.len() {
+                assert_ne!(
+                    types[i], types[j],
+                    "LocationType variants should be distinct"
+                );
+            }
+        }
+    }
+}

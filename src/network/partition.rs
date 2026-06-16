@@ -190,7 +190,7 @@ pub fn spectral_bisection(n_buses: usize, edges: &[NetworkEdge]) -> BisectionRes
 
     // Median split
     let mut sorted_fv = fv.clone();
-    sorted_fv.sort_by(|a, b| a.partial_cmp(b).unwrap());
+    sorted_fv.sort_by(|a, b| a.partial_cmp(b).unwrap_or(std::cmp::Ordering::Equal));
     let median = sorted_fv[n_buses / 2];
 
     let partition: Vec<usize> = fv.iter().map(|&v| if v < median { 0 } else { 1 }).collect();

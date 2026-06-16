@@ -421,7 +421,7 @@ impl CommNetworkSim {
             CongestionModel::Simple {
                 utilization_threshold,
             } => {
-                if current_utilization > *utilization_threshold {
+                if current_utilization >= *utilization_threshold {
                     lat * 2.0
                 } else {
                     lat
@@ -1354,5 +1354,224 @@ mod tests {
                 .any(|r| r.issue.to_lowercase().contains("latency")),
             "Expected a latency-related recommendation"
         );
+    }
+
+    // ── Test 11: CommProtocol::name() covers every variant ────────────────
+
+    #[test]
+    fn test_protocol_names_non_empty() {
+        let protocols = [
+            CommProtocol::IEC61850Goose,
+            CommProtocol::IEC61850Sampled,
+            CommProtocol::Dnp3Serial,
+            CommProtocol::Dnp3Tcp,
+            CommProtocol::ModbusTcp,
+            CommProtocol::IEC60870_104,
+            CommProtocol::Mqtt,
+            CommProtocol::FiveGUrllc,
+            CommProtocol::Fiber,
+            CommProtocol::Wireless4G,
+        ];
+        for proto in protocols {
+            let name = proto.name();
+            assert!(
+                !name.is_empty(),
+                "CommProtocol::{proto:?} must return a non-empty name"
+            );
+        }
+    }
+
+    // ── Test 12: CommMessageType::deadline_ms() returns expected values ────
+
+    #[test]
+    fn test_message_type_deadlines() {
+        assert!(
+            (CommMessageType::ProtectionTrip.deadline_ms() - 4.0).abs() < f64::EPSILON,
+            "ProtectionTrip deadline must be 4 ms"
+        );
+        assert!(
+            (CommMessageType::ControlCommand.deadline_ms() - 100.0).abs() < f64::EPSILON,
+            "ControlCommand deadline must be 100 ms"
+        );
+        assert!(
+            (CommMessageType::Measurement.deadline_ms() - 100.0).abs() < f64::EPSILON,
+            "Measurement deadline must be 100 ms"
+        );
+        assert!(
+            (CommMessageType::StateEstimation.deadline_ms() - 500.0).abs() < f64::EPSILON,
+            "StateEstimation deadline must be 500 ms"
+        );
+        assert!(
+            CommMessageType::Configuration.deadline_ms().is_infinite(),
+            "Configuration deadline must be infinite"
+        );
+    }
+
+    // ── Test 13: Out-of-range link index returns Err ───────────────────────
+
+    #[test]
+    fn test_out_of_range_link_index_errors() {
+        let mut sim = default_sim(0);
+        // No links registered; index 0 is out of range.
+        let msg = make_message(0, CommMessageType::Measurement, 64);
+        let err = sim.simulate_message_delivery(&msg, 0);
+        assert!(
+            err.is_err(),
+            "simulate_message_delivery on empty sim must return Err"
+        );
+
+        let util_err = sim.calculate_channel_utilization(std::slice::from_ref(&msg), 5, 1_000.0);
+        assert!(
+            util_err.is_err(),
+            "calculate_channel_utilization with invalid index must return Err"
+        );
+    }
+
+    // ── Test 14: Empty link set → availability = 1.0 ──────────────────────
+
+    #[test]
+    fn test_empty_link_set_availability_one() {
+        let sim = default_sim(0);
+
+        let series = sim
+            .network_availability(&[], false)
+            .expect("empty series must succeed");
+        assert!(
+            (series - 1.0).abs() < f64::EPSILON,
+            "Empty series availability must be 1.0, got {series}"
+        );
+
+        let parallel = sim
+            .network_availability(&[], true)
+            .expect("empty parallel must succeed");
+        assert!(
+            (parallel - 1.0).abs() < f64::EPSILON,
+            "Empty parallel availability must be 1.0, got {parallel}"
+        );
+    }
+
+    // ── Test 15: Simple congestion model doubles latency above threshold ───
+
+    #[test]
+    fn test_simple_congestion_increases_latency() {
+        // Build two sims that differ only in congestion model.
+        let config_no_cong = CommNetworkConfig {
+            simulation_duration_ms: 10_000.0,
+            congestion_model: CongestionModel::None,
+            security_overhead_ms: 0.0,
+        };
+        let config_cong = CommNetworkConfig {
+            simulation_duration_ms: 10_000.0,
+            congestion_model: CongestionModel::Simple {
+                utilization_threshold: 0.0, // threshold = 0 → always triggers
+            },
+            security_overhead_ms: 0.0,
+        };
+
+        let link = CommLink {
+            link_id: "cong-link".to_string(),
+            protocol: CommProtocol::Fiber,
+            bandwidth_kbps: 100_000.0,
+            nominal_latency_ms: 10.0,
+            max_latency_ms: 1_000.0,
+            packet_loss_rate: 0.0,
+            jitter_ms: 0.0, // no jitter so comparison is deterministic
+            availability: 1.0,
+        };
+
+        let mut sim_none = CommNetworkSim::new(config_no_cong, 77);
+        let idx_none = sim_none.add_link(link.clone());
+        let stats_none = sim_none
+            .monte_carlo_latency_distribution(idx_none, 100)
+            .expect("monte_carlo (no congestion) failed");
+
+        let mut sim_cong = CommNetworkSim::new(config_cong, 77);
+        let idx_cong = sim_cong.add_link(link.clone());
+        let stats_cong = sim_cong
+            .monte_carlo_latency_distribution(idx_cong, 100)
+            .expect("monte_carlo (congestion) failed");
+
+        assert!(
+            stats_cong.mean_ms > stats_none.mean_ms,
+            "Congestion model must increase mean latency: cong={:.3} none={:.3}",
+            stats_cong.mean_ms,
+            stats_none.mean_ms
+        );
+    }
+
+    // ── Test 16: Cyber-attack DoS raises max latency vs. clean baseline ────
+
+    #[test]
+    fn test_dos_attack_raises_max_latency() {
+        let mut sim = CommNetworkSim::new(
+            CommNetworkConfig {
+                simulation_duration_ms: 60_000.0,
+                congestion_model: CongestionModel::None,
+                security_overhead_ms: 0.0,
+            },
+            888,
+        );
+        let idx = sim.add_link(CommLink {
+            link_id: "attack-link".to_string(),
+            protocol: CommProtocol::Dnp3Tcp,
+            bandwidth_kbps: 10_000.0,
+            nominal_latency_ms: 20.0,
+            max_latency_ms: 5_000.0, // allow large latency for DoS
+            packet_loss_rate: 0.0,
+            jitter_ms: 1.0,
+            availability: 1.0,
+        });
+
+        let msgs: Vec<CommMessage> = (0..10)
+            .map(|i| make_message(i, CommMessageType::ControlCommand, 256))
+            .collect();
+
+        let impact = sim
+            .simulate_cyber_attack_impact(AttackType::DenialOfService, idx, &msgs, 60_000.0)
+            .expect("simulate_cyber_attack_impact failed");
+
+        // DoS multiplies nominal latency ×10; max observed must exceed clean nominal.
+        assert!(
+            impact.max_latency_ms > 20.0,
+            "DoS attack must raise max latency above 20 ms (nominal), got {:.3}",
+            impact.max_latency_ms
+        );
+    }
+
+    // ── Test 17: MessagePriority ordering is correct ───────────────────────
+
+    #[test]
+    fn test_message_priority_ordering() {
+        assert!(
+            MessagePriority::Critical > MessagePriority::High,
+            "Critical must rank above High"
+        );
+        assert!(
+            MessagePriority::High > MessagePriority::Normal,
+            "High must rank above Normal"
+        );
+        assert!(
+            MessagePriority::Normal > MessagePriority::Low,
+            "Normal must rank above Low"
+        );
+    }
+
+    // ── Test 18: add_link returns sequential indices ───────────────────────
+
+    #[test]
+    fn test_add_link_returns_sequential_indices() {
+        let mut sim = default_sim(0);
+        let link_a = make_link("a", CommProtocol::Fiber, 0.0, 1.0);
+        let link_b = make_link("b", CommProtocol::Mqtt, 0.0, 10.0);
+        let link_c = make_link("c", CommProtocol::Wireless4G, 0.01, 50.0);
+
+        let idx_a = sim.add_link(link_a);
+        let idx_b = sim.add_link(link_b);
+        let idx_c = sim.add_link(link_c);
+
+        assert_eq!(idx_a, 0, "First link must get index 0");
+        assert_eq!(idx_b, 1, "Second link must get index 1");
+        assert_eq!(idx_c, 2, "Third link must get index 2");
+        assert_eq!(sim.links.len(), 3, "Sim must contain exactly 3 links");
     }
 }

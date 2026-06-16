@@ -187,6 +187,12 @@ pub struct OffshoreSystemDesigner {
     pub project_lifetime_years: f64,
     /// Nominal discount rate for NPV / LCOE calculations (0–1).
     pub discount_rate: f64,
+    /// Geographic location of the offshore substation as (latitude, longitude) in decimal degrees.
+    ///
+    /// Defaults to `(56.0, 4.0)` — Hornsea area, North Sea — when constructed with [`Self::new`].
+    /// Override with [`Self::with_location`] or derive from a shore reference with
+    /// [`Self::with_shore_reference`].
+    pub location: (f64, f64),
 }
 
 impl OffshoreSystemDesigner {
@@ -224,7 +230,33 @@ impl OffshoreSystemDesigner {
             capacity_factor: 0.45,
             project_lifetime_years: 25.0,
             discount_rate: 0.07,
+            location: (56.0, 4.0), // Hornsea area, North Sea reference
         }
+    }
+
+    /// Override the geographic location of the offshore substation.
+    ///
+    /// # Arguments
+    /// * `lat` — Latitude in decimal degrees (WGS-84).
+    /// * `lon` — Longitude in decimal degrees (WGS-84).
+    pub fn with_location(mut self, lat: f64, lon: f64) -> Self {
+        self.location = (lat, lon);
+        self
+    }
+
+    /// Set the shore reference point and recompute `distance_to_shore_km`.
+    ///
+    /// Calculates the great-circle (haversine) distance between `self.location`
+    /// and the supplied shore coordinates, replacing the value passed to [`Self::new`].
+    /// Call [`Self::with_location`] first if you also want to change the turbine-field
+    /// location before deriving the distance.
+    ///
+    /// # Arguments
+    /// * `shore_lat` — Latitude of the onshore grid connection point in decimal degrees.
+    /// * `shore_lon` — Longitude of the onshore grid connection point in decimal degrees.
+    pub fn with_shore_reference(mut self, shore_lat: f64, shore_lon: f64) -> Self {
+        self.distance_to_shore_km = haversine_km(self.location, (shore_lat, shore_lon));
+        self
     }
 
     /// Design the medium-voltage inter-array collector system.
@@ -345,7 +377,7 @@ impl OffshoreSystemDesigner {
         OffshoreSubstation {
             id: 1,
             name: format!("OSS-1 ({:.0} MVA)", rated_mva),
-            location: (56.0, 4.0), // placeholder North Sea coordinates
+            location: self.location,
             substation_type: sub_type,
             rated_power_mva: rated_mva,
             voltage_hv_kv,
@@ -570,6 +602,20 @@ impl OffshoreSystemDesigner {
 }
 
 // ─── Internal helper functions ────────────────────────────────────────────────
+
+/// Haversine great-circle distance between two (lat, lon) pairs in decimal degrees.
+///
+/// Returns the distance in kilometres. Earth mean radius = 6 371.0 km.
+fn haversine_km(a: (f64, f64), b: (f64, f64)) -> f64 {
+    const R_EARTH_KM: f64 = 6_371.0;
+    let dlat = (b.0 - a.0).to_radians();
+    let dlon = (b.1 - a.1).to_radians();
+    let lat1 = a.0.to_radians();
+    let lat2 = b.0.to_radians();
+    let hav = (dlat / 2.0).sin().powi(2) + lat1.cos() * lat2.cos() * (dlon / 2.0).sin().powi(2);
+    let c = 2.0 * hav.sqrt().atan2((1.0 - hav).sqrt());
+    R_EARTH_KM * c
+}
 
 /// Returns (resistance_ohm_per_km, charging_mvar_per_km, install_cost_musd_per_km,
 ///          single_circuit_rating_mw, n_circuits) for a cable type and farm capacity.
@@ -924,6 +970,37 @@ mod tests {
                 CableType::Xlpe132kv | CableType::Xlpe220kv | CableType::Xlpe66kv
             )),
             "HVAC system should use HVAC cable type"
+        );
+    }
+
+    // ── Location field ───────────────────────────────────────────────────────
+
+    #[test]
+    fn default_location_is_north_sea() {
+        let designer = OffshoreSystemDesigner::new(500.0, 100, 50.0, 40.0);
+        let oss = designer.design_offshore_substation();
+        assert_eq!(oss.location, (56.0, 4.0));
+    }
+
+    #[test]
+    fn with_location_flows_through() {
+        let designer = OffshoreSystemDesigner::new(500.0, 100, 50.0, 40.0).with_location(60.5, 1.7);
+        let oss = designer.design_offshore_substation();
+        assert!((oss.location.0 - 60.5).abs() < 1e-9);
+        assert!((oss.location.1 - 1.7).abs() < 1e-9);
+    }
+
+    #[test]
+    fn with_shore_reference_updates_distance() {
+        // Hornsea One approx: turbine field ~(53.9, 1.8), shore ref ~(53.8, 0.1)
+        let designer = OffshoreSystemDesigner::new(500.0, 100, 50.0, 40.0)
+            .with_location(53.9, 1.8)
+            .with_shore_reference(53.8, 0.1);
+        // distance should differ from the default 50.0
+        assert!(
+            (designer.distance_to_shore_km - 50.0).abs() > 0.1,
+            "distance should differ from default 50.0 when shore ref is set, got {}",
+            designer.distance_to_shore_km
         );
     }
 

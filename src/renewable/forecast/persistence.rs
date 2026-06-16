@@ -157,4 +157,56 @@ mod tests {
     fn test_skill_score_worse_than_persistence() {
         assert!(skill_score(15.0, 10.0) < 0.0);
     }
+
+    #[test]
+    fn test_rmse_none_single_observation() {
+        let fc = PersistenceForecast::new(42.0);
+        assert!(fc.rmse().is_none());
+    }
+
+    #[test]
+    fn test_forecast_k_steps_length() {
+        let fc = PersistenceForecast::new(10.0);
+        let result = fc.forecast_k_steps(10);
+        assert_eq!(result.len(), 10);
+        assert!(result.iter().all(|&v| (v - 10.0).abs() < 1e-12));
+    }
+
+    #[test]
+    fn test_forecast_k_steps_zero() {
+        let fc = PersistenceForecast::new(10.0);
+        let result = fc.forecast_k_steps(0);
+        assert!(result.is_empty());
+    }
+
+    #[test]
+    fn test_history_bounded_by_max() {
+        let mut fc = PersistenceForecast::new(0.0);
+        for i in 1..=50u32 {
+            fc.update(f64::from(i));
+        }
+        // last_value should reflect the 50th update
+        assert!((fc.last_value - 50.0).abs() < 1e-12);
+        // rmse() returns Some(_) which proves history has >= 2 entries (bounded window still works)
+        assert!(fc.rmse().is_some());
+    }
+
+    #[test]
+    fn test_diurnal_forecast_next_period_length() {
+        let dp = DiurnalPersistence::new(24);
+        let result = dp.forecast_next_period();
+        assert_eq!(result.len(), 24);
+    }
+
+    #[test]
+    fn test_skill_score_equal_rmse() {
+        let score = skill_score(10.0, 10.0);
+        assert!((score - 0.0).abs() < 1e-12);
+    }
+
+    #[test]
+    fn test_skill_score_zero_persistence() {
+        let score = skill_score(5.0, 0.0);
+        assert!((score - 0.0).abs() < 1e-12);
+    }
 }

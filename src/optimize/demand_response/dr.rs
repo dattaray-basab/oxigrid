@@ -302,7 +302,11 @@ pub fn optimise_load_shift(
 
     // Sort hours by price (ascending for receiving, descending for shedding)
     let mut order: Vec<usize> = (0..n).collect();
-    order.sort_by(|&a, &b| hourly_prices[b].partial_cmp(&hourly_prices[a]).unwrap());
+    order.sort_by(|&a, &b| {
+        hourly_prices[b]
+            .partial_cmp(&hourly_prices[a])
+            .unwrap_or(std::cmp::Ordering::Equal)
+    });
 
     let mut shifted = hourly_loads_mw.to_vec();
     let mut shift_budget = max_shift_mwh;
@@ -380,7 +384,7 @@ impl DrAggregator {
             .iter()
             .map(|p| (p.incentive_rate.max(p.ref_price), p.max_curtail_mw))
             .collect();
-        curve.sort_by(|a, b| a.0.partial_cmp(&b.0).unwrap());
+        curve.sort_by(|a, b| a.0.partial_cmp(&b.0).unwrap_or(std::cmp::Ordering::Equal));
         curve
     }
 }

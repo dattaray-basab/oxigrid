@@ -562,4 +562,82 @@ mod tests {
         assert!(!report.flicker_compliant);
         assert!(!report.overall_compliant);
     }
+
+    #[test]
+    fn test_thd_zero_from_pure_fundamental_harmonics() {
+        let v_rms = vec![1.0_f64; 100];
+        let freq = vec![50.0_f64; 100];
+        let harmonics = vec![make_harmonic(1, 1.0)];
+        let limits = En50160Limits::standard();
+        let report = check_en50160_compliance(&v_rms, &freq, &harmonics, 0.3, 0.5, &limits);
+        assert!(
+            report.thd_measured_pct < 1e-9,
+            "pure fundamental should give THD = 0%"
+        );
+    }
+
+    #[test]
+    fn test_thd_known_value_5pct_5th_harmonic() {
+        let v_rms = vec![1.0_f64; 100];
+        let freq = vec![50.0_f64; 100];
+        let harmonics = vec![make_harmonic(1, 1.0), make_harmonic(5, 0.05)];
+        let limits = En50160Limits::standard();
+        let report = check_en50160_compliance(&v_rms, &freq, &harmonics, 0.3, 0.5, &limits);
+        // THD = sqrt(0.05^2) / 1.0 * 100 = 5.0%
+        assert!(
+            (report.thd_measured_pct - 5.0).abs() < 0.001,
+            "THD should be 5.0%, got {}",
+            report.thd_measured_pct
+        );
+    }
+
+    #[test]
+    fn test_k_factor_pure_fundamental() {
+        let harmonics = vec![HarmonicComponent {
+            order: 1,
+            magnitude_pu: 1.0,
+            phase_rad: 0.0,
+            power: 0.0,
+        }];
+        let k = crate::powerquality::waveform::compute_k_factor(&harmonics);
+        assert!(
+            (k - 1.0).abs() < 1e-9,
+            "K-factor for pure fundamental should be 1.0, got {k}"
+        );
+    }
+
+    #[test]
+    fn test_crest_factor_pure_sine_via_waveform() {
+        let sample_rate = 10_000.0_f64;
+        let freq = 50.0_f64;
+        let n_samples = (5.0 * sample_rate / freq) as usize; // 1000 samples = 5 cycles
+        let wave: Vec<f64> = (0..n_samples)
+            .map(|i| (2.0 * std::f64::consts::PI * freq * i as f64 / sample_rate).sin())
+            .collect();
+        let metrics =
+            crate::powerquality::waveform::analyze_waveform(&wave, &wave, sample_rate, freq, 10)
+                .expect("analyze_waveform failed");
+        assert!(
+            (metrics.crest_factor - std::f64::consts::SQRT_2).abs() < 0.05,
+            "Crest factor for pure sine should be sqrt(2) ≈ {}, got {}",
+            std::f64::consts::SQRT_2,
+            metrics.crest_factor
+        );
+    }
+
+    #[test]
+    fn test_ieee519_tdd_violation() {
+        // ISC/IL < 20: TDD limit = 5%.
+        // h=5 at 0.04 pu, h=7 at 0.04 pu: TDD = sqrt(0.04^2 + 0.04^2)*100 ≈ 5.66% > 5% limit
+        let harmonics = vec![
+            make_harmonic(1, 1.0),
+            make_harmonic(5, 0.04),
+            make_harmonic(7, 0.04),
+        ];
+        let limits = Ieee519Limits::for_isc_ratio(10.0); // ISC/IL < 20 → TDD limit = 5%
+        assert!(
+            !check_ieee519_compliance(&harmonics, 1.0, &limits),
+            "TDD ≈ 5.66% should violate the 5% limit"
+        );
+    }
 }

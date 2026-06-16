@@ -148,6 +148,8 @@ pub struct SeasonalStorageConfig {
     pub electricity_price_seasonal: Vec<f64>,
     /// Weekly average renewable surplus available to the electrolyzer \[MW\]
     pub renewable_surplus_mw: Vec<f64>,
+    /// Weekly average grid CO₂ emission factor \[gCO₂/kWh\]
+    pub grid_co2_intensity_g_per_kwh: Vec<f64>,
     /// Weekly H₂ offtake demand (industry / transport) \[t/week\]
     pub h2_demand_t_per_week: Vec<f64>,
     /// Annual discount rate \[–\] (e.g. 0.08 for 8 %)
@@ -165,6 +167,7 @@ impl Default for SeasonalStorageConfig {
             h2_lower_heating_value_kwh_per_kg: H2_LHV_KWH_PER_KG,
             electricity_price_seasonal: vec![50.0; weeks],
             renewable_surplus_mw: vec![200.0; weeks],
+            grid_co2_intensity_g_per_kwh: vec![300.0; weeks],
             h2_demand_t_per_week: vec![100.0; weeks],
             discount_rate: 0.08,
             opex_fraction: 0.03,
@@ -749,8 +752,18 @@ impl SeasonalH2Optimizer {
             f64::INFINITY
         };
 
-        // Carbon intensity (computed with a representative grid; zero surplus usage here).
-        let carbon_intensity = self.carbon_intensity(0.0); // placeholder — see method below
+        // Production-weighted average grid CO₂ intensity across all simulated weeks.
+        let ci_vec = &self.config.grid_co2_intensity_g_per_kwh;
+        let (weighted_sum, total_consumed) = sim.weekly_results.iter().enumerate().fold(
+            (0.0_f64, 0.0_f64),
+            |(ws, tc), (i, week)| {
+                let ci = ci_vec.get(i).copied().unwrap_or(300.0);
+                let consumed = week.electricity_consumed_mwh;
+                (ws + ci * consumed, tc + consumed)
+            },
+        );
+        let eff_ci = weighted_sum / total_consumed.max(f64::EPSILON);
+        let carbon_intensity = self.carbon_intensity(eff_ci);
 
         H2EconomicsResult {
             lcoh_per_kg,
@@ -1011,6 +1024,111 @@ mod tests {
         assert!(
             (cap - 1_000_000.0).abs() < 1.0,
             "underground tank capacity should equal 1 000 t × 1000 kg/t = 1 000 000 kg, got {cap}"
+        );
+    }
+
+    // ── Test 11: Zero CI → always green, CI ≈ 0 ─────────────────────────────
+    #[test]
+    fn test_carbon_intensity_zero_ci_is_green() {
+        let weeks = 52_usize;
+        let prices: Vec<f64> = (0..weeks)
+            .map(|w| 40.0 + 30.0 * ((2.0 * std::f64::consts::PI * w as f64 / 52.0).sin()))
+            .collect();
+        let surpluses: Vec<f64> = (0..weeks)
+            .map(|w| 300.0 + 200.0 * ((2.0 * std::f64::consts::PI * w as f64 / 52.0).sin()))
+            .collect();
+        let demands: Vec<f64> = vec![80.0; weeks];
+        let opt = SeasonalH2Optimizer {
+            storage: SeasonalStorageType::SaltCavern {
+                working_volume_m3: 500_000.0,
+                min_pressure_bar: 40.0,
+                max_pressure_bar: 200.0,
+                cushion_gas_pct: 0.25,
+            },
+            electrolyzers: ElectrolyzerFleet {
+                capacity_mw: 200.0,
+                ..ElectrolyzerFleet::default()
+            },
+            fuel_cells: FuelCellFleet {
+                capacity_mw: 100.0,
+                ..FuelCellFleet::default()
+            },
+            config: SeasonalStorageConfig {
+                planning_weeks: weeks,
+                electricity_price_seasonal: prices,
+                renewable_surplus_mw: surpluses,
+                h2_demand_t_per_week: demands,
+                grid_co2_intensity_g_per_kwh: vec![0.0; weeks],
+                ..SeasonalStorageConfig::default()
+            },
+        };
+        let result = opt.economic_assessment(1000.0, 0.02, 20.0);
+        assert!(result.is_green_hydrogen, "zero CI must always be green");
+        assert!(
+            result.carbon_intensity_g_co2_per_kg < 1e-9,
+            "CI must be ~0, got {}",
+            result.carbon_intensity_g_co2_per_kg
+        );
+    }
+
+    // ── Test 12: High CI → not green ────────────────────────────────────────
+    #[test]
+    fn test_carbon_intensity_high_ci_not_green() {
+        // 700 gCO2/kWh × 55 kWh/kgH2 = 38500 >> GREEN_H2_THRESHOLD (1000)
+        let weeks = 52_usize;
+        let prices: Vec<f64> = (0..weeks)
+            .map(|w| 40.0 + 30.0 * ((2.0 * std::f64::consts::PI * w as f64 / 52.0).sin()))
+            .collect();
+        let surpluses: Vec<f64> = (0..weeks)
+            .map(|w| 300.0 + 200.0 * ((2.0 * std::f64::consts::PI * w as f64 / 52.0).sin()))
+            .collect();
+        let demands: Vec<f64> = vec![80.0; weeks];
+        let opt = SeasonalH2Optimizer {
+            storage: SeasonalStorageType::SaltCavern {
+                working_volume_m3: 500_000.0,
+                min_pressure_bar: 40.0,
+                max_pressure_bar: 200.0,
+                cushion_gas_pct: 0.25,
+            },
+            electrolyzers: ElectrolyzerFleet {
+                capacity_mw: 200.0,
+                ..ElectrolyzerFleet::default()
+            },
+            fuel_cells: FuelCellFleet {
+                capacity_mw: 100.0,
+                ..FuelCellFleet::default()
+            },
+            config: SeasonalStorageConfig {
+                planning_weeks: weeks,
+                electricity_price_seasonal: prices,
+                renewable_surplus_mw: surpluses,
+                h2_demand_t_per_week: demands,
+                grid_co2_intensity_g_per_kwh: vec![700.0; weeks],
+                ..SeasonalStorageConfig::default()
+            },
+        };
+        let result = opt.economic_assessment(1000.0, 0.02, 20.0);
+        assert!(!result.is_green_hydrogen, "high CI must not be green");
+        assert!(
+            result.carbon_intensity_g_co2_per_kg > 1000.0,
+            "CI should be >>1000, got {}",
+            result.carbon_intensity_g_co2_per_kg
+        );
+    }
+
+    // ── Test 13: Default config CI is finite and non-negative ────────────────
+    #[test]
+    fn test_carbon_intensity_default_config_is_finite() {
+        let opt = default_optimizer(200.0);
+        let result = opt.economic_assessment(1000.0, 0.02, 20.0);
+        assert!(
+            result.carbon_intensity_g_co2_per_kg.is_finite(),
+            "CI must be finite"
+        );
+        assert!(
+            result.carbon_intensity_g_co2_per_kg >= 0.0,
+            "CI must be non-negative, got {}",
+            result.carbon_intensity_g_co2_per_kg
         );
     }
 }

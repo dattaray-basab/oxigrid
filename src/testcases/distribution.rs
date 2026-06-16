@@ -549,3 +549,186 @@ pub fn mv_urban_feeder(n_buses: usize) -> Result<PowerNetwork, OxiGridError> {
 
     Ok(net)
 }
+
+// ---------------------------------------------------------------------------
+// Unit tests
+// ---------------------------------------------------------------------------
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn slack_count(net: &PowerNetwork) -> usize {
+        net.buses
+            .iter()
+            .filter(|b| b.bus_type == BusType::Slack)
+            .count()
+    }
+
+    // ── Internal helpers ────────────────────────────────────────────────────
+
+    #[test]
+    fn make_pq_bus_converts_kw_to_mw() {
+        let b = make_pq_bus(7, 3715.0, 2300.0, 12.66);
+        assert_eq!(b.id, 7);
+        assert_eq!(b.bus_type, BusType::PQ);
+        assert_eq!(b.base_kv.0, 12.66);
+        // kW/kVAr are stored internally as MW/MVAr.
+        assert!((b.pd.0 - 3.715).abs() < 1e-9);
+        assert!((b.qd.0 - 2.300).abs() < 1e-9);
+        assert_eq!(b.gs, 0.0);
+        assert_eq!(b.bs, 0.0);
+        assert_eq!(b.vm, 1.0);
+    }
+
+    #[test]
+    fn make_slack_bus_has_no_load() {
+        let b = make_slack_bus(1, 0.4);
+        assert_eq!(b.bus_type, BusType::Slack);
+        assert_eq!(b.pd.0, 0.0);
+        assert_eq!(b.qd.0, 0.0);
+        assert_eq!(b.base_kv.0, 0.4);
+    }
+
+    #[test]
+    fn make_branch_defaults_are_closed_line() {
+        let br = make_branch(3, 4, 0.01, 0.02);
+        assert_eq!(br.from_bus, 3);
+        assert_eq!(br.to_bus, 4);
+        assert_eq!(br.r, 0.01);
+        assert_eq!(br.x, 0.02);
+        assert_eq!(br.b, 0.0);
+        assert_eq!(br.tap, 0.0);
+        assert_eq!(br.shift, 0.0);
+        assert!(br.status);
+        assert_eq!(br.rate_a, 100.0);
+    }
+
+    #[test]
+    fn ohm_to_pu_uses_kv_squared_over_mva_base() {
+        let base_kv = 12.66;
+        let base_mva = 0.1;
+        let z_base = base_kv * base_kv / base_mva;
+        // Impedance equal to the base must map to exactly 1.0 p.u.
+        let (r_pu, x_pu) = ohm_to_pu(z_base, z_base, base_kv, base_mva);
+        assert!((r_pu - 1.0).abs() < 1e-9);
+        assert!((x_pu - 1.0).abs() < 1e-9);
+        // And linearity: half the base impedance → 0.5 p.u.
+        let (r_half, _) = ohm_to_pu(z_base * 0.5, 0.0, base_kv, base_mva);
+        assert!((r_half - 0.5).abs() < 1e-9);
+    }
+
+    // ── IEEE 33-bus ─────────────────────────────────────────────────────────
+
+    #[test]
+    fn ieee33_structure_and_load() {
+        let net = ieee33().unwrap();
+        assert_eq!(net.buses.len(), 33);
+        assert_eq!(slack_count(&net), 1);
+        // 32 series branches form the radial backbone.
+        let closed = net.branches.iter().filter(|b| b.status).count();
+        assert!(closed >= 32, "expected ≥32 closed branches, got {closed}");
+        // Published active load ≈ 3.715 MW.
+        assert!(
+            (net.total_load_mw() - 3.715).abs() < 0.05,
+            "ieee33 load {} MW ≈ 3.715 MW",
+            net.total_load_mw()
+        );
+        net.validate().unwrap();
+        assert!(net.is_connected());
+    }
+
+    #[cfg(feature = "powerflow")]
+    #[test]
+    fn ieee33_newton_raphson_converges() {
+        use crate::powerflow::newton_raphson::NewtonRaphsonSolver;
+        use crate::powerflow::{PowerFlowConfig, PowerFlowMethod, PowerFlowSolver};
+
+        let net = ieee33().unwrap();
+        let cfg = PowerFlowConfig {
+            method: PowerFlowMethod::NewtonRaphson,
+            max_iter: 100,
+            tolerance: 1e-6,
+            enforce_q_limits: false,
+        };
+        let res = NewtonRaphsonSolver.solve(&net, &cfg).unwrap();
+        assert!(
+            res.converged,
+            "ieee33 NR max_mismatch={:.2e}",
+            res.max_mismatch
+        );
+        // Radial LV feeder: voltages sag below 1.0 but stay within ±10 %.
+        for vm in &res.voltage_magnitude {
+            assert!((0.85..=1.05).contains(vm), "ieee33 vm {vm} out of range");
+        }
+    }
+
+    // ── IEEE 69-bus ─────────────────────────────────────────────────────────
+
+    #[test]
+    fn ieee69_structure() {
+        let net = ieee69().unwrap();
+        assert_eq!(net.buses.len(), 69);
+        assert_eq!(slack_count(&net), 1);
+        net.validate().unwrap();
+        assert!(net.is_connected());
+    }
+
+    // ── LV European residential feeder ───────────────────────────────────────
+
+    #[test]
+    fn lv_feeder_structure_and_voltage_level() {
+        let net = lv_european_residential(20).unwrap();
+        // 1 substation (slack) + 20 customers.
+        assert_eq!(net.buses.len(), 21);
+        assert_eq!(slack_count(&net), 1);
+        for b in &net.buses {
+            assert!((b.base_kv.0 - 0.4).abs() < 1e-9, "LV feeder is 0.4 kV");
+        }
+        net.validate().unwrap();
+        assert!(net.is_connected());
+    }
+
+    #[test]
+    fn lv_feeder_clamps_tiny_customer_count() {
+        // n_customers is clamped to a minimum of 2 → 3 buses total.
+        let net = lv_european_residential(0).unwrap();
+        assert_eq!(net.buses.len(), 3);
+        assert!(net.is_connected());
+    }
+
+    // ── MV urban feeder ──────────────────────────────────────────────────────
+
+    #[test]
+    fn mv_feeder_structure_and_open_tie() {
+        let net = mv_urban_feeder(10).unwrap();
+        assert_eq!(net.buses.len(), 10);
+        assert_eq!(slack_count(&net), 1);
+        for b in &net.buses {
+            assert!((b.base_kv.0 - 11.0).abs() < 1e-9, "MV feeder is 11 kV");
+        }
+        // The final branch is the normally-open ring tie switch.
+        let tie = net.branches.last().unwrap();
+        assert!(!tie.status, "ring tie switch must be normally open");
+        assert_eq!(tie.from_bus, 10);
+        assert_eq!(tie.to_bus, 1);
+        net.validate().unwrap();
+    }
+
+    #[test]
+    fn mv_feeder_clamps_tiny_bus_count() {
+        // n_buses is clamped to a minimum of 3.
+        let net = mv_urban_feeder(1).unwrap();
+        assert_eq!(net.buses.len(), 3);
+    }
+
+    #[test]
+    fn mv_feeder_is_reproducible() {
+        // Fixed internal LCG seed → identical structure across builds.
+        let a = mv_urban_feeder(8).unwrap();
+        let b = mv_urban_feeder(8).unwrap();
+        assert_eq!(a.buses.len(), b.buses.len());
+        assert_eq!(a.branches.len(), b.branches.len());
+        assert!((a.total_load_mw() - b.total_load_mw()).abs() < 1e-12);
+    }
+}

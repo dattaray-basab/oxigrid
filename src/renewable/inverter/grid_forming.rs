@@ -427,7 +427,12 @@ impl MicrogridSimulator {
                 } else {
                     1.0 / n_inv as f64
                 };
-                let p_meas = inv.state.p_out + share * extra_load_mw;
+                // Demanded power = the inverter's rated operating point plus its
+                // proportional share of the stepped load. Using a fixed setpoint
+                // (not `p_out`) is essential: tying it to `p_out` makes the
+                // power-LPF target track the state, so `p_out` either never moves
+                // (pre-step) or ramps without bound (post-step), collapsing ω.
+                let p_meas = inv.p_rated_mw + share * extra_load_mw;
                 let q_meas = inv.state.q_out;
 
                 // PCC voltage in dq frame — simplified: d-axis = pcc_v_avg, q=0
@@ -674,6 +679,114 @@ mod tests {
             (ratio - 1.0).abs() < 0.05,
             "Power sharing ratio = {:.4} (expected within 5% of 1.0)",
             ratio
+        );
+    }
+
+    #[test]
+    fn test_frequency_deviation_hz_initially_zero() {
+        let vsm = make_vsm(None, None);
+        assert!(
+            vsm.frequency_deviation_hz().abs() < 1e-9,
+            "frequency deviation should be zero at construction; got {}",
+            vsm.frequency_deviation_hz()
+        );
+    }
+
+    #[test]
+    fn test_frequency_hz_at_nominal() {
+        let vsm = make_vsm(None, None);
+        assert!(
+            (vsm.frequency_hz() - 50.0).abs() < 0.001,
+            "frequency should be 50.0 Hz at construction; got {}",
+            vsm.frequency_hz()
+        );
+    }
+
+    #[test]
+    fn test_vsm_step_returns_consistent_omega() {
+        let mut vsm = make_vsm(None, None);
+        let p = vsm.p_rated_mw;
+        let out = vsm.step(p, 0.0, 1.0, 0.0);
+        assert_eq!(
+            out.omega, vsm.state.omega,
+            "VsmOutput.omega must match state.omega after step"
+        );
+    }
+
+    #[test]
+    fn test_vsm_rotor_angle_accumulates() {
+        let mut vsm = make_vsm(None, None);
+        let p = vsm.p_rated_mw;
+        for _ in 0..100 {
+            vsm.step(p, 0.0, 1.0, 0.0);
+        }
+        assert!(
+            vsm.state.delta.abs() < 0.1,
+            "delta should remain near 0 at rated load; got {}",
+            vsm.state.delta
+        );
+    }
+
+    #[test]
+    fn test_vsm_voltage_reference_at_zero_angle() {
+        let vsm = make_vsm(None, None);
+        let (vd, vq) = vsm.voltage_reference();
+        assert!(
+            (vd - 1.0).abs() < 1e-9,
+            "initial v_d should be v_ref=1.0; got {}",
+            vd
+        );
+        assert!(vq.abs() < 1e-9, "initial v_q should be 0.0; got {}", vq);
+    }
+
+    #[test]
+    fn test_vsm_higher_droop_kp_larger_frequency_restore() {
+        let run = |kp: f64| -> f64 {
+            let mut vsm = make_vsm(None, Some(kp));
+            let p_step = vsm.p_rated_mw * 1.10;
+            let steps = (3.0 / vsm.config.dt) as usize;
+            for _ in 0..steps {
+                vsm.step(p_step, 0.0, 1.0, 0.0);
+            }
+            vsm.state.omega
+        };
+        let omega_ref = 2.0 * PI * 50.0;
+        let omega_low = run(0.02);
+        let omega_high = run(0.08);
+        assert!(
+            (omega_high - omega_ref).abs() < (omega_low - omega_ref).abs(),
+            "higher droop_kp should restore frequency closer to ref: low={:.4} high={:.4}",
+            omega_low,
+            omega_high
+        );
+    }
+
+    #[test]
+    fn test_vsm_reactive_power_voltage_droop() {
+        let mut vsm = make_vsm(None, None);
+        let p = vsm.p_rated_mw;
+        let steps = (2.0 / vsm.config.dt) as usize;
+        for _ in 0..steps {
+            vsm.step(p, 0.5, 1.0, 0.0);
+        }
+        assert!(
+            vsm.state.e_fd < 1.0,
+            "reactive load should lower E_fd via voltage droop; e_fd = {:.4}",
+            vsm.state.e_fd
+        );
+    }
+
+    #[test]
+    fn test_microgrid_nadir_above_49hz() {
+        let vsm = make_vsm(None, None);
+        let mut sim = MicrogridSimulator::new(vec![vsm], 1e-3, 5.0);
+        let result = sim
+            .simulate_load_step(0.5, 0.1)
+            .expect("simulation should succeed");
+        assert!(
+            result.nadir_hz > 49.0,
+            "nadir_hz = {:.3} Hz, expected > 49.0 Hz",
+            result.nadir_hz
         );
     }
 }

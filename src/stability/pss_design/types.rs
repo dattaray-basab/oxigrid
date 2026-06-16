@@ -673,3 +673,128 @@ pub struct GeneratorModal {
     /// Inertia constant H \[s\].
     pub inertia_h: f64,
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    // ---------------------------------------------------------------------------
+    // PssInput / PssType variant identity
+    // ---------------------------------------------------------------------------
+
+    #[test]
+    fn pss_input_variants_are_distinguishable() {
+        assert_ne!(PssInput::RotorSpeed, PssInput::ElectricalPower);
+        assert_ne!(PssInput::BusFrequency, PssInput::AcceleratingPower);
+        assert_eq!(PssInput::RotorSpeed, PssInput::RotorSpeed);
+    }
+
+    #[test]
+    fn pss_type_variants_are_distinguishable() {
+        assert_ne!(PssType::Pss1A, PssType::Pss2B);
+        assert_ne!(PssType::Pss2B, PssType::Pss4B);
+        assert_eq!(PssType::Pss4B, PssType::Pss4B);
+    }
+
+    // ---------------------------------------------------------------------------
+    // TransferFunction primitives
+    // ---------------------------------------------------------------------------
+
+    #[test]
+    fn transfer_function_gain_element() {
+        let tf = TransferFunction::gain(3.0);
+        let (re, im) = tf.evaluate_at(1.0);
+        assert!((re - 3.0).abs() < 1e-9, "gain re should be 3.0, got {re}");
+        assert!(im.abs() < 1e-9, "gain im should be 0.0, got {im}");
+    }
+
+    #[test]
+    fn lead_lag_dc_gain_is_one() {
+        // At DC (ω → 0) the lead-lag (1+T1·s)/(1+T2·s) → 1.
+        let tf = TransferFunction::lead_lag(0.2, 0.1);
+        let (re, im) = tf.evaluate_at(1e-6);
+        assert!(
+            (re - 1.0).abs() < 1e-3,
+            "lead-lag DC re should ≈ 1.0, got {re}"
+        );
+        assert!(im.abs() < 1e-3, "lead-lag DC im should ≈ 0.0, got {im}");
+    }
+
+    #[test]
+    fn washout_dc_rejection() {
+        // Washout Tw·s/(1+Tw·s) → 0 as ω → 0.
+        let tf = TransferFunction::washout(10.0);
+        let (re, im) = tf.evaluate_at(1e-6);
+        assert!(re.abs() < 0.01, "washout DC re should ≈ 0, got {re}");
+        assert!(im.abs() < 0.01, "washout DC im should ≈ 0, got {im}");
+    }
+
+    #[test]
+    fn washout_high_freq_passthrough() {
+        // Washout → 1 as ω → ∞.
+        let tf = TransferFunction::washout(10.0);
+        let (re, im) = tf.evaluate_at(1e6);
+        let mag = (re * re + im * im).sqrt();
+        assert!(
+            (mag - 1.0).abs() < 0.01,
+            "washout HF magnitude should ≈ 1.0, got {mag}"
+        );
+    }
+
+    // ---------------------------------------------------------------------------
+    // PssState initialisation
+    // ---------------------------------------------------------------------------
+
+    #[test]
+    fn pss_state_zero_initialises_correctly() {
+        let st = PssState::zero(3);
+        assert_eq!(st.states.len(), 3, "states length should be 3");
+        assert!(
+            st.states.iter().all(|&v| v == 0.0),
+            "all states should be 0.0"
+        );
+        assert_eq!(st.output, 0.0, "output should be 0.0");
+        assert_eq!(st.time_s, 0.0, "time_s should be 0.0");
+    }
+
+    // ---------------------------------------------------------------------------
+    // HpPssDesigner: phase-compensation lead-lag ordering
+    // ---------------------------------------------------------------------------
+
+    #[test]
+    fn design_phase_compensation_returns_t1_gt_t2_for_positive_phase() {
+        let gen = PssGeneratorModel {
+            machine_id: 0,
+            rated_mva: 100.0,
+            h_inertia_s: 5.0,
+            d_damping: 1.0,
+            xd_transient: 0.2,
+            td0_transient_s: 5.0,
+            exciter_gain_ka: 200.0,
+            exciter_time_ta_s: 0.05,
+            k1: 0.9,
+            k2: 0.8,
+            k3: 0.3,
+            k4: 1.0,
+            k5: 0.1,
+            k6: 0.4,
+        };
+        let spec = PssDesignSpec {
+            target_mode_frequency_hz: 1.0,
+            target_damping_ratio: 0.1,
+            phase_compensation_deg: 60.0,
+            max_gain: 50.0,
+            washout_freq_hz: 0.1,
+        };
+        let designer = HpPssDesigner::new(gen, spec);
+        let (t1, t2, t3, t4) = designer.design_phase_compensation();
+        assert!(
+            t1 > t2,
+            "T1 should be > T2 for positive phase lead (T1={t1}, T2={t2})"
+        );
+        assert!(
+            t3 > t4,
+            "T3 should be > T4 for positive phase lead (T3={t3}, T4={t4})"
+        );
+    }
+}

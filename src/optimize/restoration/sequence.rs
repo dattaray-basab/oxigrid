@@ -268,3 +268,343 @@ impl RestorationMetrics {
         ens
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::{RestorationMetrics, RestorationSequencer};
+    use crate::network::bus::{Bus, BusType};
+    use crate::network::topology::PowerNetwork;
+    use crate::optimize::restoration::black_start::{
+        LoadBlock, RestorationAction, RestorationPlan, RestorationStep,
+    };
+
+    fn make_load_block(
+        block_id: usize,
+        demand_mw: f64,
+        priority: usize,
+        can_defer: bool,
+    ) -> LoadBlock {
+        LoadBlock {
+            block_id,
+            buses: vec![block_id + 10],
+            base_demand_mw: demand_mw,
+            cold_load_pickup_factor: 1.5,
+            cold_load_decay_min: 30.0,
+            priority,
+            can_defer,
+        }
+    }
+
+    #[test]
+    fn test_order_load_blocks_returns_nonempty() {
+        let sequencer = RestorationSequencer::new(3);
+        let blocks = vec![
+            make_load_block(0, 20.0, 1, false),
+            make_load_block(1, 10.0, 2, true),
+            make_load_block(2, 15.0, 2, true),
+        ];
+        let result = sequencer.order_load_blocks(&blocks, 100.0, 10.0);
+        assert!(!result.is_empty(), "result should be non-empty");
+        assert!(
+            result.contains(&0),
+            "non-deferrable block 0 must be included"
+        );
+    }
+
+    #[test]
+    fn test_order_load_blocks_priority_ordering() {
+        let sequencer = RestorationSequencer::new(3);
+        let blocks = vec![
+            make_load_block(0, 20.0, 1, false),
+            make_load_block(1, 10.0, 2, true),
+            make_load_block(2, 15.0, 2, true),
+        ];
+        let result = sequencer.order_load_blocks(&blocks, 100.0, 0.0);
+        let pos0 = result
+            .iter()
+            .position(|&id| id == 0)
+            .expect("block 0 must be in result");
+        let pos1 = result.iter().position(|&id| id == 1);
+        let pos2 = result.iter().position(|&id| id == 2);
+        if let Some(p1) = pos1 {
+            assert!(pos0 < p1, "priority-1 block 0 must come before block 1");
+        }
+        if let Some(p2) = pos2 {
+            assert!(pos0 < p2, "priority-1 block 0 must come before block 2");
+        }
+    }
+
+    #[test]
+    fn test_order_load_blocks_respects_headroom() {
+        let sequencer = RestorationSequencer::new(3);
+        // block0: 80MW * 1.5 CLP = 120MW required — exceeds headroom of 20MW
+        // block1: 5MW  * 1.5 CLP =  7.5MW required — fits within 20MW
+        // both are deferrable, so block0 should be excluded
+        let blocks = vec![
+            make_load_block(0, 80.0, 1, true),
+            make_load_block(1, 5.0, 1, true),
+        ];
+        let result = sequencer.order_load_blocks(&blocks, 20.0, 0.0);
+        assert!(
+            result.contains(&1),
+            "block 1 (7.5 MW CLP) must fit within 20 MW headroom"
+        );
+        assert!(
+            !result.contains(&0),
+            "block 0 (120 MW CLP) must not fit within 20 MW headroom"
+        );
+    }
+
+    #[test]
+    fn test_compute_parallel_paths_empty_network() {
+        let sequencer = RestorationSequencer::new(4);
+        let mut net = PowerNetwork::new(100.0);
+        net.buses.push(Bus::new(1, BusType::Slack));
+        let groups = sequencer.compute_parallel_paths(&net, &[1]);
+        assert!(groups.is_empty(), "no branches means no energization paths");
+    }
+
+    #[test]
+    fn test_metrics_saidi_saifi_ens() {
+        let metrics = RestorationMetrics::new(100, 0.0);
+        let blocks = vec![
+            make_load_block(0, 20.0, 1, false),
+            make_load_block(1, 10.0, 2, true),
+        ];
+        let plan = RestorationPlan {
+            steps: vec![
+                RestorationStep {
+                    step_id: 1,
+                    time_min: 30.0,
+                    action: RestorationAction::PickupLoadBlock {
+                        block_id: 0,
+                        actual_mw: 20.0,
+                    },
+                    available_generation_mw: 50.0,
+                    connected_load_mw: 20.0,
+                    frequency_hz: 50.0,
+                    notes: String::new(),
+                },
+                RestorationStep {
+                    step_id: 2,
+                    time_min: 60.0,
+                    action: RestorationAction::PickupLoadBlock {
+                        block_id: 1,
+                        actual_mw: 10.0,
+                    },
+                    available_generation_mw: 50.0,
+                    connected_load_mw: 30.0,
+                    frequency_hz: 50.0,
+                    notes: String::new(),
+                },
+            ],
+            total_time_min: 120.0,
+            restored_load_pct: 1.0,
+            n_black_start_units_used: 1,
+            critical_loads_restored_min: 30.0,
+            feasible: true,
+            bottlenecks: vec![],
+        };
+        let customers_per_block = [50usize, 50usize];
+        let saidi = metrics.compute_saidi(&plan, &customers_per_block);
+        let saifi = metrics.compute_saifi(&plan, &customers_per_block);
+        let ens = metrics.compute_ens(&plan, &blocks);
+        assert!(saidi > 0.0, "SAIDI must be positive");
+        assert!(
+            (saifi - 1.0).abs() < 1e-9,
+            "SAIFI must equal 1.0 (all 100 customers interrupted, 100/100)"
+        );
+        assert!(ens > 0.0, "ENS must be positive");
+    }
+
+    #[test]
+    fn test_sequencer_new_clamps_to_one() {
+        let sequencer = RestorationSequencer::new(0);
+        assert_eq!(
+            sequencer.max_parallel_paths, 1,
+            "new(0) must clamp max_parallel_paths to 1"
+        );
+    }
+
+    #[test]
+    fn test_order_load_blocks_empty_input() {
+        let sequencer = RestorationSequencer::new(3);
+        let result = sequencer.order_load_blocks(&[], 100.0, 10.0);
+        assert!(
+            result.is_empty(),
+            "empty blocks slice must produce empty result"
+        );
+    }
+
+    #[test]
+    fn test_order_load_blocks_nondeferrable_always_included() {
+        let sequencer = RestorationSequencer::new(3);
+        // CLP = 200.0 * 1.5 = 300 MW, far exceeds headroom of 10 MW
+        let blocks = vec![make_load_block(0, 200.0, 1, false)];
+        let result = sequencer.order_load_blocks(&blocks, 15.0, 5.0);
+        assert!(
+            result.contains(&0),
+            "non-deferrable block must be included regardless of CLP vs headroom"
+        );
+    }
+
+    #[test]
+    fn test_order_load_blocks_reserve_reduces_headroom() {
+        let sequencer = RestorationSequencer::new(3);
+        // headroom = 50 - 40 = 10 MW
+        // block 0: deferrable, CLP = 10.0 * 1.5 = 15 MW → excluded (15 > 10)
+        // block 1: deferrable, CLP =  3.0 * 1.5 =  4.5 MW → included (4.5 ≤ 10)
+        let blocks = vec![
+            make_load_block(0, 10.0, 1, true),
+            make_load_block(1, 3.0, 1, true),
+        ];
+        let result = sequencer.order_load_blocks(&blocks, 50.0, 40.0);
+        assert!(
+            result.contains(&1),
+            "block 1 (4.5 MW CLP) must fit within 10 MW headroom"
+        );
+        assert!(
+            !result.contains(&0),
+            "block 0 (15 MW CLP) must be excluded when headroom is only 10 MW"
+        );
+    }
+
+    #[test]
+    fn test_compute_parallel_paths_limits_groups() {
+        use crate::network::branch::Branch;
+
+        let sequencer = RestorationSequencer::new(2);
+        let mut net = PowerNetwork::new(100.0);
+        // Three black-start buses (1, 3, 5) each with one neighbour (2, 4, 6)
+        for id in [1, 2, 3, 4, 5, 6] {
+            net.buses.push(Bus::new(id, BusType::Slack));
+        }
+        net.branches.push(Branch {
+            from_bus: 1,
+            to_bus: 2,
+            r: 0.1,
+            x: 0.2,
+            b: 0.01,
+            rate_a: 100.0,
+            rate_b: 100.0,
+            rate_c: 100.0,
+            tap: 1.0,
+            shift: 0.0,
+            status: true,
+        });
+        net.branches.push(Branch {
+            from_bus: 3,
+            to_bus: 4,
+            r: 0.1,
+            x: 0.2,
+            b: 0.01,
+            rate_a: 100.0,
+            rate_b: 100.0,
+            rate_c: 100.0,
+            tap: 1.0,
+            shift: 0.0,
+            status: true,
+        });
+        net.branches.push(Branch {
+            from_bus: 5,
+            to_bus: 6,
+            r: 0.1,
+            x: 0.2,
+            b: 0.01,
+            rate_a: 100.0,
+            rate_b: 100.0,
+            rate_c: 100.0,
+            tap: 1.0,
+            shift: 0.0,
+            status: true,
+        });
+
+        let groups = sequencer.compute_parallel_paths(&net, &[1, 3, 5]);
+        assert!(
+            groups.len() <= 2,
+            "result must be clamped to max_parallel_paths=2, got {}",
+            groups.len()
+        );
+    }
+
+    #[test]
+    fn test_metrics_zero_customers_returns_zero() {
+        let metrics = RestorationMetrics::new(0, 0.0);
+        let blocks = vec![make_load_block(0, 20.0, 1, false)];
+        let plan = RestorationPlan {
+            steps: vec![RestorationStep {
+                step_id: 1,
+                time_min: 30.0,
+                action: RestorationAction::PickupLoadBlock {
+                    block_id: 0,
+                    actual_mw: 20.0,
+                },
+                available_generation_mw: 50.0,
+                connected_load_mw: 20.0,
+                frequency_hz: 50.0,
+                notes: String::new(),
+            }],
+            total_time_min: 60.0,
+            restored_load_pct: 1.0,
+            n_black_start_units_used: 1,
+            critical_loads_restored_min: 30.0,
+            feasible: true,
+            bottlenecks: vec![],
+        };
+        let customers_per_block = [100usize];
+        assert!(
+            (metrics.compute_saidi(&plan, &customers_per_block)).abs() < 1e-9,
+            "SAIDI must be 0.0 when total_customers == 0"
+        );
+        assert!(
+            (metrics.compute_saifi(&plan, &customers_per_block)).abs() < 1e-9,
+            "SAIFI must be 0.0 when total_customers == 0"
+        );
+        // ENS is independent of customer count; block 0 restored at t=30 min
+        // → duration_h = 0.5, ENS = 20 MW * 0.5 h = 10 MWh
+        assert!(
+            (metrics.compute_ens(&plan, &blocks) - 10.0_f64).abs() < 1e-9,
+            "ENS must equal 10 MWh for the one restored block"
+        );
+    }
+
+    #[test]
+    fn test_metrics_ens_unrestored_block() {
+        // outage starts at t=0, plan runs 120 min
+        // block 0 restored at t=30, block 1 never restored
+        let metrics = RestorationMetrics::new(100, 0.0);
+        let blocks = vec![
+            make_load_block(0, 20.0, 1, false), // 20 MW
+            make_load_block(1, 10.0, 2, true),  // 10 MW — unrestored
+        ];
+        let plan = RestorationPlan {
+            steps: vec![RestorationStep {
+                step_id: 1,
+                time_min: 30.0,
+                action: RestorationAction::PickupLoadBlock {
+                    block_id: 0,
+                    actual_mw: 20.0,
+                },
+                available_generation_mw: 50.0,
+                connected_load_mw: 20.0,
+                frequency_hz: 50.0,
+                notes: String::new(),
+            }],
+            total_time_min: 120.0,
+            restored_load_pct: 0.5,
+            n_black_start_units_used: 1,
+            critical_loads_restored_min: 30.0,
+            feasible: true,
+            bottlenecks: vec![],
+        };
+        let ens = metrics.compute_ens(&plan, &blocks);
+        // block 0 restored at t=30: ENS contribution = 20 MW * (30/60) h = 10 MWh
+        // block 1 unrestored:       ENS contribution = 10 MW * (120/60) h = 20 MWh
+        // total = 30 MWh
+        let expected = 10.0_f64 + 20.0_f64;
+        assert!(
+            (ens - expected).abs() < 1e-9,
+            "ENS must include unrestored block contribution: expected {expected}, got {ens}"
+        );
+    }
+}

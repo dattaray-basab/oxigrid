@@ -1,6 +1,6 @@
 [package]
 name = "oxigrid"
-version = "0.1.1"
+version = "0.1.2"
 edition = "2021"
 rust-version = "1.75"
 license = "Apache-2.0"
@@ -91,3 +91,13 @@ harness = false
 name = "opf_bench"
 required-features = ["optimize"]
 harness = false
+
+[[test]]
+name = "kokam_75ah_test"
+path = "tests/battery_validation/kokam_75ah_test.rs"
+required-features = ["battery"]
+
+[[test]]
+name = "lfp_cell_test"
+path = "tests/battery_validation/lfp_cell_test.rs"
+required-features = ["battery"]

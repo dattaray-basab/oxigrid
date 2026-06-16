@@ -585,4 +585,202 @@ mod tests {
             result.payback_years
         );
     }
+
+    #[test]
+    fn test_compute_lcoe_zero_discount_rate() {
+        // With zero discount rate, LCOE = total nominal cost / (energy * lifetime)
+        let config = MicrogridSizingConfig {
+            project_lifetime_years: 10,
+            discount_rate: 0.0,
+            reliability_target: 0.80,
+            grid_connected: false,
+            n_monte_carlo: 5,
+        };
+        let sizer = MicrogridSizer::new(config);
+        let opt = diesel_option();
+        let sizes = vec![(ComponentType::DieselGenerator, 100.0)];
+        let annual_energy = 876_000.0_f64; // 100 kW * 8760 h
+        let lcoe = sizer.compute_lcoe(&sizes, &[opt], annual_energy);
+        // Must be finite and positive
+        assert!(
+            lcoe.is_finite(),
+            "LCOE must be finite with zero discount rate"
+        );
+        assert!(lcoe > 0.0, "LCOE must be positive, got {lcoe}");
+    }
+
+    #[test]
+    fn test_compute_lcoe_long_lifetime() {
+        // Very long project lifetime should produce a lower LCOE due to more energy years
+        let config_short = MicrogridSizingConfig {
+            project_lifetime_years: 5,
+            discount_rate: 0.05,
+            reliability_target: 0.80,
+            grid_connected: false,
+            n_monte_carlo: 5,
+        };
+        let config_long = MicrogridSizingConfig {
+            project_lifetime_years: 40,
+            discount_rate: 0.05,
+            reliability_target: 0.80,
+            grid_connected: false,
+            n_monte_carlo: 5,
+        };
+        let opt = solar_option();
+        let sizes = vec![(ComponentType::SolarPv, 100.0)];
+        let annual_energy = 200_000.0_f64;
+        let lcoe_short = MicrogridSizer::new(config_short).compute_lcoe(
+            &sizes,
+            std::slice::from_ref(&opt),
+            annual_energy,
+        );
+        let lcoe_long =
+            MicrogridSizer::new(config_long).compute_lcoe(&sizes, &[opt], annual_energy);
+        assert!(
+            lcoe_long < lcoe_short,
+            "longer lifetime should yield lower LCOE: short={lcoe_short}, long={lcoe_long}"
+        );
+    }
+
+    #[test]
+    fn test_optimize_empty_load_profile_returns_error() {
+        let sizer = MicrogridSizer::new(make_config(0.80));
+        let empty_load = LoadProfile {
+            hourly_load_kw: vec![],
+            peak_load_kw: 0.0,
+            annual_energy_kwh: 10_000.0,
+        };
+        let result = sizer.optimize(&empty_load, &solar_irr(), &wind_cf(), vec![diesel_option()]);
+        assert!(
+            matches!(result, Err(SizingError::InvalidLoad(_))),
+            "empty hourly_load_kw should produce InvalidLoad, got {:?}",
+            result
+        );
+    }
+
+    #[test]
+    fn test_optimize_single_component_option_succeeds() {
+        // Diesel alone should meet any reasonable reliability target
+        let sizer = MicrogridSizer::new(make_config(0.50));
+        let load = flat_load(80.0); // 80 kW continuous
+        let result = sizer.optimize(&load, &solar_irr(), &wind_cf(), vec![diesel_option()]);
+        assert!(
+            result.is_ok(),
+            "single diesel option should find a feasible solution: {:?}",
+            result.err()
+        );
+        let r = result.expect("single component optimize");
+        assert_eq!(
+            r.optimal_sizes.len(),
+            1,
+            "result must contain exactly one component"
+        );
+    }
+
+    #[test]
+    fn test_sizing_result_total_cost_matches_capex() {
+        let sizer = MicrogridSizer::new(make_config(0.80));
+        let load = flat_load(20.0);
+        let result = sizer
+            .optimize(
+                &load,
+                &solar_irr(),
+                &wind_cf(),
+                vec![solar_option(), battery_option(), diesel_option()],
+            )
+            .expect("optimize for cost check");
+        // total_capex_usd must be positive (components cost something)
+        assert!(
+            result.total_capex_usd > 0.0,
+            "total_capex_usd must be positive, got {}",
+            result.total_capex_usd
+        );
+        // npv_usd is stored as negative of capex
+        assert!(
+            (result.npv_usd + result.total_capex_usd).abs() < 1e-6,
+            "npv_usd should equal -total_capex_usd"
+        );
+    }
+
+    #[test]
+    fn test_load_profile_seasonal_pattern() {
+        // Build a realistic seasonal load: higher in winter (first/last 2160 h), lower in summer
+        let mut hourly = vec![0.0_f64; 8760];
+        for (h, val) in hourly.iter_mut().enumerate() {
+            *val = if !(2160..6600).contains(&h) {
+                30.0
+            } else {
+                20.0
+            };
+        }
+        let annual_energy: f64 = hourly.iter().sum();
+        let peak = hourly.iter().cloned().fold(f64::NEG_INFINITY, f64::max);
+        let profile = LoadProfile {
+            hourly_load_kw: hourly,
+            peak_load_kw: peak,
+            annual_energy_kwh: annual_energy,
+        };
+        assert_eq!(profile.hourly_load_kw.len(), 8760, "must have 8760 hours");
+        assert!(
+            (profile.peak_load_kw - 30.0).abs() < 1e-9,
+            "peak should be 30 kW, got {}",
+            profile.peak_load_kw
+        );
+        // Annual energy: 4320 h * 30 kW + 4440 h * 20 kW = 129_600 + 88_800 = 218_400
+        assert!(
+            (profile.annual_energy_kwh - 218_400.0).abs() < 1.0,
+            "annual energy mismatch: got {}",
+            profile.annual_energy_kwh
+        );
+    }
+
+    #[test]
+    fn test_component_option_zero_capacity() {
+        // A ComponentOption with a zero-kW size should not cause panics in LCOE calculation
+        let config = MicrogridSizingConfig {
+            project_lifetime_years: 20,
+            discount_rate: 0.08,
+            reliability_target: 0.50,
+            grid_connected: false,
+            n_monte_carlo: 5,
+        };
+        let zero_opt = ComponentOption {
+            component_type: ComponentType::BatteryStorage,
+            sizes_kw_or_kwh: vec![0.0],
+            capex_usd_per_unit: vec![0.0],
+            opex_usd_per_kw_year: 5.0,
+            lifetime_years: 10,
+            replacement_cost_usd: 0.0,
+        };
+        let sizer = MicrogridSizer::new(config);
+        let sizes = vec![(ComponentType::BatteryStorage, 0.0)];
+        let lcoe = sizer.compute_lcoe(&sizes, &[zero_opt], 87_600.0);
+        // Zero-capacity battery contributes zero cost, so LCOE should be zero or very small
+        assert!(
+            lcoe.is_finite(),
+            "LCOE must be finite for zero-capacity component, got {lcoe}"
+        );
+        assert!(lcoe >= 0.0, "LCOE must be non-negative, got {lcoe}");
+    }
+
+    #[test]
+    fn test_microgrid_sizing_config_default_values() {
+        let cfg = MicrogridSizingConfig::default();
+        assert_eq!(
+            cfg.project_lifetime_years, 20,
+            "default lifetime is 20 years"
+        );
+        assert!(
+            (cfg.discount_rate - 0.08).abs() < 1e-10,
+            "default discount rate is 8%, got {}",
+            cfg.discount_rate
+        );
+        assert!(
+            (cfg.reliability_target - 0.9999).abs() < 1e-10,
+            "default reliability target is 0.9999, got {}",
+            cfg.reliability_target
+        );
+        assert!(!cfg.grid_connected, "default is off-grid");
+        assert_eq!(cfg.n_monte_carlo, 500, "default Monte Carlo trials is 500");
+    }
 }

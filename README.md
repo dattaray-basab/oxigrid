@@ -1,7 +1,7 @@
 # OxiGrid
 
 [![Build](https://img.shields.io/badge/build-passing-brightgreen)](https://github.com/cool-japan/oxigrid)
-[![Tests](https://img.shields.io/badge/tests-5036%20passing-brightgreen)](https://github.com/cool-japan/oxigrid)
+[![Tests](https://img.shields.io/badge/tests-6123%20passing-brightgreen)](https://github.com/cool-japan/oxigrid)
 [![License](https://img.shields.io/badge/license-Apache--2.0-blue)](LICENSE)
 [![Rust](https://img.shields.io/badge/rust-2021%20%E2%80%A2%20MSRV%201.75-orange)](https://www.rust-lang.org)
 [![COOLJAPAN](https://img.shields.io/badge/COOLJAPAN-ecosystem-blue)](https://github.com/cool-japan)
@@ -51,6 +51,9 @@ reliability, embedded deployability, and first-class Rust ergonomics.
 - **Three-phase unbalanced power flow** — Newton-Raphson for distribution networks
 - **Probabilistic power flow** — Monte Carlo load uncertainty propagation
 - **SIMD kernels** — AVX2 inner-loop acceleration (behind `simd` feature)
+- **DC Power Flow** — full sparse DC power flow with B-matrix, LU factorisation, sensitivity matrix
+- **Harmonic Power Flow** — harmonic-coupled power flow for harmonic interaction studies
+- **Stochastic Load Flow** — Monte Carlo AC load flow with configurable uncertainty distributions
 - Q-limit enforcement for PV buses (automatic PV→PQ switching)
 - Warm-start Newton-Raphson for sequential time-series solving
 
@@ -68,6 +71,9 @@ reliability, embedded deployability, and first-class Rust ergonomics.
 - **AGC** — multi-area automatic generation control, governor droop, FCR assessment, HVDC frequency
   support
 - **Restoration** — black-start planning, restoration sequencer, SAIDI/SAIFI/ENS reliability indices
+- **AVR** — IEEE Type I/II/III automatic voltage regulator with anti-windup, coupled into transient
+  stability simulation
+- **PSS Tuner** — PSS parameter optimisation via residue method and frequency-domain criteria
 - **Load modelling** — ZIP, motor, composite load models
 
 ### Battery Modelling (`battery`)
@@ -121,6 +127,12 @@ reliability, embedded deployability, and first-class Rust ergonomics.
   market (PTDF-filtered merit-order), demand response programs (price elasticity, VOLL)
 - **Expansion Planning** — robust TEP (Benders decomposition), generation and network expansion
 - **Reliability** — N-1 contingency reliability indices
+- **Carbon OPF** — carbon-constrained DC-OPF with hard CO₂ cap, Green LMP, and Pareto-front sweep
+- **N-1 SCOPF** — N-1 security-constrained OPF with corrective action dispatch
+- **Stochastic UC** — scenario-tree stochastic unit commitment with expected-cost minimisation
+- **Carbon Market** — EU ETS-style allowance auction, permit allocation, multi-year carbon plans
+- **P2P Energy Market** — peer-to-peer trading with six clearing mechanisms
+- **Multi-energy Hub** — EnergyHub/MesOptimizer coupling electricity, gas, heat, H₂ via converters
 
 ### Harmonics Analysis (`harmonics`)
 
@@ -140,6 +152,11 @@ reliability, embedded deployability, and first-class Rust ergonomics.
   verification, advanced coordination
 - **Differential protection** — transformer and line differential relay
 - **Auto-recloser** — reclosing sequence logic
+- **HIF Detection** — high-impedance fault detection (even-harmonic ratio, half-cycle asymmetry,
+  incremental-energy) with Dempster-Shafer evidence fusion
+- **Fault Current Limiter** — SFCL, resistive, and bridge-type FCL models
+- **FLISR** — Fault Location, Isolation and Service Restoration for distribution automation
+- **Zone Protection Coordination** — comprehensive relay grading with CTI verification
 
 ### Power Quality (`powerquality`)
 
@@ -147,6 +164,39 @@ reliability, embedded deployability, and first-class Rust ergonomics.
 - **Indices** — THD, K-factor, crest factor, EN 50160/IEEE 519/IEC 61000-3-2/NERC TPL compliance
 - **Sag/swell detection** — half-cycle RMS, ITIC/SEMI F47 curves
 - **Waveform analysis** — time-frequency analysis, event characterisation
+
+### Analytics (`analytics`)
+
+- **Grid KPI Dashboard** — IEEE 1366 reliability metrics (SAIDI, SAIFI, CAIDI, ASAI, ENS), power
+  quality (THD), and economic metrics (LCOE, NPV, IRR) via `GridKpiDashboard`
+- **Grid Health Scorer** — component-level health scoring with configurable category weights and
+  `GridHealthReport` aggregation
+- **Carbon Accounting** — scope 1/2/3 CO₂e accounting, `CarbonBudgetTracker`, ETS tracking, grid
+  emission intensity, ISO 14064-1 compliant reporting; `CarbonIntensityForecaster`
+- **Energy Equity** — energy burden, affordability, and Gini-coefficient equity metrics
+- **Operational Analytics** — time-series KPI trending with anomaly scoring and `OperationalDashboard`
+- **Predictive Maintenance** — asset RUL estimation, `DegradationModel`, `HealthIndex`, maintenance
+  schedule generation
+- **Congestion Analytics** — real-time congestion and renewable performance KPI reporting
+
+### Simulation (`simulation`)
+
+- **Co-simulation Framework** — cyber-physical coupling: physical voltage dynamics, SCADA
+  communication (latency, packet-loss), control layer, CUSUM-based cyber-attack detection; supports
+  false-data injection, replay, DoS, and man-in-the-middle scenarios
+- **Operator Training Simulator** — scenario-based training with automatic event injection, action
+  grading, emergency procedure guidance, and competency scoring
+
+### Security (`security`)
+
+- **Anomaly Detection** — z-score, EWMA, and CUSUM detectors for grid measurement streams with
+  `MeasurementCorrelationAnalyzer` for cross-sensor change detection
+- **Data Integrity** — hash-chain audit trail for measurement integrity verification
+
+### Wide-Area Monitoring (`io`/WAMS)
+
+- **WAMS Analyzer** — GPS-synchronized PMU-based inter-area oscillation detection (AR Prony),
+  frequency coherency clustering (K-means), L-index voltage stability proxy, alarm generation
 
 ### Grid Digital Twin (`digitaltwin`)
 
@@ -187,14 +237,14 @@ Add OxiGrid to `Cargo.toml`:
 
 ```toml
 [dependencies]
-oxigrid = "0.1.1"
+oxigrid = "0.1.2"
 ```
 
 To enable specific subsystems only:
 
 ```toml
 [dependencies]
-oxigrid = { version = "0.1.1", default-features = false, features = ["powerflow", "battery"] }
+oxigrid = { version = "0.1.2", default-features = false, features = ["powerflow", "battery"] }
 ```
 
 ### Newton-Raphson Power Flow
@@ -342,13 +392,13 @@ fn main() -> Result<()> {
 Disable the default feature set and opt-in selectively for minimal binary size:
 
 ```toml
-oxigrid = { version = "0.1.1", default-features = false, features = ["powerflow"] }
+oxigrid = { version = "0.1.2", default-features = false, features = ["powerflow"] }
 ```
 
 Enable the full library including LP/MILP solver and SIMD acceleration:
 
 ```toml
-oxigrid = { version = "0.1.1", features = ["simd", "parallel"] }
+oxigrid = { version = "0.1.2", features = ["simd", "parallel"] }
 ```
 
 ---
@@ -449,7 +499,7 @@ inspects the matrix dimensions at runtime.
 
 ## Testing
 
-OxiGrid ships 5,036 tests covering unit, integration, property-based, and benchmark scenarios.
+OxiGrid ships 6,123 tests covering unit, integration, property-based, and benchmark scenarios.
 
 ```bash
 # Run the full test suite (recommended: nextest for parallel execution)
@@ -502,18 +552,19 @@ cargo run --example renewable_forecast --features renewable
 
 ## Project Statistics
 
-Measured with `tokei` on the current codebase (2026-05-03):
+Measured with `tokei` on the current codebase (2026-06-16):
 
 | Language | Files | Code | Comments | Blanks |
 |----------|-------|------|----------|--------|
-| Rust | 466 | 231,930 | 18,132 | 29,017 |
+| Rust | 483 | 302,247 | — | — |
 | TOML | 2 | 94 | — | 10 |
 | Markdown | 3 | — | 734 | 187 |
-| **Total** | **476** | **233,597** | — | — |
+| **Total** | **488** | **305,108** | — | — |
 
-- **Version**: 0.1.1
-- **Tests**: 5,036 passing
-- **Modules**: 19
+- **Version**: 0.1.2
+- **Tests**: 6,123 passing
+- **Modules**: 22
+- **Last Updated**: 2026-06-16
 
 ---
 
@@ -523,7 +574,7 @@ Contributions are welcome. Please ensure:
 
 1. `cargo fmt --all` — code is formatted
 2. `cargo clippy --all-features -- -D warnings` — no clippy warnings
-3. `cargo nextest run --all-features` — all 5,036 tests pass
+3. `cargo nextest run --all-features` — all 6,123 tests pass
 4. New public API items carry `///` doc comments
 5. No `unwrap()` in production code paths — use `?` and `OxiGridError`
 6. Feature-gate any new optional subsystems in `Cargo.toml` and `src/lib.rs`

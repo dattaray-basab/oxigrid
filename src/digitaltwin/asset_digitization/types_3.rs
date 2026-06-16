@@ -403,3 +403,267 @@ impl AssetRegistry {
         }
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::super::types::{AssetDigitalTwin, AssetLocation, AssetTelemetry, RiskLevel};
+    use super::*;
+
+    fn make_test_twin(
+        asset_id: &str,
+        category: AssetCategory,
+        health: f64,
+        risk: RiskLevel,
+    ) -> AssetDigitalTwin {
+        AssetDigitalTwin {
+            asset_id: asset_id.to_string(),
+            asset_name: "twin".to_string(),
+            category,
+            substation_id: "SUB-001".to_string(),
+            commissioning_date: "2010-01-01".to_string(),
+            manufacturer: "Maker".to_string(),
+            model_number: "M1".to_string(),
+            serial_number: "SN1".to_string(),
+            location: AssetLocation {
+                latitude: 59.43,
+                longitude: 24.75,
+                bay: "A1".to_string(),
+                panel: "P1".to_string(),
+                rack: None,
+            },
+            condition: AssetCondition {
+                overall_health_index: health,
+                mechanical_condition: health,
+                electrical_condition: health,
+                insulation_condition: health,
+                cooling_condition: health,
+                last_inspection_date: "2024-01-01".to_string(),
+                next_maintenance_due: "2025-06-01".to_string(),
+                defect_codes: vec![],
+                risk_level: risk,
+            },
+            nameplate: AssetNameplate {
+                rated_voltage_kv: 110.0,
+                rated_current_ka: 1.0,
+                rated_power_mva: 10.0,
+                frequency_hz: 50.0,
+                temperature_class: "F".to_string(),
+                protection_class: "IP54".to_string(),
+                weight_kg: 5000.0,
+            },
+            telemetry: AssetTelemetry {
+                timestamp: 1_700_000_000.0,
+                current_ka: 0.5,
+                voltage_kv: 110.0,
+                power_mw: 50.0,
+                temperature_c: 60.0,
+                vibration_mm_per_s: 1.0,
+                partial_discharge_pc: 5.0,
+                oil_temperature_c: 55.0,
+                dissolved_gas_h2_ppm: 10.0,
+                sf6_pressure_bar: 6.0,
+            },
+            maintenance_history: vec![],
+            failure_history: vec![],
+            digital_twin_accuracy: 0.9,
+        }
+    }
+
+    #[test]
+    fn asset_category_name_transformer() {
+        let cat = AssetCategory::Transformer {
+            kva_rating: 10000.0,
+            primary_kv: 110.0,
+            secondary_kv: 20.0,
+        };
+        assert_eq!(cat.category_name(), "Transformer");
+    }
+
+    #[test]
+    fn asset_category_name_all_variants() {
+        let variants: Vec<(&'static str, AssetCategory)> = vec![
+            (
+                "Transformer",
+                AssetCategory::Transformer {
+                    kva_rating: 1000.0,
+                    primary_kv: 110.0,
+                    secondary_kv: 20.0,
+                },
+            ),
+            (
+                "Breaker",
+                AssetCategory::Breaker {
+                    current_rating_ka: 2.0,
+                    interrupting_capacity_ka: 40.0,
+                },
+            ),
+            (
+                "TransmissionLine",
+                AssetCategory::TransmissionLine {
+                    length_km: 50.0,
+                    voltage_kv: 110.0,
+                },
+            ),
+            (
+                "Cable",
+                AssetCategory::Cable {
+                    length_km: 5.0,
+                    voltage_kv: 20.0,
+                    insulation_type: "XLPE".to_string(),
+                },
+            ),
+            (
+                "Generator",
+                AssetCategory::Generator {
+                    rated_mw: 100.0,
+                    technology: "Gas".to_string(),
+                },
+            ),
+            (
+                "BusBar",
+                AssetCategory::BusBar {
+                    voltage_kv: 110.0,
+                    current_rating_ka: 3.0,
+                },
+            ),
+            (
+                "ProtectionRelay",
+                AssetCategory::ProtectionRelayAsset {
+                    model: "SEL-421".to_string(),
+                    function_codes: vec![],
+                },
+            ),
+            (
+                "CapacitorBank",
+                AssetCategory::CapacitorBank {
+                    rated_mvar: 50.0,
+                    voltage_kv: 110.0,
+                },
+            ),
+            (
+                "MeasurementTransformer",
+                AssetCategory::MeasurementTransformer {
+                    ratio: 100.0,
+                    accuracy_class: "0.2".to_string(),
+                },
+            ),
+            (
+                "Battery",
+                AssetCategory::Battery {
+                    energy_kwh: 500.0,
+                    power_kw: 250.0,
+                },
+            ),
+            (
+                "Inverter",
+                AssetCategory::Inverter {
+                    power_kw: 250.0,
+                    voltage_level: "LV".to_string(),
+                },
+            ),
+            (
+                "SolarPanel",
+                AssetCategory::SolarPanel {
+                    peak_power_wp: 400.0,
+                    cell_technology: "mono-Si".to_string(),
+                },
+            ),
+            (
+                "WindTurbine",
+                AssetCategory::WindTurbineAsset {
+                    rated_kw: 3000.0,
+                    hub_height_m: 100.0,
+                },
+            ),
+        ];
+        assert_eq!(variants.len(), 13);
+        for (expected, cat) in &variants {
+            let name = cat.category_name();
+            assert!(
+                !name.is_empty(),
+                "category_name must not be empty for {}",
+                expected
+            );
+            assert_eq!(name, *expected, "expected '{}', got '{}'", expected, name);
+        }
+    }
+
+    #[test]
+    fn replacement_value_transformer_scales_with_kva() {
+        let large = AssetCategory::Transformer {
+            kva_rating: 20_000.0,
+            primary_kv: 110.0,
+            secondary_kv: 20.0,
+        };
+        let small = AssetCategory::Transformer {
+            kva_rating: 10_000.0,
+            primary_kv: 110.0,
+            secondary_kv: 20.0,
+        };
+        assert!(large.replacement_value_million_eur() > small.replacement_value_million_eur());
+    }
+
+    #[test]
+    fn design_life_battery_less_than_transformer() {
+        let battery = AssetCategory::Battery {
+            energy_kwh: 500.0,
+            power_kw: 250.0,
+        };
+        let xfmr = AssetCategory::Transformer {
+            kva_rating: 10_000.0,
+            primary_kv: 110.0,
+            secondary_kv: 20.0,
+        };
+        assert!(battery.design_life_years() < xfmr.design_life_years());
+    }
+
+    #[test]
+    fn rated_power_generator_in_mw() {
+        let gen = AssetCategory::Generator {
+            rated_mw: 50.0,
+            technology: "Hydro".to_string(),
+        };
+        let diff = (gen.rated_power_mw() - 50.0).abs();
+        assert!(
+            diff < f64::EPSILON,
+            "rated_power_mw should equal rated_mw for Generator"
+        );
+    }
+
+    #[test]
+    fn asset_registry_empty_fleet_health_score() {
+        let registry = AssetRegistry::new("SUB-001".to_string(), "TestUtility".to_string());
+        let score = registry.fleet_health_score();
+        assert!(
+            (score - 100.0).abs() < f64::EPSILON,
+            "empty registry should return 100.0, got {}",
+            score
+        );
+    }
+
+    #[test]
+    fn asset_registry_add_and_get_asset() {
+        let mut registry = AssetRegistry::new("SUB-001".to_string(), "TestUtility".to_string());
+        let cat = AssetCategory::Generator {
+            rated_mw: 100.0,
+            technology: "Gas".to_string(),
+        };
+        let twin = make_test_twin("GEN-001", cat, 85.0, RiskLevel::Low);
+        registry.add_asset(twin);
+        let found = registry
+            .get_asset("GEN-001")
+            .expect("asset GEN-001 should be found");
+        assert_eq!(found.asset_id, "GEN-001");
+        let not_found = registry.get_asset("NONEXISTENT");
+        assert!(not_found.is_none(), "unknown asset ID must return None");
+    }
+
+    #[test]
+    fn defect_severity_ordering() {
+        assert!(DefectSeverity::None < DefectSeverity::Minor);
+        assert!(DefectSeverity::Minor < DefectSeverity::Moderate);
+        assert!(DefectSeverity::Moderate < DefectSeverity::Significant);
+        assert!(DefectSeverity::Significant < DefectSeverity::Critical);
+        assert!(DefectSeverity::Critical < DefectSeverity::EndOfLife);
+    }
+}

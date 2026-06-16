@@ -737,4 +737,167 @@ mod tests {
         assert!(result.cyber_impact_index.is_finite());
         assert!((0.0..=1.0).contains(&result.cyber_impact_index));
     }
+
+    #[test]
+    fn test_zero_buses_returns_error() {
+        // A state with no buses should be rejected immediately
+        let config = CosimConfig::default();
+        let engine = CosimEngine::new(config);
+        let empty_state = CosimState {
+            time_s: 0.0,
+            voltage_pu: vec![],
+            power_mw: vec![],
+            control_signals: vec![],
+            stale_measurements: vec![],
+            attack_active: false,
+        };
+        let result = engine.run(empty_state);
+        assert!(result.is_err(), "Zero buses must return an error");
+    }
+
+    #[test]
+    fn test_communication_dt_smaller_than_physical_dt_returns_error() {
+        // communication_dt_s < physical_dt_s violates the config invariant
+        let config = CosimConfig {
+            physical_dt_s: 0.1,
+            communication_dt_s: 0.01, // smaller — invalid
+            total_time_s: 1.0,
+            latency_s: 0.0,
+            packet_loss_rate: 0.0,
+            cyber_attack_start: None,
+            cyber_attack_type: None,
+        };
+        let engine = CosimEngine::new(config);
+        let initial = simple_initial_state(2);
+        assert!(
+            engine.run(initial).is_err(),
+            "comm_dt < physical_dt should be rejected"
+        );
+    }
+
+    #[test]
+    fn test_packet_loss_rate_out_of_range_returns_error() {
+        // Packet loss > 1.0 is invalid
+        let config = CosimConfig {
+            packet_loss_rate: 1.5, // out of [0,1]
+            ..CosimConfig::default()
+        };
+        let engine = CosimEngine::new(config);
+        let initial = simple_initial_state(2);
+        assert!(
+            engine.run(initial).is_err(),
+            "packet_loss_rate > 1 must be rejected"
+        );
+    }
+
+    #[test]
+    fn test_mitm_zero_scale_factor_returns_error() {
+        // ManInTheMiddle with scale_factor <= 0 is invalid
+        let config = CosimConfig {
+            physical_dt_s: 0.01,
+            communication_dt_s: 0.1,
+            total_time_s: 2.0,
+            latency_s: 0.0,
+            packet_loss_rate: 0.0,
+            cyber_attack_start: Some(0.5),
+            cyber_attack_type: Some(CyberAttack::ManInTheMiddle {
+                bus: 0,
+                scale_factor: 0.0, // invalid
+            }),
+        };
+        let engine = CosimEngine::new(config);
+        let initial = simple_initial_state(2);
+        assert!(
+            engine.run(initial).is_err(),
+            "scale_factor=0 must be rejected"
+        );
+    }
+
+    #[test]
+    fn test_cosim_result_cyber_impact_index_bounds() {
+        // cyber_impact_index is always in [0, 1] regardless of attack scenario
+        let config = CosimConfig {
+            physical_dt_s: 0.01,
+            communication_dt_s: 0.1,
+            total_time_s: 2.0,
+            latency_s: 0.0,
+            packet_loss_rate: 0.0,
+            cyber_attack_start: Some(0.2),
+            cyber_attack_type: Some(CyberAttack::FalseDataInjection {
+                bus: 0,
+                bias_pu: 1.0,
+            }),
+        };
+        let engine = CosimEngine::new(config);
+        let initial = simple_initial_state(4);
+        let result = engine
+            .run(initial)
+            .expect("impact index test sim should succeed");
+        assert!(
+            (0.0..=1.0).contains(&result.cyber_impact_index),
+            "cyber_impact_index must be in [0,1], got {}",
+            result.cyber_impact_index
+        );
+    }
+
+    #[test]
+    fn test_single_bus_simulation_succeeds() {
+        // Edge case: exactly one bus in the system
+        let config = CosimConfig {
+            physical_dt_s: 0.01,
+            communication_dt_s: 0.1,
+            total_time_s: 1.0,
+            latency_s: 0.0,
+            packet_loss_rate: 0.0,
+            cyber_attack_start: None,
+            cyber_attack_type: None,
+        };
+        let engine = CosimEngine::new(config);
+        let initial = simple_initial_state(1);
+        let result = engine
+            .run(initial)
+            .expect("single-bus simulation should succeed");
+        assert!(!result.time_series.is_empty());
+        for state in &result.time_series {
+            assert_eq!(
+                state.voltage_pu.len(),
+                1,
+                "single-bus state must have exactly one voltage"
+            );
+            assert!(
+                state.voltage_pu[0].is_finite(),
+                "voltage must remain finite"
+            );
+        }
+    }
+
+    #[test]
+    fn test_latency_beyond_comm_dt_uses_delayed_measurements() {
+        // When latency_s >= communication_dt_s the engine falls back to delayed measurements;
+        // verify the simulation still completes and produces finite results.
+        let config = CosimConfig {
+            physical_dt_s: 0.01,
+            communication_dt_s: 0.1,
+            total_time_s: 2.0,
+            latency_s: 0.2, // > communication_dt_s → triggers delayed branch
+            packet_loss_rate: 0.0,
+            cyber_attack_start: None,
+            cyber_attack_type: None,
+        };
+        let engine = CosimEngine::new(config);
+        let initial = simple_initial_state(3);
+        let result = engine
+            .run(initial)
+            .expect("high-latency simulation should succeed");
+        assert!(!result.time_series.is_empty());
+        assert!(result.frequency_deviation_max_hz.is_finite());
+        for state in &result.time_series {
+            for &v in &state.voltage_pu {
+                assert!(
+                    v.is_finite(),
+                    "all voltages must remain finite under latency"
+                );
+            }
+        }
+    }
 }

@@ -59,6 +59,7 @@ pub enum CongestionMethod {
 // ── Congestion info per branch ────────────────────────────────────────────────
 
 /// Details of a single congested branch.
+#[derive(Debug)]
 pub struct CongestionInfo {
     /// Branch index (0-based).
     pub branch_id: usize,
@@ -99,6 +100,7 @@ pub struct RedispatchPair {
 // ── Congestion result ─────────────────────────────────────────────────────────
 
 /// Outcome of a congestion management run.
+#[derive(Debug)]
 pub struct CongestionResult {
     /// Details for each branch that was (or remains) congested.
     pub congested_branches: Vec<CongestionInfo>,
@@ -589,5 +591,194 @@ mod tests {
             matches!(result, Err(CongestionError::PtdfDimensionMismatch { .. })),
             "Expected PtdfDimensionMismatch"
         );
+    }
+
+    /// `set_network_state` rejects a flows vector of wrong length.
+    #[test]
+    fn test_set_network_state_wrong_flows_length() {
+        let config = CongestionConfig {
+            n_buses: 3,
+            n_branches: 2,
+            base_mva: 100.0,
+            method: CongestionMethod::Redispatch,
+            redispatch_cost_limit_usd: 1e9,
+        };
+        let mut mgr = CongestionManager::new(config);
+        let err = mgr
+            .set_network_state(vec![1.0], vec![100.0, 100.0], vec![0.0; 3])
+            .expect_err("should fail on wrong flows length");
+        assert!(
+            matches!(
+                err,
+                CongestionError::StateLengthMismatch {
+                    got: 1,
+                    expected: 2
+                }
+            ),
+            "Unexpected error: {:?}",
+            err
+        );
+    }
+
+    /// `set_network_state` rejects a ratings vector of wrong length.
+    #[test]
+    fn test_set_network_state_wrong_ratings_length() {
+        let config = CongestionConfig {
+            n_buses: 3,
+            n_branches: 2,
+            base_mva: 100.0,
+            method: CongestionMethod::MarketSplit,
+            redispatch_cost_limit_usd: 1e9,
+        };
+        let mut mgr = CongestionManager::new(config);
+        let err = mgr
+            .set_network_state(vec![10.0, 20.0], vec![100.0], vec![0.0; 3])
+            .expect_err("should fail on wrong ratings length");
+        assert!(
+            matches!(
+                err,
+                CongestionError::StateLengthMismatch {
+                    got: 1,
+                    expected: 2
+                }
+            ),
+            "Unexpected error: {:?}",
+            err
+        );
+    }
+
+    /// `set_generator_data` rejects a costs vector of wrong length.
+    #[test]
+    fn test_set_generator_data_wrong_costs_length() {
+        let config = CongestionConfig {
+            n_buses: 3,
+            n_branches: 2,
+            base_mva: 100.0,
+            method: CongestionMethod::CounterTrading,
+            redispatch_cost_limit_usd: 1e9,
+        };
+        let mut mgr = CongestionManager::new(config);
+        let err = mgr
+            .set_generator_data(vec![10.0, 20.0], vec![100.0; 3])
+            .expect_err("should fail on wrong costs length");
+        assert!(
+            matches!(
+                err,
+                CongestionError::StateLengthMismatch {
+                    got: 2,
+                    expected: 3
+                }
+            ),
+            "Unexpected error: {:?}",
+            err
+        );
+    }
+
+    /// `CongestionError::CostLimitExceeded` is raised when redispatch cost
+    /// exceeds the configured limit.
+    #[test]
+    fn test_resolve_congestion_cost_limit_exceeded() {
+        let config = CongestionConfig {
+            n_buses: 3,
+            n_branches: 2,
+            base_mva: 100.0,
+            method: CongestionMethod::PtdfBased,
+            redispatch_cost_limit_usd: 0.01, // extremely tight limit
+        };
+        let mut mgr = CongestionManager::new(config);
+        mgr.set_ptdf_matrix(vec![vec![0.5, 0.0, -0.5], vec![-0.3, 0.0, 0.3]])
+            .expect("PTDF ok");
+        mgr.set_network_state(
+            vec![120.0, 50.0],
+            vec![100.0, 200.0],
+            vec![120.0, -150.0, 30.0],
+        )
+        .expect("state ok");
+        mgr.set_generator_data(vec![20.0, 0.0, 50.0], vec![200.0, 0.0, 200.0])
+            .expect("gen ok");
+
+        let outcome = mgr.resolve_congestion();
+        assert!(
+            matches!(outcome, Err(CongestionError::CostLimitExceeded { .. })),
+            "Expected CostLimitExceeded error from resolve_congestion"
+        );
+    }
+
+    /// Negative branch flow triggers congestion detection (overload from
+    /// the reverse direction).
+    #[test]
+    fn test_identify_congestion_negative_flow() {
+        let config = CongestionConfig {
+            n_buses: 2,
+            n_branches: 1,
+            base_mva: 100.0,
+            method: CongestionMethod::PtdfBased,
+            redispatch_cost_limit_usd: 1e9,
+        };
+        let mut mgr = CongestionManager::new(config);
+        mgr.set_ptdf_matrix(vec![vec![0.5, -0.5]]).expect("PTDF ok");
+        // Flow is −130 MW on a 100 MW rated branch → 30 MW overload.
+        mgr.set_network_state(vec![-130.0], vec![100.0], vec![-130.0, 130.0])
+            .expect("state ok");
+        mgr.set_generator_data(vec![30.0, 0.0], vec![200.0, 0.0])
+            .expect("gen ok");
+
+        let congested = mgr.identify_congestion();
+        assert_eq!(congested.len(), 1, "Branch 0 should be congested");
+        assert!(
+            (congested[0].overload_mw - 30.0).abs() < 1e-6,
+            "Expected 30 MW overload, got {:.4}",
+            congested[0].overload_mw
+        );
+        assert!(congested[0].base_flow_mw < 0.0, "Flow must be negative");
+    }
+
+    /// `ptdf_max` field of `CongestionInfo` reflects the largest |PTDF| for
+    /// the congested branch.
+    #[test]
+    fn test_congestion_info_ptdf_max() {
+        let mgr = make_manager();
+        let congested = mgr.identify_congestion();
+        assert_eq!(congested.len(), 1, "One congested branch expected");
+        // Branch 0 PTDFs: [0.5, 0.0, -0.5] → max |val| = 0.5
+        assert!(
+            (congested[0].ptdf_max - 0.5).abs() < 1e-9,
+            "ptdf_max should be 0.5, got {:.6}",
+            congested[0].ptdf_max
+        );
+    }
+
+    /// `CongestionMethod` derives Clone and PartialEq correctly.
+    #[test]
+    fn test_congestion_method_clone_and_eq() {
+        let m1 = CongestionMethod::MarketSplit;
+        let m2 = m1.clone();
+        assert_eq!(m1, m2, "Cloned CongestionMethod must equal original");
+        assert_ne!(
+            CongestionMethod::Redispatch,
+            CongestionMethod::CounterTrading,
+            "Different variants must not be equal"
+        );
+    }
+
+    /// `resolve_congestion` populates `area_price_spreads` when there is a
+    /// congested branch with a non-zero shadow price.
+    #[test]
+    fn test_resolve_congestion_area_price_spreads_populated() {
+        let mgr = make_manager();
+        let result = mgr.resolve_congestion().expect("resolve ok");
+        assert!(
+            !result.area_price_spreads.is_empty(),
+            "area_price_spreads must be non-empty when congestion is present"
+        );
+        // Each spread entry must have a non-zero shadow price value.
+        for &(bus_i, bus_j, spread) in &result.area_price_spreads {
+            assert!(
+                spread.abs() > 0.0,
+                "Spread between bus {} and {} should be non-zero",
+                bus_i,
+                bus_j
+            );
+        }
     }
 }

@@ -950,4 +950,169 @@ mod tests {
         assert!(result.total_cost_usd >= 0.0);
         assert!(result.co2_emissions_kg >= 0.0);
     }
+
+    #[test]
+    fn test_no_hubs_returns_error() {
+        let opt = MesOptimizer::new(simple_config(3, 0.08));
+        let result = opt.optimize();
+        match result {
+            Err(MesError::NoHubs) => {}
+            other => panic!("expected Err(MesError::NoHubs), got {:?}", other),
+        }
+    }
+
+    #[test]
+    fn test_demand_length_mismatch_error() {
+        let hub = EnergyHub {
+            id: 0,
+            converters: vec![boiler_converter()],
+            storages: vec![],
+            demands: vec![EnergyDemand {
+                carrier: EnergyCarrier::Heat,
+                demand_kw: vec![10.0; 3], // length 3, but n_hours = 5
+            }],
+        };
+
+        let mut opt = MesOptimizer::new(simple_config(5, 0.08));
+        opt.add_hub(hub);
+
+        let result = opt.optimize();
+        match result {
+            Err(MesError::DemandLengthMismatch { .. }) => {}
+            other => panic!(
+                "expected Err(MesError::DemandLengthMismatch), got {:?}",
+                other
+            ),
+        }
+    }
+
+    #[test]
+    fn test_grid_export_when_surplus() {
+        // CHP produces both heat and electricity.
+        // Heat demand = 20 kW; CHP eta_heat = 0.45 → input = 20/0.45 ≈ 44.4 kW
+        // Electricity byproduct = 44.4 × 0.35 ≈ 15.6 kW, no electricity demand.
+        // → elec_balance > 0 → grid_export_kw > 0
+        let hub = EnergyHub {
+            id: 0,
+            converters: vec![chp_converter()],
+            storages: vec![],
+            demands: vec![EnergyDemand {
+                carrier: EnergyCarrier::Heat,
+                demand_kw: vec![20.0; 3],
+            }],
+        };
+
+        let mut opt = MesOptimizer::new(simple_config(3, 0.08));
+        opt.add_hub(hub);
+
+        let result = opt.optimize().expect("optimise should succeed");
+        let any_export = result.hub_dispatch.iter().any(|d| d.grid_export_kw > 1e-6);
+        assert!(
+            any_export,
+            "CHP electricity byproduct should cause grid export"
+        );
+    }
+
+    #[test]
+    fn test_zero_demand_zero_cost() {
+        let n = 4;
+        let hub = EnergyHub {
+            id: 0,
+            converters: vec![boiler_converter()],
+            storages: vec![],
+            demands: vec![EnergyDemand {
+                carrier: EnergyCarrier::Heat,
+                demand_kw: vec![0.0; n],
+            }],
+        };
+
+        let mut opt = MesOptimizer::new(simple_config(n, 0.08));
+        opt.add_hub(hub);
+
+        let result = opt.optimize().expect("optimise should succeed");
+        assert_eq!(
+            result.total_cost_usd, 0.0,
+            "zero demand should yield zero cost"
+        );
+        assert_eq!(
+            result.co2_emissions_kg, 0.0,
+            "zero demand should yield zero emissions"
+        );
+    }
+
+    #[test]
+    fn test_peak_demand_tracked() {
+        // Hours 0–1: 5 kW, hour 2: 50 kW.  No converters → full grid import.
+        let hub = EnergyHub {
+            id: 0,
+            converters: vec![],
+            storages: vec![],
+            demands: vec![EnergyDemand {
+                carrier: EnergyCarrier::Electricity,
+                demand_kw: vec![5.0, 5.0, 50.0],
+            }],
+        };
+
+        let mut opt = MesOptimizer::new(simple_config(3, 0.08));
+        opt.add_hub(hub);
+
+        let result = opt.optimize().expect("optimise should succeed");
+        assert!(
+            result.peak_demand_kw >= 50.0 - 1e-6,
+            "peak_demand_kw should be at least 50 kW, got {}",
+            result.peak_demand_kw
+        );
+    }
+
+    #[test]
+    fn test_renewable_fraction_in_range() {
+        let hub = EnergyHub {
+            id: 0,
+            converters: vec![chp_converter()],
+            storages: vec![],
+            demands: vec![EnergyDemand {
+                carrier: EnergyCarrier::Heat,
+                demand_kw: vec![30.0; 4],
+            }],
+        };
+
+        let mut opt = MesOptimizer::new(simple_config(4, 0.08));
+        opt.add_hub(hub);
+
+        let result = opt.optimize().expect("optimise should succeed");
+        assert!(
+            result.renewable_fraction >= 0.0,
+            "renewable_fraction must be >= 0, got {}",
+            result.renewable_fraction
+        );
+        assert!(
+            result.renewable_fraction <= 1.0,
+            "renewable_fraction must be <= 1, got {}",
+            result.renewable_fraction
+        );
+    }
+
+    #[test]
+    fn test_energy_cost_per_kwh_positive() {
+        let n = 3;
+        let hub = EnergyHub {
+            id: 0,
+            converters: vec![boiler_converter()],
+            storages: vec![],
+            demands: vec![EnergyDemand {
+                carrier: EnergyCarrier::Heat,
+                demand_kw: vec![20.0; n],
+            }],
+        };
+
+        let mut opt = MesOptimizer::new(simple_config(n, 0.08));
+        opt.add_hub(hub);
+
+        let result = opt.optimize().expect("optimise should succeed");
+        assert!(
+            result.energy_cost_usd_per_kwh > 0.0,
+            "energy_cost_usd_per_kwh should be positive when heat is served, got {}",
+            result.energy_cost_usd_per_kwh
+        );
+    }
 }

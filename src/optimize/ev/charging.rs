@@ -806,4 +806,163 @@ mod tests {
             assert!((-1e-6..=1.0 + 1e-6).contains(&s), "SoC OOB: {:.4}", s);
         }
     }
+
+    // ── new tests ─────────────────────────────────────────────────────────────
+
+    #[test]
+    fn test_ev_session_window_hours() {
+        let session = make_session(18.0, 31.0);
+        // 31.0 - 18.0 = 13.0 hours
+        assert!((session.window_hours() - 13.0).abs() < 1e-10);
+    }
+
+    #[test]
+    fn test_ev_session_v2g_headroom_no_excess() {
+        // When soc_arrival < soc_target there is no headroom above target
+        let session = EvSession {
+            soc_arrival: 0.3,
+            soc_target: 0.8,
+            battery_kwh: 60.0,
+            ..Default::default()
+        };
+        // soc_upper = max(0.3, 0.8) = 0.8 = soc_target → headroom = 0
+        assert!(session.v2g_headroom_kwh().abs() < 1e-10);
+    }
+
+    #[test]
+    fn test_ev_session_v2g_headroom_with_excess() {
+        // When soc_arrival > soc_target there is headroom
+        let session = EvSession {
+            soc_arrival: 0.95,
+            soc_target: 0.6,
+            battery_kwh: 100.0,
+            ..Default::default()
+        };
+        // soc_upper = max(0.95, 0.6) = 0.95; headroom = (0.95 - 0.6)*100 = 35 kWh
+        let expected = 35.0_f64;
+        assert!(
+            (session.v2g_headroom_kwh() - expected).abs() < 1e-9,
+            "expected {expected} kWh headroom, got {}",
+            session.v2g_headroom_kwh()
+        );
+    }
+
+    #[test]
+    fn test_ev_session_min_charge_hours_zero_power() {
+        // A vehicle with zero max charge rate should return INFINITY
+        let session = EvSession {
+            max_charge_kw: 0.0,
+            ..Default::default()
+        };
+        assert!(
+            session.min_charge_hours().is_infinite(),
+            "expected INFINITY for zero max_charge_kw"
+        );
+    }
+
+    #[test]
+    fn test_smart_charger_n_slots_and_simulate_soc() {
+        let charger = make_charger(); // 96 slots
+        assert_eq!(charger.n_slots(), 96);
+
+        // Simulate charging: 11 kW for 1 slot (0.25 h) into a 60 kWh battery at η=0.92
+        let power = vec![11.0_f64];
+        let soc_traj = charger.simulate_soc(&power, 0.3, 60.0, 0.92, 0.92);
+        // delta_soc = 0.92 * 11.0 * 0.25 / 60.0 ≈ 0.04217
+        let expected_soc = 0.3 + 0.92 * 11.0 * 0.25 / 60.0;
+        assert_eq!(soc_traj.len(), 2, "trajectory must have n+1 entries");
+        assert!(
+            (soc_traj[1] - expected_soc).abs() < 1e-10,
+            "SoC after charging: expected {expected_soc:.6}, got {:.6}",
+            soc_traj[1]
+        );
+
+        // Simulate discharging: negative power lowers SoC
+        let power_dis = vec![-7.4_f64];
+        let soc_dis = charger.simulate_soc(&power_dis, 0.9, 60.0, 0.92, 0.92);
+        assert!(soc_dis[1] < 0.9, "discharge must reduce SoC");
+    }
+
+    #[test]
+    fn test_compute_metrics_charge_discharge() {
+        let charger = make_charger();
+        // Use slot 0 (cheap, 0.05 $/kWh) and slot 40 (expensive, 0.25 $/kWh)
+        // power_kw: [+11.0 (charge), -7.4 (discharge)]
+        let power_kw = vec![11.0_f64, -7.4_f64];
+        let slot_indices = vec![0usize, 40usize];
+        let deg_cost_per_kwh = 0.05_f64;
+        let dt = 0.25_f64;
+        let (ec, vr, dc) = charger.compute_metrics(&power_kw, &slot_indices, deg_cost_per_kwh, dt);
+
+        // energy cost: 0.05 * 11.0 * 0.25 = 0.1375
+        let expected_ec = 0.05 * 11.0 * 0.25;
+        // v2g revenue: 0.25 * 7.4 * 0.25 = 0.4625
+        let expected_vr = 0.25 * 7.4 * 0.25;
+        // degradation: 0.05 * (11.0 + 7.4) * 0.25 = 0.23
+        let expected_dc = 0.05 * (11.0 + 7.4) * 0.25;
+
+        assert!(
+            (ec - expected_ec).abs() < 1e-10,
+            "energy_cost mismatch: {ec}"
+        );
+        assert!(
+            (vr - expected_vr).abs() < 1e-10,
+            "v2g_revenue mismatch: {vr}"
+        );
+        assert!((dc - expected_dc).abs() < 1e-10, "deg_cost mismatch: {dc}");
+    }
+
+    #[test]
+    fn test_frequency_regulation_error_on_mismatched_base() {
+        let charger = make_charger();
+        let session = make_session(18.0, 31.0);
+        // Build a base schedule with the wrong number of slots
+        let bad_base = ChargingSchedule {
+            vehicle_id: 1,
+            time_slots: vec![18.0],
+            power_kw: vec![5.0], // length 1, but window has many slots
+            soc_trajectory: vec![0.3, 0.35],
+            energy_cost: 0.0,
+            v2g_revenue: 0.0,
+            degradation_cost: 0.0,
+            net_cost: 0.0,
+        };
+        let n_slots = charger.session_slots(&session).len();
+        let signal = vec![0.0_f64; n_slots];
+        let result = charger.frequency_regulation(&session, &signal, &bad_base);
+        assert!(
+            result.is_err(),
+            "frequency_regulation should error when base schedule length mismatches"
+        );
+    }
+
+    #[test]
+    fn test_v2g_optimized_net_cost_structure() {
+        let charger = make_charger();
+        let session = make_session(18.0, 31.0);
+        let sched = charger
+            .v2g_optimized(&session)
+            .expect("v2g_optimized should succeed");
+
+        // net_cost must equal energy_cost - v2g_revenue + degradation_cost
+        let expected_net = sched.energy_cost - sched.v2g_revenue + sched.degradation_cost;
+        assert!(
+            (sched.net_cost - expected_net).abs() < 1e-10,
+            "net_cost {:.6} != energy_cost - v2g_revenue + deg {:.6}",
+            sched.net_cost,
+            expected_net
+        );
+        // time_slots and power_kw must have the same length
+        assert_eq!(
+            sched.time_slots.len(),
+            sched.power_kw.len(),
+            "time_slots and power_kw length mismatch"
+        );
+        // soc_trajectory must be power_kw.len() + 1
+        assert_eq!(
+            sched.soc_trajectory.len(),
+            sched.power_kw.len() + 1,
+            "soc_trajectory must be power_kw.len() + 1"
+        );
+    }
 }

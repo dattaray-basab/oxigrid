@@ -76,4 +76,122 @@ mod tests {
             );
         }
     }
+
+    #[test]
+    fn test_empty_load_series() {
+        let costs = vec![GenCost::quadratic(0.0, 20.0, 0.05, 0.0, 100.0)];
+        let intervals = multi_period_dispatch(&costs, &[]).expect("empty loads should succeed");
+        assert_eq!(intervals.len(), 0, "empty loads should yield empty result");
+    }
+
+    #[test]
+    fn test_single_generator_takes_all_load() {
+        let costs = vec![GenCost::quadratic(0.0, 20.0, 0.05, 0.0, 200.0)];
+        let loads = vec![100.0];
+        let intervals = multi_period_dispatch(&costs, &loads)
+            .expect("single-generator dispatch should succeed");
+        assert_eq!(intervals.len(), 1);
+        let iv = &intervals[0];
+        assert!(
+            (iv.p_gen_mw[0] - 100.0).abs() < 1.0,
+            "single generator should take all load; got {}",
+            iv.p_gen_mw[0]
+        );
+    }
+
+    #[test]
+    fn test_interval_idx_sequential() {
+        let costs = vec![
+            GenCost::quadratic(0.0, 20.0, 0.05, 0.0, 100.0),
+            GenCost::quadratic(0.0, 30.0, 0.03, 0.0, 150.0),
+        ];
+        let loads = vec![10.0, 20.0, 30.0];
+        let intervals =
+            multi_period_dispatch(&costs, &loads).expect("interval_idx dispatch should succeed");
+        assert_eq!(intervals.len(), 3);
+        for (expected_idx, iv) in intervals.iter().enumerate() {
+            assert_eq!(
+                iv.interval_idx, expected_idx,
+                "interval_idx should be sequential; expected {} got {}",
+                expected_idx, iv.interval_idx
+            );
+        }
+    }
+
+    #[test]
+    fn test_total_cost_positive() {
+        let costs = vec![
+            GenCost::quadratic(0.0, 20.0, 0.05, 0.0, 100.0),
+            GenCost::quadratic(0.0, 30.0, 0.03, 0.0, 150.0),
+        ];
+        let loads = vec![80.0];
+        let intervals =
+            multi_period_dispatch(&costs, &loads).expect("total_cost dispatch should succeed");
+        assert_eq!(intervals.len(), 1);
+        let iv = &intervals[0];
+        assert!(
+            iv.total_cost > 0.0,
+            "total_cost should be positive; got {}",
+            iv.total_cost
+        );
+    }
+
+    #[test]
+    fn test_lambda_nonnegative() {
+        let costs = vec![
+            GenCost::quadratic(0.0, 20.0, 0.05, 0.0, 100.0),
+            GenCost::quadratic(0.0, 30.0, 0.03, 0.0, 150.0),
+        ];
+        let loads = vec![50.0, 80.0, 120.0];
+        let intervals =
+            multi_period_dispatch(&costs, &loads).expect("lambda dispatch should succeed");
+        for iv in &intervals {
+            assert!(
+                iv.lambda >= 0.0,
+                "lambda should be non-negative; got {} at interval {}",
+                iv.lambda,
+                iv.interval_idx
+            );
+        }
+    }
+
+    #[test]
+    fn test_higher_load_higher_cost() {
+        let costs = vec![
+            GenCost::quadratic(0.0, 20.0, 0.05, 0.0, 200.0),
+            GenCost::quadratic(0.0, 30.0, 0.03, 0.0, 200.0),
+        ];
+        let intervals_low =
+            multi_period_dispatch(&costs, &[100.0]).expect("low-load dispatch should succeed");
+        let intervals_high =
+            multi_period_dispatch(&costs, &[200.0]).expect("high-load dispatch should succeed");
+        let cost_low = intervals_low[0].total_cost;
+        let cost_high = intervals_high[0].total_cost;
+        assert!(
+            cost_high > cost_low,
+            "higher load should yield higher total cost; low={} high={}",
+            cost_low,
+            cost_high
+        );
+    }
+
+    #[test]
+    fn test_dispatch_interval_fields() {
+        let costs = vec![
+            GenCost::quadratic(0.0, 20.0, 0.05, 0.0, 100.0),
+            GenCost::quadratic(0.0, 30.0, 0.03, 0.0, 150.0),
+        ];
+        let loads = vec![60.0, 90.0, 110.0];
+        let intervals = multi_period_dispatch(&costs, &loads)
+            .expect("dispatch_interval_fields dispatch should succeed");
+        assert_eq!(intervals.len(), loads.len());
+        for (iv, &expected_load) in intervals.iter().zip(loads.iter()) {
+            assert!(
+                (iv.load_mw - expected_load).abs() < 1e-9,
+                "load_mw should match input load; expected {} got {}",
+                expected_load,
+                iv.load_mw
+            );
+        }
+    }
 }

@@ -309,8 +309,12 @@ fn compute_fdlf_branch_flows(
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::network::branch::Branch;
+    use crate::network::bus::{Bus, BusType};
+    use crate::network::topology::Generator;
     use crate::network::PowerNetwork;
     use crate::powerflow::PowerFlowMethod;
+    use crate::powerflow::{PowerFlowConfig, PowerFlowSolver};
 
     #[test]
     fn test_fdlf_ieee14() {
@@ -330,5 +334,187 @@ mod tests {
         );
         // Slack bus voltage fixed
         assert!((result.voltage_magnitude[0] - 1.06).abs() < 1e-6);
+    }
+
+    fn make_3bus_network() -> PowerNetwork {
+        let mut net = PowerNetwork::new(100.0);
+
+        let mut bus1 = Bus::new(1, BusType::Slack);
+        bus1.vm = 1.05;
+        let mut bus2 = Bus::new(2, BusType::PQ);
+        bus2.pd = crate::units::Power(50.0);
+        bus2.qd = crate::units::ReactivePower(30.0);
+        let mut bus3 = Bus::new(3, BusType::PQ);
+        bus3.pd = crate::units::Power(40.0);
+        bus3.qd = crate::units::ReactivePower(20.0);
+
+        net.buses.push(bus1);
+        net.buses.push(bus2);
+        net.buses.push(bus3);
+
+        // Generator at slack bus
+        net.generators.push(Generator {
+            bus_id: 1,
+            pg: 90.0,
+            qg: 50.0,
+            qmax: 200.0,
+            qmin: -100.0,
+            vg: 1.05,
+            mbase: 100.0,
+            status: true,
+            pmax: 200.0,
+            pmin: 0.0,
+        });
+
+        // Branches: 1→2, 1→3, 2→3
+        net.branches.push(Branch {
+            from_bus: 1,
+            to_bus: 2,
+            r: 0.01,
+            x: 0.1,
+            b: 0.02,
+            rate_a: 200.0,
+            rate_b: 200.0,
+            rate_c: 200.0,
+            tap: 0.0,
+            shift: 0.0,
+            status: true,
+        });
+        net.branches.push(Branch {
+            from_bus: 1,
+            to_bus: 3,
+            r: 0.02,
+            x: 0.15,
+            b: 0.01,
+            rate_a: 200.0,
+            rate_b: 200.0,
+            rate_c: 200.0,
+            tap: 0.0,
+            shift: 0.0,
+            status: true,
+        });
+        net.branches.push(Branch {
+            from_bus: 2,
+            to_bus: 3,
+            r: 0.01,
+            x: 0.08,
+            b: 0.02,
+            rate_a: 200.0,
+            rate_b: 200.0,
+            rate_c: 200.0,
+            tap: 0.0,
+            shift: 0.0,
+            status: true,
+        });
+
+        net
+    }
+
+    #[test]
+    fn test_fdlf_3bus_converges() {
+        let net = make_3bus_network();
+        let config = PowerFlowConfig {
+            method: PowerFlowMethod::FastDecoupled,
+            max_iter: 50,
+            tolerance: 1e-6,
+            enforce_q_limits: false,
+        };
+        let result = FastDecoupledSolver
+            .solve(&net, &config)
+            .expect("solver error");
+        assert!(
+            result.converged,
+            "FDLF 3-bus did not converge: iters={} mismatch={:.2e}",
+            result.iterations, result.max_mismatch
+        );
+    }
+
+    #[test]
+    fn test_fdlf_converges_within_10_iters() {
+        let net = make_3bus_network();
+        let config = PowerFlowConfig {
+            method: PowerFlowMethod::FastDecoupled,
+            max_iter: 50,
+            tolerance: 1e-6,
+            enforce_q_limits: false,
+        };
+        let result = FastDecoupledSolver
+            .solve(&net, &config)
+            .expect("solver error");
+        assert!(
+            result.iterations <= 10,
+            "FDLF 3-bus took {} iterations (expected ≤10)",
+            result.iterations
+        );
+    }
+
+    #[test]
+    fn test_fdlf_voltage_magnitudes_finite() {
+        let net = make_3bus_network();
+        let config = PowerFlowConfig {
+            method: PowerFlowMethod::FastDecoupled,
+            max_iter: 50,
+            tolerance: 1e-6,
+            enforce_q_limits: false,
+        };
+        let result = FastDecoupledSolver
+            .solve(&net, &config)
+            .expect("solver error");
+        for (i, &vm) in result.voltage_magnitude.iter().enumerate() {
+            assert!(
+                vm.is_finite() && vm > 0.0,
+                "voltage_magnitude[{}] = {} is not finite and positive",
+                i,
+                vm
+            );
+        }
+    }
+
+    #[test]
+    fn test_fdlf_angles_finite() {
+        let net = make_3bus_network();
+        let config = PowerFlowConfig {
+            method: PowerFlowMethod::FastDecoupled,
+            max_iter: 50,
+            tolerance: 1e-6,
+            enforce_q_limits: false,
+        };
+        let result = FastDecoupledSolver
+            .solve(&net, &config)
+            .expect("solver error");
+        for (i, &va) in result.voltage_angle.iter().enumerate() {
+            assert!(
+                va.is_finite(),
+                "voltage_angle[{}] = {} is not finite",
+                i,
+                va
+            );
+        }
+        assert!(
+            result.voltage_angle[0].abs() < 1e-8,
+            "slack bus angle should be ~0, got {}",
+            result.voltage_angle[0]
+        );
+    }
+
+    #[test]
+    fn test_fdlf_mismatch_below_tolerance() {
+        let net = make_3bus_network();
+        let config = PowerFlowConfig {
+            method: PowerFlowMethod::FastDecoupled,
+            max_iter: 50,
+            tolerance: 1e-6,
+            enforce_q_limits: false,
+        };
+        let result = FastDecoupledSolver
+            .solve(&net, &config)
+            .expect("solver error");
+        if result.converged {
+            assert!(
+                result.max_mismatch < 1e-4,
+                "max_mismatch = {:.2e} should be < 1e-4",
+                result.max_mismatch
+            );
+        }
     }
 }

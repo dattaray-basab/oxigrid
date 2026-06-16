@@ -66,6 +66,27 @@ impl ProducerType {
             ProducerType::SolarPv | ProducerType::WindTurbine | ProducerType::HydroPower
         )
     }
+
+    /// Operational CO₂ intensity of energy from this source \[gCO₂/kWh\].
+    ///
+    /// Uses *point-of-use* accounting consistent with how P2P communities
+    /// report emissions:
+    /// - Renewables (solar, wind, hydro) and battery discharge are credited as
+    ///   zero — their lifecycle / charging emissions are attributed upstream.
+    /// - CHP carries its natural-gas direct-combustion factor (≈443 gCO₂/kWh,
+    ///   IPCC AR5 median for gas with a heat credit applied).
+    /// - Grid imports inherit the caller-supplied grid-average factor, which
+    ///   varies by region and time of day.
+    pub fn operational_carbon_g_per_kwh(self, grid_ci_g_per_kwh: f64) -> f64 {
+        match self {
+            ProducerType::SolarPv
+            | ProducerType::WindTurbine
+            | ProducerType::HydroPower
+            | ProducerType::BatteryDischarge => 0.0,
+            ProducerType::Chp => 443.0,
+            ProducerType::GridImport => grid_ci_g_per_kwh,
+        }
+    }
 }
 
 /// Category of the energy consumer in a bid.
@@ -191,6 +212,16 @@ impl P2pBid {
             .map(|p| p.is_renewable())
             .unwrap_or(false)
     }
+
+    /// Operational CO₂ intensity of the energy in this sell bid \[gCO₂/kWh\].
+    ///
+    /// Dispatches on [`P2pBid::producer_type`]; an unspecified producer falls
+    /// back to the grid-average factor (worst-case attribution).
+    pub fn carbon_intensity_g_per_kwh(&self, grid_ci_g_per_kwh: f64) -> f64 {
+        self.producer_type
+            .map(|p| p.operational_carbon_g_per_kwh(grid_ci_g_per_kwh))
+            .unwrap_or(grid_ci_g_per_kwh)
+    }
 }
 
 /// A matched and (optionally) executed P2P energy trade.
@@ -281,6 +312,9 @@ pub struct P2pMarket {
     pub grid_fee_usd_per_kwh: f64,
     /// Additional premium charged/paid for verified green energy \[USD/kWh\].
     pub green_premium_usd_per_kwh: f64,
+    /// Grid-average CO₂ intensity applied to imported / unspecified energy
+    /// \[gCO₂/kWh\].  Defaults to 200; set per region or per dispatch interval.
+    pub grid_carbon_intensity_g_per_kwh: f64,
     /// Platform fee percentage of trade value (e.g. 1.0 = 1 %).
     pub platform_fee_pct: f64,
     /// Counter for assigning unique bid IDs.
@@ -294,6 +328,7 @@ impl P2pMarket {
     ///
     /// - Grid fee: 0.05 USD/kWh
     /// - Green premium: 0.02 USD/kWh
+    /// - Grid carbon intensity: 200 gCO₂/kWh
     /// - Platform fee: 1.0 %
     pub fn new(mechanism: P2pMechanism) -> Self {
         Self {
@@ -303,6 +338,7 @@ impl P2pMarket {
             trades: vec![],
             grid_fee_usd_per_kwh: 0.05,
             green_premium_usd_per_kwh: 0.02,
+            grid_carbon_intensity_g_per_kwh: 200.0,
             platform_fee_pct: 1.0,
             next_bid_id: 0,
             next_trade_id: 0,
@@ -445,8 +481,10 @@ impl P2pMarket {
             let grid_fee = self.grid_fee_usd_per_kwh;
             let net_payment = (effective_price - grid_fee) * matched_qty;
 
-            // CO₂ intensity: zero for renewables, placeholder for others
-            let carbon = if seller_renewable { 0.0 } else { 200.0 };
+            // Source-aware CO₂ intensity: renewables/storage = 0, CHP = gas
+            // factor, grid import / unknown = configured grid average.
+            let carbon = self.bids[sell_indices[si]]
+                .carbon_intensity_g_per_kwh(self.grid_carbon_intensity_g_per_kwh);
 
             let trade_id = self.next_trade_id;
             self.next_trade_id += 1;
@@ -685,7 +723,8 @@ impl P2pMarket {
                     net_payment_usd: (effective_price - grid_fee) * matched_qty,
                     timestamp: 0.0,
                     status: TradeStatus::Executed,
-                    carbon_g_per_kwh: if seller_renewable { 0.0 } else { 200.0 },
+                    carbon_g_per_kwh: self.bids[active_sells[si]]
+                        .carbon_intensity_g_per_kwh(self.grid_carbon_intensity_g_per_kwh),
                 });
 
                 sell_qty[si] -= matched_qty;
@@ -878,7 +917,8 @@ impl P2pMarket {
                     net_payment_usd: (effective_price - grid_fee) * matched_qty,
                     timestamp: 0.0,
                     status: TradeStatus::Executed,
-                    carbon_g_per_kwh: if seller_renewable { 0.0 } else { 200.0 },
+                    carbon_g_per_kwh: self.bids[sell_idx]
+                        .carbon_intensity_g_per_kwh(self.grid_carbon_intensity_g_per_kwh),
                 });
 
                 sell_qty[si] -= matched_qty;
@@ -1523,5 +1563,253 @@ mod tests {
         market.submit_bid(buy_bid(1, 10.0, 0.20));
         let result = market.clear_market();
         assert_eq!(result.trades.len(), 1);
+    }
+
+    #[test]
+    fn test_buyer_price_too_low_no_match() {
+        // Buyer's max price (0.08) is below seller's ask (0.15) — no trade should occur.
+        let mut market = make_market();
+        market.add_agent(make_agent(0, 1, 20.0, 0.0));
+        market.add_agent(make_agent(1, 2, 0.0, 10.0));
+        market.submit_bid(sell_bid(0, 10.0, 0.15));
+        market.submit_bid(buy_bid(1, 10.0, 0.08));
+        let result = market.run_double_sided_auction();
+        assert!(
+            result.trades.is_empty(),
+            "expected zero trades when buy price < sell price"
+        );
+        assert!((result.total_volume_kwh).abs() < 1e-9);
+    }
+
+    #[test]
+    fn test_clearing_price_within_spread() {
+        // Sell at 0.10, buy at 0.20 → clearing_price should equal (0.10+0.20)/2 = 0.15.
+        let mut market = make_market();
+        market.add_agent(make_agent(0, 1, 20.0, 0.0));
+        market.add_agent(make_agent(1, 2, 0.0, 10.0));
+        market.submit_bid(sell_bid(0, 10.0, 0.10));
+        market.submit_bid(buy_bid(1, 10.0, 0.20));
+        let result = market.run_double_sided_auction();
+        assert!(!result.trades.is_empty(), "expected at least one trade");
+        let cp = result.trades[0].clearing_price_usd_per_kwh;
+        let expected = (0.10_f64 + 0.20_f64) / 2.0;
+        assert!(
+            (0.10_f64..=0.20_f64).contains(&cp),
+            "clearing price {cp} not within spread [0.10, 0.20]"
+        );
+        assert!(
+            (cp - expected).abs() < 1e-9,
+            "clearing price {cp} != expected {expected}"
+        );
+    }
+
+    #[test]
+    fn test_volume_conservation() {
+        // Two sell bids (5 kWh each) and two buy bids (5 kWh each): total tradeable = 10 kWh.
+        let mut market = make_market();
+        market.add_agent(make_agent(0, 1, 20.0, 0.0));
+        market.add_agent(make_agent(1, 2, 20.0, 0.0));
+        market.add_agent(make_agent(2, 3, 0.0, 10.0));
+        market.add_agent(make_agent(3, 4, 0.0, 10.0));
+        market.submit_bid(sell_bid(0, 5.0, 0.10));
+        market.submit_bid(sell_bid(1, 5.0, 0.10));
+        market.submit_bid(buy_bid(2, 5.0, 0.20));
+        market.submit_bid(buy_bid(3, 5.0, 0.20));
+        let result = market.run_double_sided_auction();
+        let sum_trade_qty: f64 = result.trades.iter().map(|t| t.quantity_kwh).sum();
+        assert!(
+            (sum_trade_qty - result.total_volume_kwh).abs() < 1e-9,
+            "sum of trade quantities {sum_trade_qty} != total_volume_kwh {}",
+            result.total_volume_kwh
+        );
+        assert!((result.total_volume_kwh - 10.0).abs() < 1e-9);
+    }
+
+    #[test]
+    fn test_prosumer_acts_as_seller_and_buyer() {
+        // Prosumer (agent 0) with gen_kw=15, demand_kw=5 sells 10 kWh to agent 1.
+        // After clearing: agent 0 net_energy < 0 (exported), net_payment > 0 (received money).
+        let mut market = make_market();
+        market.add_agent(make_agent(0, 1, 15.0, 5.0));
+        market.add_agent(make_agent(1, 2, 0.0, 10.0));
+        market.submit_bid(sell_bid(0, 10.0, 0.10));
+        market.submit_bid(buy_bid(1, 10.0, 0.20));
+        let result = market.run_double_sided_auction();
+        assert_eq!(result.trades.len(), 1, "expected one trade");
+        let (net_energy, net_payment) = market.compute_agent_balance(0);
+        assert!(
+            net_energy < 0.0,
+            "prosumer exported energy, net_energy should be negative"
+        );
+        assert!(
+            net_payment > 0.0,
+            "prosumer received payment, net_payment should be positive"
+        );
+    }
+
+    #[test]
+    fn test_bilateral_mechanism_proximity() {
+        // Buyer on bus 2 should prefer the closer seller (bus 1) over the distant seller (bus 5).
+        let mut market = P2pMarket::new(P2pMechanism::BilateralContract);
+        market.add_agent(make_agent(0, 1, 20.0, 0.0)); // seller close to buyer
+        market.add_agent(make_agent(1, 5, 20.0, 0.0)); // seller far from buyer
+        market.add_agent(make_agent(2, 2, 0.0, 10.0)); // buyer
+        market.submit_bid(sell_bid(0, 10.0, 0.10));
+        market.submit_bid(sell_bid(1, 10.0, 0.10));
+        market.submit_bid(buy_bid(2, 10.0, 0.20));
+        let result = market.run_bilateral_matching();
+        assert!(!result.trades.is_empty(), "expected at least one trade");
+        assert_eq!(
+            result.trades[0].seller_id, 0,
+            "closest seller (agent 0, bus 1) should be matched, got seller_id={}",
+            result.trades[0].seller_id
+        );
+    }
+
+    #[test]
+    fn test_community_micromarket_local_preference() {
+        // Agent 0 (bus 1, seller) and agent 1 (bus 1, buyer) are co-located.
+        // Agent 2 (bus 2, seller) is on a different bus.
+        // The local pair should trade, giving local_trading_fraction == 1.0.
+        let mut market = P2pMarket::new(P2pMechanism::CommunityMicromarket);
+        market.add_agent(make_agent(0, 1, 20.0, 0.0)); // local seller
+        market.add_agent(make_agent(1, 1, 0.0, 10.0)); // local buyer (same bus)
+        market.add_agent(make_agent(2, 2, 20.0, 0.0)); // remote seller
+        market.submit_bid(sell_bid(0, 10.0, 0.10));
+        market.submit_bid(buy_bid(1, 10.0, 0.20));
+        market.submit_bid(sell_bid(2, 10.0, 0.10));
+        let result = market.run_community_micromarket();
+        assert!(!result.trades.is_empty(), "expected at least one trade");
+        assert!(
+            (result.local_trading_fraction - 1.0).abs() < 1e-9,
+            "expected local_trading_fraction=1.0, got {}",
+            result.local_trading_fraction
+        );
+    }
+
+    #[test]
+    fn test_renewable_carbon_intensity_zero() {
+        // A sell bid from a WindTurbine is renewable; its trade's carbon_g_per_kwh must be 0.0.
+        // compute_renewable_fraction should also return 1.0 after clearing.
+        let mut market = make_market();
+        market.add_agent(make_agent(0, 1, 20.0, 0.0));
+        market.add_agent(make_agent(1, 2, 0.0, 10.0));
+        let wind_sell = P2pBid {
+            id: 0,
+            agent_id: 0,
+            bid_type: BidDirection::Sell,
+            quantity_kwh: 10.0,
+            price_usd_per_kwh: 0.10,
+            start_hour: 0,
+            end_hour: 1,
+            producer_type: Some(ProducerType::WindTurbine),
+            consumer_type: None,
+            green_premium: false,
+            local_only: false,
+            expiry_timestamp: 9999.0,
+            status: TradeStatus::Pending,
+        };
+        market.submit_bid(wind_sell);
+        market.submit_bid(buy_bid(1, 10.0, 0.20));
+        let result = market.run_double_sided_auction();
+        assert!(!result.trades.is_empty(), "expected a trade");
+        assert!(
+            (result.trades[0].carbon_g_per_kwh).abs() < 1e-9,
+            "wind trade should have zero carbon intensity, got {}",
+            result.trades[0].carbon_g_per_kwh
+        );
+        let renewable_frac = market.compute_renewable_fraction();
+        assert!(
+            (renewable_frac - 1.0).abs() < 1e-9,
+            "expected renewable_fraction=1.0, got {renewable_frac}"
+        );
+    }
+
+    #[test]
+    fn producer_type_operational_carbon_is_source_aware() {
+        let grid = 350.0;
+        // Renewables and storage are zero at point of use.
+        for pt in [
+            ProducerType::SolarPv,
+            ProducerType::WindTurbine,
+            ProducerType::HydroPower,
+            ProducerType::BatteryDischarge,
+        ] {
+            assert_eq!(pt.operational_carbon_g_per_kwh(grid), 0.0, "{pt:?}");
+        }
+        // CHP carries its gas combustion factor, independent of grid CI.
+        assert_eq!(ProducerType::Chp.operational_carbon_g_per_kwh(grid), 443.0);
+        assert_eq!(ProducerType::Chp.operational_carbon_g_per_kwh(0.0), 443.0);
+        // Grid import inherits the configured grid average.
+        assert_eq!(
+            ProducerType::GridImport.operational_carbon_g_per_kwh(grid),
+            grid
+        );
+    }
+
+    #[test]
+    fn bid_carbon_falls_back_to_grid_for_unknown_source() {
+        let mut bid = sell_bid(0, 10.0, 0.10);
+        bid.producer_type = None;
+        assert_eq!(bid.carbon_intensity_g_per_kwh(275.0), 275.0);
+        bid.producer_type = Some(ProducerType::GridImport);
+        assert_eq!(bid.carbon_intensity_g_per_kwh(275.0), 275.0);
+        bid.producer_type = Some(ProducerType::SolarPv);
+        assert_eq!(bid.carbon_intensity_g_per_kwh(275.0), 0.0);
+    }
+
+    #[test]
+    fn chp_trade_carries_nonzero_carbon_intensity() {
+        let mut market = make_market();
+        market.add_agent(make_agent(0, 1, 20.0, 0.0));
+        market.add_agent(make_agent(1, 2, 0.0, 10.0));
+        let mut s = sell_bid(0, 10.0, 0.10);
+        s.producer_type = Some(ProducerType::Chp);
+        market.submit_bid(s);
+        market.submit_bid(buy_bid(1, 10.0, 0.20));
+        let result = market.run_double_sided_auction();
+        assert!(!result.trades.is_empty(), "expected a CHP trade");
+        assert!(
+            (result.trades[0].carbon_g_per_kwh - 443.0).abs() < 1e-9,
+            "CHP trade carbon should be 443 g/kWh, got {}",
+            result.trades[0].carbon_g_per_kwh
+        );
+    }
+
+    #[test]
+    fn grid_import_trade_uses_configured_intensity() {
+        let mut market = make_market();
+        market.grid_carbon_intensity_g_per_kwh = 410.0;
+        market.add_agent(make_agent(0, 1, 20.0, 0.0));
+        market.add_agent(make_agent(1, 2, 0.0, 10.0));
+        let mut s = sell_bid(0, 10.0, 0.10);
+        s.producer_type = Some(ProducerType::GridImport);
+        market.submit_bid(s);
+        market.submit_bid(buy_bid(1, 10.0, 0.20));
+        let result = market.run_double_sided_auction();
+        assert!(!result.trades.is_empty(), "expected a grid-import trade");
+        assert!(
+            (result.trades[0].carbon_g_per_kwh - 410.0).abs() < 1e-9,
+            "grid-import trade carbon should follow configured 410 g/kWh, got {}",
+            result.trades[0].carbon_g_per_kwh
+        );
+    }
+
+    #[test]
+    fn test_single_participant_no_trade() {
+        // Only one agent (a seller) with no buyers: clearing must yield zero trades.
+        let mut market = make_market();
+        market.add_agent(make_agent(0, 1, 20.0, 0.0));
+        market.submit_bid(sell_bid(0, 10.0, 0.10));
+        let result = market.clear_market();
+        assert!(
+            result.trades.is_empty(),
+            "no buyers means no trades expected"
+        );
+        assert!(
+            (result.total_volume_kwh).abs() < 1e-9,
+            "total_volume_kwh should be 0.0 with no trades, got {}",
+            result.total_volume_kwh
+        );
     }
 }

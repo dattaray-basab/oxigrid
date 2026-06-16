@@ -572,4 +572,207 @@ mod tests {
             assert!(seen.insert(id), "line {id} built in multiple periods");
         }
     }
+
+    // ── Test 6 ─────────────────────────────────────────────────────────────────
+    /// Zero candidates: solve succeeds, no investment, NPV non-negative.
+    #[test]
+    fn test_zero_candidates_solve_succeeds() {
+        let config = default_config(2);
+        let mut solver = MultiStageTepSolver::new(config);
+        solver.add_scenario(default_scenario());
+        // No candidates added
+        let result = solver
+            .solve()
+            .expect("solve with zero candidates should succeed");
+        assert_eq!(result.stages.len(), 2);
+        for stage in &result.stages {
+            assert!(stage.lines_invested.is_empty());
+            assert_eq!(stage.total_investment_m_usd, 0.0);
+        }
+        assert!(result.total_npv_m_usd >= 0.0);
+    }
+
+    // ── Test 7 ─────────────────────────────────────────────────────────────────
+    /// Single candidate, single scenario, one period: result is well-formed.
+    #[test]
+    fn test_single_candidate_single_scenario_minimum_viable() {
+        let config = MultiStageTepConfig {
+            planning_periods: 1,
+            years_per_period: 5,
+            discount_rate: 0.08,
+            n_scenarios: 1,
+            reliability_standard: 0.5,
+            co2_budget_mt: 500.0,
+        };
+        let mut solver = MultiStageTepSolver::new(config);
+        solver.add_scenario(GrowthScenario {
+            id: 0,
+            probability: 1.0,
+            load_growth_pct_per_year: 3.0,
+            renewable_growth_pct_per_year: 2.0,
+            co2_price_usd_per_t: 200.0,
+        });
+        solver.add_candidate(CandidateLine {
+            id: 42,
+            from_bus: 1,
+            to_bus: 3,
+            capacity_mw: 300.0,
+            capex_m_usd: 80.0,
+            fixed_opex_m_usd_per_year: 1.0,
+            construction_time_years: 2,
+            lifetime_years: 25,
+            reactance_pu: 0.07,
+        });
+        let result = solver
+            .solve()
+            .expect("single candidate single scenario should succeed");
+        assert_eq!(result.stages.len(), 1);
+        assert!(result.regret_m_usd >= 0.0);
+        assert!(result.expected_lole > 0.0);
+    }
+
+    // ── Test 8 ─────────────────────────────────────────────────────────────────
+    /// Three scenarios whose probabilities sum to exactly 1.0.
+    #[test]
+    fn test_multiple_scenarios_probabilities_sum_to_one() {
+        let config = MultiStageTepConfig {
+            planning_periods: 2,
+            years_per_period: 5,
+            discount_rate: 0.06,
+            n_scenarios: 3,
+            reliability_standard: 0.2,
+            co2_budget_mt: 2000.0,
+        };
+        let mut solver = MultiStageTepSolver::new(config);
+        solver.add_scenario(GrowthScenario {
+            id: 0,
+            probability: 0.25,
+            load_growth_pct_per_year: 1.5,
+            renewable_growth_pct_per_year: 2.0,
+            co2_price_usd_per_t: 20.0,
+        });
+        solver.add_scenario(GrowthScenario {
+            id: 1,
+            probability: 0.50,
+            load_growth_pct_per_year: 2.5,
+            renewable_growth_pct_per_year: 3.0,
+            co2_price_usd_per_t: 35.0,
+        });
+        solver.add_scenario(GrowthScenario {
+            id: 2,
+            probability: 0.25,
+            load_growth_pct_per_year: 4.0,
+            renewable_growth_pct_per_year: 5.0,
+            co2_price_usd_per_t: 60.0,
+        });
+        solver.add_candidate(cheap_high_cap_line(5));
+        let result = solver
+            .solve()
+            .expect("three scenarios summing to 1.0 should succeed");
+        assert_eq!(result.stages.len(), 2);
+        assert!(result.total_npv_m_usd.is_finite());
+        assert!(result.regret_m_usd >= 0.0);
+    }
+
+    // ── Test 9 ─────────────────────────────────────────────────────────────────
+    /// Zero-capacity line must not be invested (benefit = 0, ratio ≤ 1).
+    #[test]
+    fn test_extreme_capacity_zero_mw_line() {
+        let config = default_config(1);
+        let mut solver = MultiStageTepSolver::new(config);
+        solver.add_scenario(default_scenario());
+        solver.add_candidate(CandidateLine {
+            id: 77,
+            from_bus: 1,
+            to_bus: 2,
+            capacity_mw: 0.0,
+            capex_m_usd: 5.0,
+            fixed_opex_m_usd_per_year: 0.1,
+            construction_time_years: 1,
+            lifetime_years: 20,
+            reactance_pu: 0.01,
+        });
+        let result = solver
+            .solve()
+            .expect("zero-capacity line should not cause failure");
+        assert!(!result.stages[0].lines_invested.contains(&77));
+    }
+
+    // ── Test 10 ────────────────────────────────────────────────────────────────
+    /// Extremely large cheap line is always selected and satisfies reliability.
+    #[test]
+    fn test_extreme_capacity_9999mw_line() {
+        let config = MultiStageTepConfig {
+            planning_periods: 1,
+            years_per_period: 5,
+            discount_rate: 0.05,
+            n_scenarios: 1,
+            reliability_standard: 0.5,
+            co2_budget_mt: 5000.0,
+        };
+        let mut solver = MultiStageTepSolver::new(config);
+        solver.add_scenario(GrowthScenario {
+            id: 0,
+            probability: 1.0,
+            load_growth_pct_per_year: 5.0,
+            renewable_growth_pct_per_year: 1.0,
+            co2_price_usd_per_t: 500.0,
+        });
+        solver.add_candidate(CandidateLine {
+            id: 88,
+            from_bus: 10,
+            to_bus: 20,
+            capacity_mw: 9999.0,
+            capex_m_usd: 1.0,
+            fixed_opex_m_usd_per_year: 0.01,
+            construction_time_years: 2,
+            lifetime_years: 50,
+            reactance_pu: 0.001,
+        });
+        let result = solver.solve().expect("huge cheap line should succeed");
+        assert!(result.stages[0].lines_invested.contains(&88));
+        assert!(result.reliability_satisfied);
+    }
+
+    // ── Test 11 ────────────────────────────────────────────────────────────────
+    /// Four-period solve: NPV non-negative, each stage has positive LOLE.
+    #[test]
+    fn test_result_expected_cost_non_negative_and_stage_count_matches() {
+        let config = MultiStageTepConfig {
+            planning_periods: 4,
+            years_per_period: 5,
+            discount_rate: 0.10,
+            n_scenarios: 1,
+            reliability_standard: 0.3,
+            co2_budget_mt: 3000.0,
+        };
+        let mut solver = MultiStageTepSolver::new(config);
+        solver.add_scenario(default_scenario());
+        solver.add_candidate(cheap_high_cap_line(1));
+        solver.add_candidate(expensive_low_cap_line(2));
+        let result = solver.solve().expect("4-period solve should succeed");
+        assert!(result.total_npv_m_usd >= 0.0);
+        assert_eq!(result.stages.len(), 4);
+        for stage in &result.stages {
+            assert!(stage.npv_cost_m_usd >= 0.0);
+            assert!(stage.lole_days_per_year > 0.0);
+        }
+    }
+
+    // ── Test 12 ────────────────────────────────────────────────────────────────
+    /// Single scenario with probability 0.5 must fail with InvalidConfig.
+    #[test]
+    fn test_mismatched_probability_errors() {
+        let config = default_config(1);
+        let mut solver = MultiStageTepSolver::new(config);
+        solver.add_scenario(GrowthScenario {
+            id: 0,
+            probability: 0.5,
+            load_growth_pct_per_year: 2.0,
+            renewable_growth_pct_per_year: 3.0,
+            co2_price_usd_per_t: 30.0,
+        });
+        let result = solver.solve();
+        assert!(matches!(result, Err(TepError::InvalidConfig(_))));
+    }
 }

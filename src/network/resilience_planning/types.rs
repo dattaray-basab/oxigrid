@@ -714,3 +714,281 @@ pub struct ExtremeResiliencePlan {
     /// Post-hardening resilience metrics (representative event).
     pub resilience_improvement: ExtremeResilienceMetrics,
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    // ── ResilienceMicrogrid ────────────────────────────────────────────────
+
+    fn make_microgrid() -> ResilienceMicrogrid {
+        ResilienceMicrogrid {
+            id: 1,
+            location: "TestSite".to_string(),
+            critical_load_mw: 5.0,
+            pv_mw: 2.0,
+            battery_mwh: 20.0,
+            battery_mw: 3.0,
+            diesel_mw: 3.0,
+            autonomy_days: 2.0,
+        }
+    }
+
+    #[test]
+    fn test_can_island_true() {
+        let mg = make_microgrid();
+        // battery_mw(3) + diesel_mw(3) = 6 >= critical_load_mw(5)
+        assert!(mg.can_island());
+    }
+
+    #[test]
+    fn test_can_island_false() {
+        let mg = ResilienceMicrogrid {
+            battery_mw: 1.0,
+            diesel_mw: 1.0,
+            critical_load_mw: 5.0,
+            ..make_microgrid()
+        };
+        assert!(!mg.can_island());
+    }
+
+    #[test]
+    fn test_islanding_duration_h() {
+        let mg = make_microgrid();
+        // (20*0.9 + 3*24*2) / 5 = (18 + 144) / 5 = 162/5 = 32.4
+        let expected = (20.0_f64 * 0.9 + 3.0 * 24.0 * 2.0) / 5.0;
+        let computed = mg.islanding_duration_h();
+        assert!((computed - expected).abs() < 1e-9);
+    }
+
+    #[test]
+    fn test_load_served_during_outage() {
+        let mg = make_microgrid();
+        let h = 10.0_f64;
+        // available_energy = 20*0.9 + 3*10 = 18 + 30 = 48
+        // avg_power = 48/10 = 4.8, capped at critical_load_mw=5.0 → 4.8
+        let expected = ((20.0_f64 * 0.9 + 3.0 * h) / h).min(5.0);
+        let computed = mg.load_served_during_outage(h);
+        assert!((computed - expected).abs() < 1e-9);
+    }
+
+    #[test]
+    fn test_sizing_check_adequate() {
+        let _mg = make_microgrid();
+        // required_battery = 5*2*24*0.2 = 48 MWh; battery_mwh=20 < 48 → BatteryUndersized
+        // So adjust battery to be sufficient:
+        let mg2 = ResilienceMicrogrid {
+            battery_mwh: 50.0,
+            battery_mw: 3.0,
+            diesel_mw: 3.0,
+            critical_load_mw: 5.0,
+            autonomy_days: 2.0,
+            ..make_microgrid()
+        };
+        assert_eq!(mg2.sizing_check(), SizingStatus::Adequate);
+    }
+
+    #[test]
+    fn test_sizing_check_battery_undersized() {
+        // required = 5*2*24*0.2 = 48, battery_mwh=20 → deficit=28
+        let mg = make_microgrid();
+        let required = 5.0_f64 * 2.0 * 24.0 * 0.2;
+        let deficit = required - 20.0;
+        match mg.sizing_check() {
+            SizingStatus::BatteryUndersized { deficit_mwh } => {
+                assert!((deficit_mwh - deficit).abs() < 1e-9);
+            }
+            other => panic!("expected BatteryUndersized, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn test_sizing_check_generator_undersized() {
+        // battery_mwh sufficient, but power insufficient
+        let mg = ResilienceMicrogrid {
+            battery_mwh: 50.0,
+            battery_mw: 1.0,
+            diesel_mw: 1.0,
+            critical_load_mw: 5.0,
+            autonomy_days: 2.0,
+            ..make_microgrid()
+        };
+        // power: 1+1=2 < 5 → deficit=3
+        match mg.sizing_check() {
+            SizingStatus::GeneratorUndersized { deficit_mw } => {
+                assert!((deficit_mw - 3.0).abs() < 1e-9);
+            }
+            other => panic!("expected GeneratorUndersized, got {other:?}"),
+        }
+    }
+
+    // ── NkContingencyAnalysis ──────────────────────────────────────────────
+
+    #[test]
+    fn test_nk_combination_count() {
+        // C(10, 2) = 45
+        let nk = NkContingencyAnalysis::new(10, 2);
+        assert_eq!(nk.combination_count(), 45);
+    }
+
+    #[test]
+    fn test_analyze_contingency_critical() {
+        let nk = NkContingencyAnalysis::new(10, 2);
+        // performance=0.5 < critical_threshold=0.8 → is_critical=true
+        // load_lost = 2 * 10 * (1-0.5) = 10
+        let result = nk.analyze_contingency(&[1, 2], 0.5);
+        assert!(result.is_critical);
+        assert!((result.load_lost_mw - 10.0).abs() < 1e-9);
+        assert!((result.performance - 0.5).abs() < 1e-9);
+    }
+
+    #[test]
+    fn test_analyze_contingency_non_critical() {
+        let nk = NkContingencyAnalysis::new(10, 1);
+        // performance=0.9 >= 0.8 → not critical
+        let result = nk.analyze_contingency(&[3], 0.9);
+        assert!(!result.is_critical);
+        // load_lost = 1 * 10 * (1-0.9) = 1.0
+        assert!((result.load_lost_mw - 1.0).abs() < 1e-9);
+    }
+
+    #[test]
+    fn test_system_adequacy_empty() {
+        let nk = NkContingencyAnalysis::new(5, 1);
+        assert!((nk.system_adequacy(&[]) - 1.0).abs() < 1e-9);
+    }
+
+    #[test]
+    fn test_system_adequacy_mixed() {
+        let nk = NkContingencyAnalysis::new(10, 1);
+        let r1 = nk.analyze_contingency(&[0], 0.9); // non-critical
+        let r2 = nk.analyze_contingency(&[1], 0.5); // critical
+        let r3 = nk.analyze_contingency(&[2], 0.85); // non-critical
+        let adequacy = nk.system_adequacy(&[r1, r2, r3]);
+        // 2 non-critical out of 3
+        assert!((adequacy - 2.0 / 3.0).abs() < 1e-9);
+    }
+
+    // ── ResiliencePlanningTrapezoid ────────────────────────────────────────
+
+    fn make_trapezoid() -> ResiliencePlanningTrapezoid {
+        // t0=0, t1=2, t2=5, t3=10, phi0=1.0, phi1=0.4, phi3=0.9
+        ResiliencePlanningTrapezoid::new(0.0, 2.0, 5.0, 10.0, 1.0, 0.4, 0.9)
+    }
+
+    #[test]
+    fn test_resilience_triangle_area() {
+        let trap = make_trapezoid();
+        // drop: 0.5*(1-0.4)*(2-0) = 0.5*0.6*2 = 0.6
+        // flat: (1-0.4)*(5-2) = 0.6*3 = 1.8
+        // recovery: 0.5*((1-0.4)+(1-0.9))*(10-5) = 0.5*(0.6+0.1)*5 = 0.5*0.7*5 = 1.75
+        let expected = 0.6 + 1.8 + 1.75;
+        let computed = trap.resilience_triangle_area();
+        assert!((computed - expected).abs() < 1e-9);
+    }
+
+    #[test]
+    fn test_recovery_rate() {
+        let trap = make_trapezoid();
+        // (phi3 - phi1)/(t3-t2) = (0.9-0.4)/(10-5) = 0.5/5 = 0.1
+        let expected = (0.9_f64 - 0.4) / (10.0 - 5.0);
+        assert!((trap.recovery_rate() - expected).abs() < 1e-9);
+    }
+
+    #[test]
+    fn test_recovery_rate_zero_when_no_interval() {
+        let trap = ResiliencePlanningTrapezoid::new(0.0, 2.0, 5.0, 5.0, 1.0, 0.4, 0.9);
+        assert!((trap.recovery_rate() - 0.0).abs() < 1e-9);
+    }
+
+    #[test]
+    fn test_absorptive_capacity() {
+        let trap = make_trapezoid();
+        // phi1/phi0 = 0.4/1.0 = 0.4
+        assert!((trap.absorptive_capacity() - 0.4).abs() < 1e-9);
+    }
+
+    // ── ClimateRiskAssessor ────────────────────────────────────────────────
+
+    fn make_climate_risk_assessor() -> ClimateRiskAssessor {
+        ClimateRiskAssessor {
+            region: "TestRegion".to_string(),
+            hazards: vec![ClimateHazard {
+                hazard_type: HazardType::Hurricane,
+                annual_probability: 0.1,
+                severity: HazardSeverity::High,
+                affected_fraction: 0.5,
+                damage_fraction: 0.4,
+            }],
+        }
+    }
+
+    #[test]
+    fn test_annual_expected_damage_pct() {
+        let assessor = make_climate_risk_assessor();
+        // severity_factor(High) — we do not import it directly, so we back-derive
+        // from resilience_score: score = clamp(100 - ead, 0, 100)
+        // Just verify the formula: p * sf * af * df * 100
+        // We can verify resilience_score is consistent:
+        let ead = assessor.annual_expected_damage_pct();
+        let score = assessor.resilience_score();
+        let expected_score = (100.0 - ead).clamp(0.0, 100.0);
+        assert!((score - expected_score).abs() < 1e-9);
+    }
+
+    #[test]
+    fn test_resilience_score_no_hazards() {
+        let assessor = ClimateRiskAssessor {
+            region: "Safe".to_string(),
+            hazards: vec![],
+        };
+        // EAD=0 → score=100
+        assert!((assessor.resilience_score() - 100.0).abs() < 1e-9);
+    }
+
+    #[test]
+    fn test_resilience_score_clamped_at_zero() {
+        // Very high damage → score clamped to 0
+        let assessor = ClimateRiskAssessor {
+            region: "Danger".to_string(),
+            hazards: vec![ClimateHazard {
+                hazard_type: HazardType::Wildfire,
+                annual_probability: 1.0,
+                severity: HazardSeverity::Extreme,
+                affected_fraction: 1.0,
+                damage_fraction: 1.0,
+            }],
+        };
+        assert!(assessor.resilience_score() >= 0.0);
+        assert!(assessor.resilience_score() <= 100.0);
+    }
+
+    // ── HardeningOptimizer ─────────────────────────────────────────────────
+
+    fn make_grid_element() -> GridElement {
+        GridElement {
+            id: 0,
+            name: "Line-A".to_string(),
+            element_type: ElementType::Transmission,
+            failure_rate_per_year: 0.2,
+            mttr_h: 8.0,
+            hardening_options: vec![],
+            load_served_mw: 10.0,
+        }
+    }
+
+    #[test]
+    fn test_expected_energy_not_served_mwh_per_year() {
+        let optimizer = HardeningOptimizer {
+            elements: vec![make_grid_element()],
+            budget: 1_000_000.0,
+            planning_horizon_years: 20.0,
+            discount_rate: 0.05,
+        };
+        let element = make_grid_element();
+        // ENS = 0.2 * 8 * 10 = 16 MWh/year
+        let expected = 0.2_f64 * 8.0 * 10.0;
+        let computed = optimizer.expected_energy_not_served_mwh_per_year(&element);
+        assert!((computed - expected).abs() < 1e-9);
+    }
+}

@@ -249,4 +249,119 @@ mod tests {
         let cfg = LbfgsConfig::default();
         assert!(lbfgs_minimize(f, &[], &cfg).is_err());
     }
+
+    #[test]
+    fn lbfgs_cost_decreases_with_iterations() {
+        let f = |x: &[f64]| x[0] * x[0] + x[1] * x[1];
+        let x0 = [5.0_f64, 5.0_f64];
+        let initial_cost = f(&x0);
+
+        let cfg5 = LbfgsConfig {
+            max_iter: 5,
+            ..LbfgsConfig::default()
+        };
+        let (_x5, fval5, _) = lbfgs_minimize(f, &x0, &cfg5).expect("5-iter L-BFGS should succeed");
+
+        let cfg20 = LbfgsConfig {
+            max_iter: 20,
+            ..LbfgsConfig::default()
+        };
+        let (_x20, fval20, _) =
+            lbfgs_minimize(f, &x0, &cfg20).expect("20-iter L-BFGS should succeed");
+
+        assert!(fval5.is_finite(), "fval5 should be finite, got {fval5}");
+        assert!(fval20.is_finite(), "fval20 should be finite, got {fval20}");
+        assert!(
+            fval5 <= initial_cost,
+            "5-iter result {fval5} should not exceed initial cost {initial_cost}"
+        );
+        assert!(
+            fval20 <= initial_cost,
+            "20-iter result {fval20} should not exceed initial cost {initial_cost}"
+        );
+    }
+
+    #[test]
+    fn lbfgs_gradient_norm_converges() {
+        let f = |x: &[f64]| x[0] * x[0] + x[1] * x[1];
+        let x0 = [10.0_f64, 10.0_f64];
+        let initial_norm = x0[0].abs() + x0[1].abs();
+
+        let cfg = LbfgsConfig::default();
+        let (x_opt, _fval, _) =
+            lbfgs_minimize(f, &x0, &cfg).expect("L-BFGS should converge on simple quadratic");
+
+        let final_norm = x_opt[0].abs() + x_opt[1].abs();
+        assert!(
+            final_norm < initial_norm,
+            "final |x| ({final_norm}) should be less than initial |x| ({initial_norm})"
+        );
+    }
+
+    #[test]
+    fn lbfgs_1d_quadratic_exact_minimum() {
+        let f = |x: &[f64]| (x[0] - 3.0_f64).powi(2);
+        let cfg = LbfgsConfig::default();
+        let (x_opt, _fval, _) =
+            lbfgs_minimize(f, &[0.0_f64], &cfg).expect("L-BFGS should find 1D minimum");
+
+        assert!(
+            (x_opt[0] - 3.0).abs() < 1e-3,
+            "x[0]={} should be near 3.0",
+            x_opt[0]
+        );
+    }
+
+    #[test]
+    fn lbfgs_returns_finite_result() {
+        let f = |x: &[f64]| x[0] * x[0] + x[1] * x[1] + x[2] * x[2];
+        let cfg = LbfgsConfig::default();
+        let (x_opt, fval, _) = lbfgs_minimize(f, &[1.0_f64, 2.0_f64, 3.0_f64], &cfg)
+            .expect("L-BFGS should succeed on 3D quadratic");
+
+        assert!(
+            x_opt.iter().all(|v| v.is_finite()),
+            "all components of x_opt should be finite: {x_opt:?}"
+        );
+        assert!(fval.is_finite(), "fval should be finite, got {fval}");
+    }
+
+    #[test]
+    fn lbfgs_memory_bound_by_m() {
+        let f = |x: &[f64]| x.iter().map(|v| v * v).sum::<f64>();
+        let x0 = [10.0_f64; 5];
+        let initial_cost = f(&x0);
+
+        let cfg = LbfgsConfig {
+            max_iter: 100,
+            m: 3,
+            ..LbfgsConfig::default()
+        };
+        let (_x_opt, fval, _) =
+            lbfgs_minimize(f, &x0, &cfg).expect("L-BFGS with m=3 should succeed on 5D quadratic");
+
+        assert!(fval.is_finite(), "fval should be finite, got {fval}");
+        assert!(
+            fval < initial_cost,
+            "fval ({fval}) should be less than initial cost ({initial_cost}) with bounded memory m=3"
+        );
+    }
+
+    #[test]
+    fn lbfgs_single_variable_converges() {
+        let f = |x: &[f64]| (x[0] + 5.0_f64).powi(2) + 10.0_f64;
+        let cfg = LbfgsConfig::default();
+        let (x_opt, fval, _) = lbfgs_minimize(f, &[0.0_f64], &cfg)
+            .expect("L-BFGS should find minimum of shifted quadratic");
+
+        assert!(
+            (x_opt[0] + 5.0).abs() < 1e-3,
+            "x[0]={} should be near -5.0",
+            x_opt[0]
+        );
+        assert!(
+            (fval - 10.0).abs() < 1e-4,
+            "fval={fval} should be near 10.0"
+        );
+    }
 }

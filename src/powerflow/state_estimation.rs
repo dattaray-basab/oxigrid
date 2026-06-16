@@ -368,4 +368,121 @@ mod tests {
         let meas = vec![Measurement::branch_flow(0, 1, 0.5, 0.01)];
         assert!(est.estimate(&meas).is_err());
     }
+
+    // --- 7 new tests ---
+
+    #[test]
+    fn test_normalised_chi2_zero_dof() {
+        // When dof == 0, normalised_chi2 must return 0.0 (no division by zero)
+        let r = DcSeResult {
+            theta: vec![0.0, 0.0],
+            residuals: vec![0.5],
+            chi2: 99.0,
+            dof: 0,
+            converged: true,
+        };
+        assert_eq!(r.normalised_chi2(), 0.0);
+    }
+
+    #[test]
+    fn test_normalised_chi2_nonzero_dof() {
+        // normalised_chi2 == chi2 / dof
+        let r = DcSeResult {
+            theta: vec![0.0, -0.05, -0.15],
+            residuals: vec![0.001, -0.001],
+            chi2: 4.0,
+            dof: 2,
+            converged: true,
+        };
+        assert!((r.normalised_chi2() - 2.0).abs() < 1e-12);
+    }
+
+    #[test]
+    fn test_voltage_measurement_constructor() {
+        // Measurement::voltage sets the correct fields
+        let m = Measurement::voltage(3, 1.02, 0.005);
+        assert_eq!(m.mtype, MeasurementType::VoltageMagnitude);
+        assert_eq!(m.bus, 3);
+        assert!(m.to_bus.is_none());
+        assert!((m.value - 1.02).abs() < 1e-12);
+        assert!((m.sigma - 0.005).abs() < 1e-12);
+        // weight = 1 / 0.005^2 = 40000
+        assert!((m.weight() - 40000.0).abs() < 1e-6);
+    }
+
+    #[test]
+    fn test_branch_flow_measurement_to_bus_set() {
+        // Measurement::branch_flow stores to_bus correctly
+        let m = Measurement::branch_flow(1, 4, 0.3, 0.02);
+        assert_eq!(m.mtype, MeasurementType::BranchActivePower);
+        assert_eq!(m.bus, 1);
+        assert_eq!(m.to_bus, Some(4));
+        assert!((m.value - 0.3).abs() < 1e-12);
+        // weight = 1 / 0.02^2 = 2500
+        assert!((m.weight() - 2500.0).abs() < 1e-9);
+    }
+
+    #[test]
+    fn test_detect_bad_data_empty() {
+        // Empty inputs must return empty vec without panic
+        let bad = detect_bad_data(&[], &[], 3.0);
+        assert!(bad.is_empty());
+    }
+
+    #[test]
+    fn test_detect_bad_data_all_good() {
+        // All residuals well within threshold — nothing flagged
+        let meas = vec![
+            Measurement::power_injection(0, 0.5, 0.01),
+            Measurement::power_injection(1, -0.5, 0.01),
+        ];
+        // normalised residuals: |0.005|/0.01 = 0.5,  |-0.003|/0.01 = 0.3 — both < 3.0
+        let residuals = [0.005, -0.003];
+        let bad = detect_bad_data(&residuals, &meas, 3.0);
+        assert!(bad.is_empty());
+    }
+
+    #[test]
+    fn test_dc_se_slack_at_last_bus() {
+        // 3-bus network with slack at bus 2 (last index)
+        // Topology: bus0 -- (x=0.1) -- bus1 -- (x=0.2) -- bus2(slack)
+        // B_bus for P-θ: same susceptance structure, slack excluded from states
+        let b_bus = vec![
+            vec![10.0, -10.0, 0.0],
+            vec![-10.0, 15.0, -5.0],
+            vec![0.0, -5.0, 5.0],
+        ];
+        let est = DcStateEstimator::new(3, 2, b_bus, vec![0, 1], vec![1, 2], vec![0.1, 0.2]);
+
+        // True angles (slack = bus2 = 0):  θ0 = 0.15, θ1 = 0.05, θ2 = 0
+        // P_01 = (θ0 - θ1)/x01 = (0.15 - 0.05)/0.1 = 1.0 pu
+        // P_12 = (θ1 - θ2)/x12 = (0.05 - 0.0)/0.2  = 0.25 pu
+        // P_inj at bus0 = B[0][0]*θ0 + B[0][1]*θ1 = 10*0.15 + (-10)*0.05 = 1.0 pu
+        let meas = vec![
+            Measurement::branch_flow(0, 1, 1.0, 0.01),
+            Measurement::branch_flow(1, 2, 0.25, 0.01),
+            Measurement::power_injection(0, 1.0, 0.01),
+        ];
+        let result = est
+            .estimate(&meas)
+            .expect("DC SE with last-bus slack should succeed");
+        assert!(result.converged);
+        // Slack angle must be zero
+        assert!(
+            result.theta[2].abs() < 1e-9,
+            "slack θ[2] = {}",
+            result.theta[2]
+        );
+        // Non-slack angles
+        assert!(
+            (result.theta[0] - 0.15).abs() < 1e-4,
+            "θ[0] = {:.6}, expected 0.15",
+            result.theta[0]
+        );
+        assert!(
+            (result.theta[1] - 0.05).abs() < 1e-4,
+            "θ[1] = {:.6}, expected 0.05",
+            result.theta[1]
+        );
+    }
 }

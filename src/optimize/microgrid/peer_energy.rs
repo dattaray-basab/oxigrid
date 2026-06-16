@@ -99,11 +99,19 @@ impl MarketResult {
 pub fn clear_market(offers: &[EnergyOffer], bids: &[EnergyBid]) -> MarketResult {
     // Sort offers by price ascending
     let mut sorted_offers: Vec<(usize, EnergyOffer)> = offers.iter().cloned().enumerate().collect();
-    sorted_offers.sort_by(|a, b| a.1.min_price.partial_cmp(&b.1.min_price).unwrap());
+    sorted_offers.sort_by(|a, b| {
+        a.1.min_price
+            .partial_cmp(&b.1.min_price)
+            .unwrap_or(std::cmp::Ordering::Equal)
+    });
 
     // Sort bids by price descending
     let mut sorted_bids: Vec<(usize, EnergyBid)> = bids.iter().cloned().enumerate().collect();
-    sorted_bids.sort_by(|a, b| b.1.max_price.partial_cmp(&a.1.max_price).unwrap());
+    sorted_bids.sort_by(|a, b| {
+        b.1.max_price
+            .partial_cmp(&a.1.max_price)
+            .unwrap_or(std::cmp::Ordering::Equal)
+    });
 
     let mut trades = Vec::new();
     let mut offer_remaining: Vec<f64> = sorted_offers.iter().map(|o| o.1.quantity_kwh).collect();

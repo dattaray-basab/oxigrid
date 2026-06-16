@@ -891,13 +891,17 @@ fn estimate_magnitude_kva(meas: &HarmonicMeasurement) -> f64 {
     meas.fundamental_v * total_ih / 1000.0
 }
 
-/// Return the phase angle \[deg\] associated with the dominant harmonic order.
+/// Phase angle \[deg\] of the dominant harmonic current.
 ///
-/// Falls back to `0.0` if no dominant order is present in the measurement.
+/// [`HarmonicMeasurement`] records harmonic **magnitudes** only (RMS V/A), so
+/// no measured phase is available. The phase of a harmonic current depends on
+/// the converter firing angle, the system impedance, and the operating point,
+/// and cannot be inferred from magnitudes alone — reporting an invented
+/// "typical" value would be misleading. It is therefore returned as `0°` (the
+/// fundamental-voltage reference). The angle is kept as a dedicated function so
+/// a future phasor-aware measurement model can supply real phase data without
+/// changing any call site.
 fn dominant_phase_angle(meas: &HarmonicMeasurement, dominant_orders: &[u32]) -> f64 {
-    // We do not have phase in the new HarmonicMeasurement struct, so we
-    // use a type-specific typical value derived from IEEE literature.
-    // For now return 0 degrees (unknown) — subclasses can override.
     let _ = (meas, dominant_orders);
     0.0
 }

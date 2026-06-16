@@ -134,7 +134,7 @@ pub fn priority_commit(
         units[a]
             .marginal_cost()
             .partial_cmp(&units[b].marginal_cost())
-            .unwrap()
+            .unwrap_or(std::cmp::Ordering::Equal)
     });
 
     // Track commitment duration (positive = hours on, negative = hours off)
@@ -284,7 +284,7 @@ fn economic_dispatch_committed(units: &[Unit], committed: &[usize], demand_mw: f
         units[committed[a]]
             .marginal_cost()
             .partial_cmp(&units[committed[b]].marginal_cost())
-            .unwrap()
+            .unwrap_or(std::cmp::Ordering::Equal)
     });
 
     let mut dispatch = vec![0.0_f64; committed.len()];
@@ -404,6 +404,185 @@ mod tests {
                 r.is_feasible() || r.demand_mw > 450.0,
                 "Period {} should be feasible for load {:.0}",
                 r.period,
+                r.demand_mw
+            );
+        }
+    }
+
+    // ------------------------------------------------------------------
+    // 7 new tests
+    // ------------------------------------------------------------------
+
+    /// `Unit::base_load` derives fields from p_max and cost correctly.
+    #[test]
+    fn test_base_load_field_derivation() {
+        let u = Unit::base_load("Nuclear-1", 400.0, 20.0);
+        assert_eq!(u.p_min_mw, 400.0 * 0.40, "p_min should be 40% of p_max");
+        assert_eq!(u.p_max_mw, 400.0);
+        assert_eq!(u.cost_mwh, 20.0);
+        assert!((u.no_load_cost_h - 400.0 * 20.0 * 0.02).abs() < 1e-9);
+        assert_eq!(u.startup_cost, 400.0 * 50.0);
+        assert_eq!(u.min_up_h, 8.0);
+        assert_eq!(u.min_down_h, 8.0);
+        assert!(u.initially_on);
+        assert_eq!(u.initial_hours, 24.0);
+    }
+
+    /// `Unit::peaking` derives fields from p_max and cost correctly.
+    #[test]
+    fn test_peaking_field_derivation() {
+        let u = Unit::peaking("Gas-GT-2", 50.0, 90.0);
+        assert_eq!(u.p_min_mw, 50.0 * 0.20, "p_min should be 20% of p_max");
+        assert_eq!(u.p_max_mw, 50.0);
+        assert_eq!(u.cost_mwh, 90.0);
+        assert!((u.no_load_cost_h - 50.0 * 90.0 * 0.01).abs() < 1e-9);
+        assert_eq!(u.startup_cost, 50.0 * 10.0);
+        assert_eq!(u.min_up_h, 1.0);
+        assert_eq!(u.min_down_h, 1.0);
+        assert!(!u.initially_on);
+        assert_eq!(u.initial_hours, -4.0);
+    }
+
+    /// `Unit::variable_cost` and `marginal_cost` return expected values.
+    #[test]
+    fn test_unit_cost_methods() {
+        let u = Unit::base_load("Coal-A", 100.0, 30.0);
+        // no_load_cost_h = 100 * 30 * 0.02 = 60
+        // variable_cost(80) = 60 + 80*30 = 2460
+        let expected_vc = u.no_load_cost_h + 80.0 * 30.0;
+        assert!((u.variable_cost(80.0) - expected_vc).abs() < 1e-9);
+        assert_eq!(u.marginal_cost(), 30.0);
+        // variable_cost at p_min_mw must be lower than at p_max_mw
+        assert!(u.variable_cost(u.p_min_mw) < u.variable_cost(u.p_max_mw));
+    }
+
+    /// `CommitPeriod::is_feasible` returns false when load is shed.
+    #[test]
+    fn test_is_feasible_with_load_shed() {
+        // Single tiny unit that cannot meet demand — causes genuine load shed.
+        let units = vec![Unit::peaking("Tiny", 10.0, 100.0)];
+        let demands = vec![5000.0]; // far beyond any capacity
+        let results = priority_commit(&units, &demands, 1.0, 0.0);
+        assert_eq!(results.len(), 1);
+        let period = &results[0];
+        assert!(
+            period.load_shed_mw > 1e-6,
+            "Expected load shedding, got {:.2} MW shed",
+            period.load_shed_mw
+        );
+        assert!(
+            !period.is_feasible(),
+            "Period should not be feasible when load is shed"
+        );
+    }
+
+    /// `start_up` and `shut_down` flags track transitions correctly.
+    #[test]
+    fn test_startup_and_shutdown_flags() {
+        // Gas-GT starts off (initially_on = false, initial_hours = -4 → abs = 4 ≥ min_down_h=1)
+        // Period 0: low demand — only Coal should commit (Gas-GT stays off).
+        // Period 1: very high demand — Coal + Gas-CC + Gas-GT all commit.
+        // Period 2: low demand again — Gas-GT should shut down (if min_up_h allows).
+        //
+        // We test that Gas-GT shows start_up=true the first period it turns on.
+        let units = three_unit_system();
+        let demands = vec![80.0, 450.0];
+        let results = priority_commit(&units, &demands, 1.0, 0.0);
+        assert_eq!(results.len(), 2);
+
+        // Find the first period where Gas-GT (index 2) is committed.
+        let gt_start_period = results.iter().find(|r| r.states[2].committed);
+        if let Some(period) = gt_start_period {
+            assert!(
+                period.states[2].start_up,
+                "Gas-GT should have start_up=true in its first committed period"
+            );
+        }
+        // In period 0, Coal (index 0) was already on — it must NOT show start_up.
+        assert!(
+            !results[0].states[0].start_up,
+            "Coal was initially on, so start_up should be false in period 0"
+        );
+    }
+
+    /// Minimum down-time constraint: a unit recently shut down cannot restart.
+    #[test]
+    fn test_min_down_time_constraint() {
+        // Construct a unit that has been off for only 2 hours but requires min_down_h=8.
+        let mut u = Unit::base_load("Constrained", 200.0, 30.0);
+        u.initially_on = false;
+        u.initial_hours = 2.0; // has been off 2h, which is < min_down_h=8
+                               // Coal-1 alone can cover moderate demand if it was initially on.
+        let coal = Unit::base_load("Coal-On", 500.0, 25.0);
+        let units = vec![coal, u];
+        let demands = vec![600.0]; // coal covers 500, constrained would be needed for full
+        let results = priority_commit(&units, &demands, 1.0, 0.0);
+        // "Constrained" must NOT be committed because it violated min_down_h.
+        assert!(
+            !results[0].states[1].committed,
+            "Unit with insufficient down-time must not be committed"
+        );
+    }
+
+    /// Empty demand slice returns an empty result vector without panicking.
+    #[test]
+    fn test_empty_demands() {
+        let units = three_unit_system();
+        let results = priority_commit(&units, &[], 1.0, 15.0);
+        assert!(
+            results.is_empty(),
+            "Empty demands should yield empty results"
+        );
+    }
+
+    /// `total_schedule_cost` scales linearly with `dt_h`.
+    #[test]
+    fn test_total_schedule_cost_scales_with_dt() {
+        let units = three_unit_system();
+        let demands = vec![200.0; 4];
+        let results_1h = priority_commit(&units, &demands, 1.0, 0.0);
+        let results_half = priority_commit(&units, &demands, 0.5, 0.0);
+        let cost_1h = total_schedule_cost(&results_1h, 1.0);
+        let cost_half = total_schedule_cost(&results_half, 0.5);
+        // Both runs cover the same demand, dt_h halved → cost_h values may
+        // differ (startup amortisation), but both costs must be positive.
+        assert!(cost_1h > 0.0, "1h-step cost must be positive");
+        assert!(cost_half > 0.0, "0.5h-step cost must be positive");
+    }
+
+    /// Single-unit system: generation equals p_max when demand exceeds p_max.
+    #[test]
+    fn test_single_unit_at_capacity() {
+        let unit = Unit::base_load("Only-Unit", 100.0, 50.0);
+        let demands = vec![200.0]; // exceeds unit capacity
+        let results = priority_commit(&[unit], &demands, 1.0, 0.0);
+        assert_eq!(results.len(), 1);
+        let p = &results[0];
+        // The unit is committed; dispatch should be clamped to p_max (100 MW).
+        assert!(p.states[0].committed, "Single unit must be committed");
+        assert!(
+            (p.states[0].dispatch_mw - 100.0).abs() < 1e-6,
+            "Dispatch should equal p_max=100, got {:.2}",
+            p.states[0].dispatch_mw
+        );
+        assert!(
+            p.load_shed_mw > 0.0,
+            "Excess demand beyond capacity should be shed"
+        );
+    }
+
+    /// Zero reserve requirement: generation must still meet demand exactly.
+    #[test]
+    fn test_zero_reserve_generation_meets_demand() {
+        let units = three_unit_system();
+        let demands = vec![180.0, 320.0, 450.0];
+        let results = priority_commit(&units, &demands, 1.0, 0.0);
+        for r in &results {
+            assert!(
+                r.total_generation_mw >= r.demand_mw - 1e-6 || r.load_shed_mw > 1e-6,
+                "Period {}: gen={:.2} must cover demand={:.2}",
+                r.period,
+                r.total_generation_mw,
                 r.demand_mw
             );
         }

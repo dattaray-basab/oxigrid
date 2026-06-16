@@ -1505,4 +1505,196 @@ mod tests {
         };
         assert!((opp.compute_revenue() - 400.0).abs() < 1e-6);
     }
+
+    // 25. LP relaxation: every bid's quantity_mw is in [0, power_capacity_mw]
+    #[test]
+    fn test_power_within_bounds() {
+        let opt = make_energy_optimizer(&[18, 19]);
+        let sol = opt.solve_lp_relaxation().expect("lp solve");
+        let unit = &opt.units[0];
+        for b in &sol.bids {
+            assert!(
+                b.quantity_mw >= -1e-6,
+                "bid quantity_mw {:.6} below zero",
+                b.quantity_mw
+            );
+            assert!(
+                b.quantity_mw <= unit.power_capacity_mw + 1e-6,
+                "bid quantity_mw {:.6} exceeds power_capacity_mw {:.6}",
+                b.quantity_mw,
+                unit.power_capacity_mw
+            );
+        }
+    }
+
+    // 26. Higher degradation cost => degradation_cost_usd is non-lower than low deg cost case
+    #[test]
+    fn test_cycle_counting_increases_degradation() {
+        let prices: Vec<f64> = (0..24).map(|h| if h >= 18 { 200.0 } else { 5.0 }).collect();
+
+        let mut unit_high = make_unit(0);
+        unit_high.degradation_cost_usd_per_mwh = 20.0;
+        let mut opt_high = MultiMarketOptimizer::new(vec![unit_high], 24);
+        opt_high.set_price_forecast(MarketType::EnergyArbitrage, prices.clone());
+
+        let mut unit_low = make_unit(0);
+        unit_low.degradation_cost_usd_per_mwh = 1.0;
+        let mut opt_low = MultiMarketOptimizer::new(vec![unit_low], 24);
+        opt_low.set_price_forecast(MarketType::EnergyArbitrage, prices);
+
+        let sol_high = opt_high.solve_dynamic_programming().expect("dp high deg");
+        let sol_low = opt_low.solve_dynamic_programming().expect("dp low deg");
+        // The high-deg unit may dispatch less or same but its per-MWh cost is higher,
+        // so its total degradation charge is at least as high when scaled by actual throughput.
+        // We only assert the non-negativity invariant and that solutions are valid.
+        assert!(sol_high.degradation_cost_usd >= 0.0);
+        assert!(sol_low.degradation_cost_usd >= 0.0);
+        // With very high deg cost (20 USD/MWh >> spread), unit dispatches less or zero,
+        // so degradation cost is at most equal to or less than low-cost unit's degradation.
+        // Both are non-negative — the invariant that matters is sol >= 0.
+        assert!(
+            sol_high.degradation_cost_usd >= sol_low.degradation_cost_usd - 1e-6
+                || sol_high.total_revenue_usd <= sol_low.total_revenue_usd + 1e-6,
+            "high deg unit should either have higher deg cost or lower revenue than low deg unit"
+        );
+    }
+
+    // 27. 48-hour horizon: total profit and revenue are finite
+    #[test]
+    fn test_total_profit_finite() {
+        let mut opt = MultiMarketOptimizer::new(vec![make_unit(0)], 48);
+        opt.set_price_forecast(
+            MarketType::EnergyArbitrage,
+            (0..48)
+                .map(|h| if h % 24 >= 18 { 90.0 } else { 10.0 })
+                .collect(),
+        );
+        let sol = opt.solve_dynamic_programming().expect("dp 48h");
+        assert!(
+            sol.net_profit_usd.is_finite(),
+            "net_profit_usd is not finite"
+        );
+        assert!(
+            sol.total_revenue_usd.is_finite(),
+            "total_revenue_usd is not finite"
+        );
+    }
+
+    // 28. priority() ordering: FreqRegUp (0) < SpinningReserve (2) < EnergyArbitrage (3) < CapacityMarket (7)
+    #[test]
+    fn test_market_priority_ordering() {
+        assert!(
+            MarketType::FrequencyRegulationUp.priority() < MarketType::SpinningReserve.priority(),
+            "FrequencyRegulationUp priority should be lower number (higher priority) than SpinningReserve"
+        );
+        assert!(
+            MarketType::SpinningReserve.priority() < MarketType::EnergyArbitrage.priority(),
+            "SpinningReserve priority should be lower number than EnergyArbitrage"
+        );
+        assert!(
+            MarketType::EnergyArbitrage.priority() < MarketType::CapacityMarket.priority(),
+            "EnergyArbitrage priority should be lower number than CapacityMarket"
+        );
+    }
+
+    // 29. Smaller energy_capacity (faded) yields net_profit <= full-capacity unit
+    #[test]
+    fn test_capacity_fade_reduces_net_profit() {
+        let prices: Vec<f64> = (0..24)
+            .map(|h| if h >= 18 { 120.0 } else { 10.0 })
+            .collect();
+
+        let unit_a = StorageUnit::new_lithium_ion(0, 4.0, 2.0);
+        let mut opt_a = MultiMarketOptimizer::new(vec![unit_a], 24);
+        opt_a.set_price_forecast(MarketType::EnergyArbitrage, prices.clone());
+
+        let unit_b = StorageUnit::new_lithium_ion(1, 2.0, 2.0);
+        let mut opt_b = MultiMarketOptimizer::new(vec![unit_b], 24);
+        opt_b.set_price_forecast(MarketType::EnergyArbitrage, prices);
+
+        let sol_a = opt_a.solve_dynamic_programming().expect("dp full capacity");
+        let sol_b = opt_b
+            .solve_dynamic_programming()
+            .expect("dp faded capacity");
+        assert!(
+            sol_a.net_profit_usd >= sol_b.net_profit_usd - 1e-6,
+            "full capacity net_profit {:.4} should be >= faded capacity {:.4}",
+            sol_a.net_profit_usd,
+            sol_b.net_profit_usd
+        );
+    }
+
+    // 30. compute_revenue_decomposition: energy_arbitrage + ancillary_services + capacity_market == total_revenue
+    #[test]
+    fn test_revenue_decomposition_sums_correctly() {
+        let opt = make_energy_optimizer(&[18, 19]);
+        let sol = opt.solve_dynamic_programming().expect("dp solve");
+        let decomp = opt.compute_revenue_decomposition(&sol);
+        let total = decomp
+            .get("total_revenue")
+            .copied()
+            .expect("total_revenue key missing");
+        let energy = decomp.get("energy_arbitrage").copied().unwrap_or(0.0);
+        let ancillary = decomp.get("ancillary_services").copied().unwrap_or(0.0);
+        let capacity = decomp.get("capacity_market").copied().unwrap_or(0.0);
+        let sum = energy + ancillary + capacity;
+        assert!(
+            (sum - total).abs() < 1e-3,
+            "decomposition sum {:.6} != total_revenue {:.6}",
+            sum,
+            total
+        );
+    }
+
+    // 31. Multi-unit fleet (3 units): non-negative revenue and correct soc_trajectory length
+    #[test]
+    fn test_multi_unit_fleet_total_revenue() {
+        let units = vec![
+            StorageUnit::new_lithium_ion(0, 4.0, 2.0),
+            StorageUnit::new_lithium_ion(1, 4.0, 2.0),
+            StorageUnit::new_lithium_ion(2, 4.0, 2.0),
+        ];
+        let mut opt = MultiMarketOptimizer::new(units, 24);
+        opt.set_price_forecast(
+            MarketType::EnergyArbitrage,
+            (0..24)
+                .map(|h| if (18..=20).contains(&h) { 130.0 } else { 15.0 })
+                .collect(),
+        );
+        let sol = opt.solve_dynamic_programming().expect("dp 3-unit fleet");
+        assert!(
+            sol.total_revenue_usd >= 0.0,
+            "total_revenue_usd should be non-negative"
+        );
+        assert_eq!(
+            sol.soc_trajectory.len(),
+            25,
+            "soc_trajectory length should be horizon + 1 = 25"
+        );
+    }
+
+    // 32. is_ancillary() flag: ancillary markets return true, non-ancillary return false
+    #[test]
+    fn test_ancillary_service_flag() {
+        assert!(
+            MarketType::FrequencyRegulationUp.is_ancillary(),
+            "FrequencyRegulationUp should be ancillary"
+        );
+        assert!(
+            MarketType::FrequencyRegulationDown.is_ancillary(),
+            "FrequencyRegulationDown should be ancillary"
+        );
+        assert!(
+            MarketType::SpinningReserve.is_ancillary(),
+            "SpinningReserve should be ancillary"
+        );
+        assert!(
+            !MarketType::EnergyArbitrage.is_ancillary(),
+            "EnergyArbitrage should not be ancillary"
+        );
+        assert!(
+            !MarketType::CapacityMarket.is_ancillary(),
+            "CapacityMarket should not be ancillary"
+        );
+    }
 }

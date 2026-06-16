@@ -761,3 +761,93 @@ pub struct FeederVoltageProfile {
     /// Mean bus voltage across the profile ``pu``.
     pub mean_voltage_pu: f64,
 }
+
+#[cfg(test)]
+mod tests {
+    use super::super::types::ViolationType;
+    use super::*;
+
+    #[test]
+    fn voltage_regulation_system_new_defaults() {
+        let sys = VoltageRegulationSystem::new();
+        assert!((sys.min_voltage_limit_pu - 0.95).abs() < 1e-9);
+        assert!((sys.max_voltage_limit_pu - 1.05).abs() < 1e-9);
+        assert!(sys.oltc_controllers.is_empty());
+        assert!(sys.capacitor_banks.is_empty());
+    }
+
+    #[test]
+    fn assess_voltage_profile_counts_violations() {
+        let sys = VoltageRegulationSystem::new();
+        let voltages = vec![0.93, 1.0, 1.07];
+        let bus_ids = vec![0usize, 1, 2];
+        let profile = sys.assess_voltage_profile(&voltages, &bus_ids);
+        assert_eq!(profile.n_violations, 2);
+    }
+
+    #[test]
+    fn assess_voltage_profile_min_max() {
+        let sys = VoltageRegulationSystem::new();
+        let voltages = vec![0.96, 1.02, 1.04];
+        let bus_ids = vec![0usize, 1, 2];
+        let profile = sys.assess_voltage_profile(&voltages, &bus_ids);
+        assert!((profile.min_voltage_pu - 0.96).abs() < 1e-9);
+        assert!((profile.max_voltage_pu - 1.04).abs() < 1e-9);
+    }
+
+    #[test]
+    fn coordinated_controller_new_defaults() {
+        let ctrl = CoordinatedVoltageController::new(100.0, 11.0);
+        assert!((ctrl.base_mva - 100.0).abs() < 1e-9);
+        assert!((ctrl.base_kv - 11.0).abs() < 1e-9);
+        assert!((ctrl.v_limits.0 - 0.95).abs() < 1e-9);
+        assert!((ctrl.v_limits.1 - 1.05).abs() < 1e-9);
+        assert!(ctrl.regulators.is_empty());
+    }
+
+    #[test]
+    fn check_voltage_violations_under_and_over() {
+        let ctrl = CoordinatedVoltageController::new(100.0, 11.0);
+        let voltages = vec![0.9, 1.0, 1.1];
+        let violations = ctrl.check_voltage_violations(&voltages);
+        assert_eq!(violations.len(), 2);
+        let first = violations
+            .iter()
+            .find(|v| v.bus == 0)
+            .expect("should have violation at bus 0");
+        assert_eq!(first.violation_type, ViolationType::UnderVoltage);
+        let last = violations
+            .iter()
+            .find(|v| v.bus == 2)
+            .expect("should have violation at bus 2");
+        assert_eq!(last.violation_type, ViolationType::OverVoltage);
+    }
+
+    #[test]
+    fn step_capacitor_bank_q_injected() {
+        let mut cap = StepCapacitorBank::new(0, 0, 10.0, 11.0, 4);
+        cap.switch_step(2)
+            .expect("switching 2 steps in should succeed");
+        let q = cap.q_injected_mvar();
+        assert!((q - 5.0).abs() < 1e-9);
+    }
+
+    #[test]
+    fn step_capacitor_bank_switch_step_bounds() {
+        let mut cap = StepCapacitorBank::new(0, 0, 10.0, 11.0, 4);
+        let result_over = cap.switch_step(6);
+        assert!(result_over.is_err());
+        let result_under = cap.switch_step(-1);
+        assert!(result_under.is_err());
+    }
+
+    #[test]
+    fn tap_action_at_limit_contains_message() {
+        let msg = "reg 0 at max tap 16".to_string();
+        let action = TapAction::AtLimit(msg);
+        match action {
+            TapAction::AtLimit(s) => assert!(!s.is_empty()),
+            _ => panic!("expected AtLimit variant"),
+        }
+    }
+}

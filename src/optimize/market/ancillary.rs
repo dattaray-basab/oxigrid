@@ -232,4 +232,245 @@ mod tests {
         assert!(!result.requirement_met);
         assert!((result.shortage_mw - 30.0).abs() < 1e-6);
     }
+
+    #[test]
+    fn test_regulation_up_clearing() {
+        let offers = vec![
+            AncillaryOffer {
+                unit_id: 0,
+                service: AncillaryService::RegulationUp {
+                    capacity_mw: 20.0,
+                    bid_mwh: 12.0,
+                },
+                availability_price: 1.0,
+            },
+            AncillaryOffer {
+                unit_id: 1,
+                service: AncillaryService::RegulationUp {
+                    capacity_mw: 30.0,
+                    bid_mwh: 8.0,
+                },
+                availability_price: 1.0,
+            },
+            AncillaryOffer {
+                unit_id: 2,
+                service: AncillaryService::RegulationUp {
+                    capacity_mw: 10.0,
+                    bid_mwh: 15.0,
+                },
+                availability_price: 1.0,
+            },
+        ];
+
+        let result = clear_ancillary_market(&offers, 40.0, "regulation_up")
+            .expect("Regulation up market should clear");
+
+        assert!(result.requirement_met, "40 MW should be met");
+        assert!(
+            (result.clearing_price - 12.0).abs() < 1e-9,
+            "Marginal price should be 12.0"
+        );
+        let first = result
+            .cleared_offers
+            .first()
+            .expect("At least one cleared offer");
+        assert_eq!(
+            first.0, 1,
+            "Cheapest unit (bid 8.0, unit_id 1) should clear first"
+        );
+    }
+
+    #[test]
+    fn test_non_spinning_reserve_procurement() {
+        let offers = vec![
+            AncillaryOffer {
+                unit_id: 0,
+                service: AncillaryService::NonSpinningReserve {
+                    capacity_mw: 50.0,
+                    bid_mwh: 6.0,
+                },
+                availability_price: 1.0,
+            },
+            AncillaryOffer {
+                unit_id: 1,
+                service: AncillaryService::NonSpinningReserve {
+                    capacity_mw: 30.0,
+                    bid_mwh: 4.0,
+                },
+                availability_price: 1.0,
+            },
+        ];
+
+        let result = clear_ancillary_market(&offers, 60.0, "non_spinning")
+            .expect("Non-spinning market should clear");
+
+        assert!(result.requirement_met, "60 MW should be met");
+        let first = result
+            .cleared_offers
+            .first()
+            .expect("At least one cleared offer");
+        assert_eq!(
+            first.0, 1,
+            "Cheapest unit (bid 4.0, unit_id 1) should clear first"
+        );
+        assert!(
+            (result.clearing_price - 6.0).abs() < 1e-9,
+            "Marginal price should be 6.0"
+        );
+    }
+
+    #[test]
+    fn test_regulation_down_price_is_marginal() {
+        let offers = vec![
+            AncillaryOffer {
+                unit_id: 0,
+                service: AncillaryService::RegulationDown {
+                    capacity_mw: 25.0,
+                    bid_mwh: 3.0,
+                },
+                availability_price: 1.0,
+            },
+            AncillaryOffer {
+                unit_id: 1,
+                service: AncillaryService::RegulationDown {
+                    capacity_mw: 25.0,
+                    bid_mwh: 7.0,
+                },
+                availability_price: 1.0,
+            },
+        ];
+
+        let result = clear_ancillary_market(&offers, 30.0, "regulation_down")
+            .expect("Regulation down market should clear");
+
+        assert!(result.requirement_met, "30 MW should be met");
+        assert!(
+            (result.clearing_price - 7.0).abs() < 1e-9,
+            "Marginal price should be 7.0"
+        );
+        let first = result
+            .cleared_offers
+            .first()
+            .expect("At least one cleared offer");
+        assert_eq!(
+            first.0, 0,
+            "Cheapest unit (bid 3.0, unit_id 0) should clear first"
+        );
+    }
+
+    #[test]
+    fn test_voltage_support_clearing() {
+        let offers = vec![
+            AncillaryOffer {
+                unit_id: 0,
+                service: AncillaryService::Voltage {
+                    reactive_mvar: 100.0,
+                    bid_mvar: 2.0,
+                },
+                availability_price: 1.0,
+            },
+            AncillaryOffer {
+                unit_id: 1,
+                service: AncillaryService::Voltage {
+                    reactive_mvar: 50.0,
+                    bid_mvar: 1.5,
+                },
+                availability_price: 1.0,
+            },
+        ];
+
+        let result = clear_ancillary_market(&offers, 80.0, "voltage")
+            .expect("Voltage support market should clear");
+
+        assert!(result.requirement_met, "80 MVAr should be met");
+        assert!(
+            (result.clearing_price - 2.0).abs() < 1e-9,
+            "Marginal price should be 2.0"
+        );
+        let first = result
+            .cleared_offers
+            .first()
+            .expect("At least one cleared offer");
+        assert_eq!(
+            first.0, 1,
+            "Cheapest unit (bid 1.5, unit_id 1) should clear first"
+        );
+    }
+
+    #[test]
+    fn test_all_service_types_filter() {
+        let offers = vec![
+            AncillaryOffer {
+                unit_id: 0,
+                service: AncillaryService::SpinningReserve {
+                    capacity_mw: 30.0,
+                    bid_mwh: 5.0,
+                },
+                availability_price: 1.0,
+            },
+            AncillaryOffer {
+                unit_id: 1,
+                service: AncillaryService::NonSpinningReserve {
+                    capacity_mw: 20.0,
+                    bid_mwh: 3.0,
+                },
+                availability_price: 1.0,
+            },
+            AncillaryOffer {
+                unit_id: 2,
+                service: AncillaryService::RegulationUp {
+                    capacity_mw: 15.0,
+                    bid_mwh: 7.0,
+                },
+                availability_price: 1.0,
+            },
+        ];
+
+        let result_all =
+            clear_ancillary_market(&offers, 40.0, "all").expect("All-service market should clear");
+        assert!(
+            result_all.requirement_met,
+            "40 MW should be met from 65 MW total"
+        );
+
+        let result_spinning = clear_ancillary_market(&offers, 30.0, "spinning")
+            .expect("Spinning-only market should clear");
+        assert_eq!(
+            result_spinning.cleared_offers.len(),
+            1,
+            "Only one spinning unit should clear"
+        );
+        assert_eq!(
+            result_spinning.cleared_offers[0].0, 0,
+            "The spinning unit (unit_id 0) should be cleared"
+        );
+    }
+
+    #[test]
+    fn test_zero_requirement_always_met() {
+        let offers = vec![AncillaryOffer {
+            unit_id: 0,
+            service: AncillaryService::SpinningReserve {
+                capacity_mw: 50.0,
+                bid_mwh: 5.0,
+            },
+            availability_price: 1.0,
+        }];
+
+        let result = clear_ancillary_market(&offers, 0.0, "spinning")
+            .expect("Zero requirement should not error");
+
+        assert!(
+            result.requirement_met,
+            "Zero requirement should always be met"
+        );
+        assert!(
+            (result.shortage_mw - 0.0).abs() < 1e-9,
+            "Shortage should be zero"
+        );
+        assert!(
+            result.cleared_offers.is_empty(),
+            "No offers should be cleared for zero requirement"
+        );
+    }
 }

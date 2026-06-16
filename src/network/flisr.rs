@@ -744,4 +744,258 @@ mod tests {
             "Total operation time should be at least last step time"
         );
     }
+
+    #[test]
+    fn test_no_fault_indicators_no_location() {
+        // A feeder with no fault indicators: locate_fault returns None, no isolation, no
+        // restoration steps (nothing to isolate or de-energise).
+        let ctrl = FlisrController {
+            switches: vec![SwitchDevice {
+                id: 1,
+                branch_idx: 0,
+                from_bus: 0,
+                to_bus: 1,
+                is_normally_open: false,
+                can_operate: true,
+                operation_time_s: 0.5,
+            }],
+            fault_indicators: vec![],
+            bus_loads_mw: vec![0.0, 1.0],
+            feeder_capacity_mw: 10.0,
+            bus_customers: vec![0, 100],
+            n_buses: 2,
+            adjacency: vec![vec![1], vec![0]],
+            substation_buses: vec![0],
+        };
+        let result = ctrl.execute().expect("execute with no fault indicators");
+        assert_eq!(
+            result.fault_location, None,
+            "No indicators means no fault location"
+        );
+        assert!(
+            result.restoration_steps.is_empty(),
+            "No indicators means no switch operations"
+        );
+    }
+
+    #[test]
+    fn test_all_indicators_tripped_fallback_location() {
+        // All fault indicators tripped — the primary locate_fault pattern (tripped→not-tripped)
+        // never fires, so the fallback (last switch whose from_bus is tripped) is used.
+        // With a two-switch feeder 0→1→2 where both indicators are tripped, the fallback
+        // returns the last normally-closed switch's branch_idx.
+        let ctrl = FlisrController {
+            switches: vec![
+                SwitchDevice {
+                    id: 10,
+                    branch_idx: 0,
+                    from_bus: 0,
+                    to_bus: 1,
+                    is_normally_open: false,
+                    can_operate: true,
+                    operation_time_s: 0.5,
+                },
+                SwitchDevice {
+                    id: 11,
+                    branch_idx: 1,
+                    from_bus: 1,
+                    to_bus: 2,
+                    is_normally_open: false,
+                    can_operate: true,
+                    operation_time_s: 0.5,
+                },
+            ],
+            fault_indicators: vec![
+                FaultIndicator {
+                    id: 1,
+                    bus_idx: 0,
+                    current_threshold_a: 100.0,
+                    tripped: true,
+                },
+                FaultIndicator {
+                    id: 2,
+                    bus_idx: 1,
+                    current_threshold_a: 100.0,
+                    tripped: true,
+                },
+                FaultIndicator {
+                    id: 3,
+                    bus_idx: 2,
+                    current_threshold_a: 100.0,
+                    tripped: true,
+                },
+            ],
+            bus_loads_mw: vec![0.0, 1.0, 2.0],
+            feeder_capacity_mw: 10.0,
+            bus_customers: vec![0, 100, 200],
+            n_buses: 3,
+            adjacency: vec![vec![1], vec![0, 2], vec![1]],
+            substation_buses: vec![0],
+        };
+        let result = ctrl.execute().expect("execute with all indicators tripped");
+        assert!(
+            result.fault_location.is_some(),
+            "Fallback should yield Some fault location when indicators are all tripped"
+        );
+    }
+
+    #[test]
+    fn test_customers_restored_positive() {
+        // simple_feeder has a restorable section (bus 3 and 4) via tie switch 20.
+        // After execute(), customers_restored should be > 0.
+        let ctrl = simple_feeder();
+        let result = ctrl.execute().expect("flisr execute");
+        assert!(
+            result.customers_restored > 0,
+            "Expected positive customers_restored after tie-switch restoration, got {}",
+            result.customers_restored
+        );
+    }
+
+    #[test]
+    fn test_unrestored_load_when_no_tie() {
+        // Feeder: sub(0) — 1 — 2(fault) — 3 — 4, no tie switch.
+        // Fault on branch 1 (between bus 1 and bus 2).
+        // Bus 2→4 are downstream, with no tie switch, so they remain de-energised.
+        let ctrl = FlisrController {
+            switches: vec![
+                SwitchDevice {
+                    id: 10,
+                    branch_idx: 0,
+                    from_bus: 0,
+                    to_bus: 1,
+                    is_normally_open: false,
+                    can_operate: true,
+                    operation_time_s: 0.5,
+                },
+                SwitchDevice {
+                    id: 11,
+                    branch_idx: 1,
+                    from_bus: 1,
+                    to_bus: 2,
+                    is_normally_open: false,
+                    can_operate: true,
+                    operation_time_s: 0.5,
+                },
+                SwitchDevice {
+                    id: 12,
+                    branch_idx: 2,
+                    from_bus: 2,
+                    to_bus: 3,
+                    is_normally_open: false,
+                    can_operate: true,
+                    operation_time_s: 0.5,
+                },
+                SwitchDevice {
+                    id: 13,
+                    branch_idx: 3,
+                    from_bus: 3,
+                    to_bus: 4,
+                    is_normally_open: false,
+                    can_operate: true,
+                    operation_time_s: 0.5,
+                },
+            ],
+            fault_indicators: vec![
+                FaultIndicator {
+                    id: 1,
+                    bus_idx: 0,
+                    current_threshold_a: 100.0,
+                    tripped: true,
+                },
+                FaultIndicator {
+                    id: 2,
+                    bus_idx: 1,
+                    current_threshold_a: 100.0,
+                    tripped: true,
+                },
+                FaultIndicator {
+                    id: 3,
+                    bus_idx: 2,
+                    current_threshold_a: 100.0,
+                    tripped: false,
+                },
+                FaultIndicator {
+                    id: 4,
+                    bus_idx: 3,
+                    current_threshold_a: 100.0,
+                    tripped: false,
+                },
+                FaultIndicator {
+                    id: 5,
+                    bus_idx: 4,
+                    current_threshold_a: 100.0,
+                    tripped: false,
+                },
+            ],
+            bus_loads_mw: vec![0.0, 1.0, 2.0, 1.5, 1.0],
+            feeder_capacity_mw: 10.0,
+            bus_customers: vec![0, 100, 200, 150, 100],
+            n_buses: 5,
+            adjacency: vec![vec![1], vec![0, 2], vec![1, 3], vec![2, 4], vec![3]],
+            substation_buses: vec![0],
+        };
+        let result = ctrl.execute().expect("flisr execute no-tie");
+        assert!(
+            result.unrestored_load_mw > 0.0,
+            "Expected unrestored load when no tie switch is available, got {}",
+            result.unrestored_load_mw
+        );
+    }
+
+    #[test]
+    fn test_switch_action_eq() {
+        assert_eq!(SwitchAction::Open, SwitchAction::Open);
+        assert_eq!(SwitchAction::Close, SwitchAction::Close);
+        assert_ne!(
+            SwitchAction::Open,
+            SwitchAction::Close,
+            "Open and Close should be distinct"
+        );
+    }
+
+    #[test]
+    fn test_switch_device_clone() {
+        let original = SwitchDevice {
+            id: 42,
+            branch_idx: 7,
+            from_bus: 3,
+            to_bus: 5,
+            is_normally_open: true,
+            can_operate: false,
+            operation_time_s: 1.25,
+        };
+        let cloned = original.clone();
+        assert_eq!(cloned.id, original.id, "id must match after clone");
+        assert_eq!(
+            cloned.branch_idx, original.branch_idx,
+            "branch_idx must match after clone"
+        );
+        assert_eq!(
+            cloned.is_normally_open, original.is_normally_open,
+            "is_normally_open must match after clone"
+        );
+    }
+
+    #[test]
+    fn test_flisr_result_operation_ordering() {
+        // After executing simple_feeder, restoration_steps should be non-empty,
+        // and isolation (Open) operations must appear before restoration (Close) operations.
+        let ctrl = simple_feeder();
+        let result = ctrl.execute().expect("flisr execute");
+        assert!(
+            !result.restoration_steps.is_empty(),
+            "Expected non-empty restoration_steps for a feeder with a fault"
+        );
+        let first_action = result
+            .restoration_steps
+            .first()
+            .expect("at least one step present")
+            .action;
+        assert_eq!(
+            first_action,
+            SwitchAction::Open,
+            "First operation must be Open (isolation) before any Close (restoration)"
+        );
+    }
 }

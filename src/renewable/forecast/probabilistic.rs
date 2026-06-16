@@ -186,7 +186,7 @@ impl KernelDensityEstimator {
 
     fn iqr(data: &[f64]) -> f64 {
         let mut sorted = data.to_vec();
-        sorted.sort_by(|a, b| a.partial_cmp(b).unwrap());
+        sorted.sort_by(|a, b| a.partial_cmp(b).unwrap_or(std::cmp::Ordering::Equal));
         let n = sorted.len();
         let q25 = sorted[(n as f64 * 0.25) as usize];
         let q75 = sorted[(n as f64 * 0.75).min(n as f64 - 1.0) as usize];
@@ -420,7 +420,7 @@ impl ProbabilisticForecast {
                     (ta - target)
                         .abs()
                         .partial_cmp(&(tb - target).abs())
-                        .unwrap()
+                        .unwrap_or(std::cmp::Ordering::Equal)
                 })
                 .map(|(_, &v)| v)
         };
@@ -507,7 +507,7 @@ pub fn ensemble_quantiles(ensemble: &[Vec<f64>], taus: &[f64]) -> Vec<Vec<f64>> 
     let mut per_sample_sorted: Vec<Vec<f64>> = (0..n_samples)
         .map(|s| {
             let mut vals: Vec<f64> = ensemble.iter().map(|member| member[s]).collect();
-            vals.sort_by(|a, b| a.partial_cmp(b).unwrap());
+            vals.sort_by(|a, b| a.partial_cmp(b).unwrap_or(std::cmp::Ordering::Equal));
             vals
         })
         .collect();

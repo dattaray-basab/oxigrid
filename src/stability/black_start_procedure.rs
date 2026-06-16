@@ -1611,4 +1611,377 @@ mod tests {
         let plan = planner.generate_plan(2.0, 49.0, 51.0).expect("plan");
         assert!(!plan.cranking_paths.is_empty());
     }
+
+    #[test]
+    fn test_diesel_gen_low_fuel_not_eligible() {
+        let g = BlackStartGenerator {
+            id: 10,
+            bus: 0,
+            rated_mw: 50.0,
+            capability: BlackStartCapability::Full {
+                startup_mw: 15.0,
+                hold_time_min: 30.0,
+            },
+            startup_time_min: 5.0,
+            min_stable_mw: 5.0,
+            max_ramp_mw_per_min: 2.0,
+            aux_power_mw: 1.0,
+            technology: GeneratorType::Diesel {
+                fuel_level_pct: 5.0,
+            },
+        };
+        assert!(!g.is_black_start_eligible());
+    }
+
+    #[test]
+    fn test_diesel_gen_adequate_fuel_eligible() {
+        let g = BlackStartGenerator {
+            id: 11,
+            bus: 0,
+            rated_mw: 50.0,
+            capability: BlackStartCapability::Full {
+                startup_mw: 15.0,
+                hold_time_min: 30.0,
+            },
+            startup_time_min: 5.0,
+            min_stable_mw: 5.0,
+            max_ramp_mw_per_min: 2.0,
+            aux_power_mw: 1.0,
+            technology: GeneratorType::Diesel {
+                fuel_level_pct: 80.0,
+            },
+        };
+        assert!(g.is_black_start_eligible());
+        assert!((g.net_startup_mw() - 14.0).abs() < 1e-9);
+    }
+
+    #[test]
+    fn test_wind_with_battery_eligible() {
+        let g = BlackStartGenerator {
+            id: 12,
+            bus: 1,
+            rated_mw: 20.0,
+            capability: BlackStartCapability::Limited { startup_mw: 10.0 },
+            startup_time_min: 3.0,
+            min_stable_mw: 2.0,
+            max_ramp_mw_per_min: 5.0,
+            aux_power_mw: 2.0,
+            technology: GeneratorType::WindWithBattery,
+        };
+        assert!(g.is_black_start_eligible());
+        assert!((g.net_startup_mw() - 8.0).abs() < 1e-9);
+    }
+
+    #[test]
+    fn test_solar_not_eligible() {
+        let g = BlackStartGenerator {
+            id: 13,
+            bus: 0,
+            rated_mw: 30.0,
+            capability: BlackStartCapability::Full {
+                startup_mw: 10.0,
+                hold_time_min: 60.0,
+            },
+            startup_time_min: 0.0,
+            min_stable_mw: 0.0,
+            max_ramp_mw_per_min: 30.0,
+            aux_power_mw: 0.5,
+            technology: GeneratorType::Solar,
+        };
+        assert!(!g.is_black_start_eligible());
+    }
+
+    #[test]
+    fn test_cranking_path_impedance_accumulates() {
+        let planner = make_simple_planner(vec![], vec![]);
+        let cp = planner.find_cranking_path(0, 2).expect("path should exist");
+        // Two branches each with r=0.01, x=0.1 → total_r=0.02, total_x=0.2
+        let expected = (0.02_f64 * 0.02 + 0.2 * 0.2).sqrt();
+        assert!((cp.path_impedance_pu - expected).abs() < 1e-9);
+    }
+
+    #[test]
+    fn test_cold_load_pickup_beyond_8h_saturates() {
+        let load = make_load(0, 0, RestorePriority::Residential, 100.0, false);
+        let demand_at_8h = BlackStartPlanner::estimate_cold_load_pickup(&load, 8.0);
+        let demand_at_16h = BlackStartPlanner::estimate_cold_load_pickup(&load, 16.0);
+        assert!((demand_at_8h - demand_at_16h).abs() < 1e-9);
+    }
+
+    #[test]
+    fn test_generate_plan_invalid_frequency_band() {
+        let gens = vec![make_hydro_gen(0, 0, 100.0)];
+        let planner = make_simple_planner(gens, vec![]);
+        // inverted band: min >= max → error
+        let result = planner.generate_plan(4.0, 51.0, 49.0);
+        assert!(result.is_err());
+    }
+
+    #[test]
+    fn test_simulate_critical_load_restored_flag() {
+        let gens = vec![make_hydro_gen(0, 0, 200.0)];
+        let loads = vec![make_load(
+            0,
+            1,
+            RestorePriority::CriticalInfrastructure,
+            10.0,
+            true,
+        )];
+        let planner_for_plan = make_simple_planner(gens.clone(), loads.clone());
+        let plan = planner_for_plan
+            .generate_plan(4.0, 49.0, 51.0)
+            .expect("plan generation failed");
+        let mut sim = BlackStartSimulator::new(make_simple_planner(gens, loads), 0.5, 50.0);
+        let result = sim.simulate(&plan, 4.0);
+        assert!(result.critical_load_restored);
+    }
+
+    // ---- black start unit selection ----------------------------------------
+
+    /// The reference (largest-rated) BS unit should be selected when multiple
+    /// BS-capable generators are available.
+    #[test]
+    fn test_largest_bs_unit_selected_as_reference() {
+        let small = make_hydro_gen(0, 0, 50.0);
+        let large = make_hydro_gen(1, 1, 300.0);
+        let battery = make_battery_gen(2, 2, 20.0);
+        let gens = vec![small, large, battery];
+        let planner = make_simple_planner(gens, vec![]);
+        let plan = planner
+            .generate_plan(2.0, 49.0, 51.0)
+            .expect("plan must succeed");
+        // The very first step must start the largest unit (id=1, rated_mw=300)
+        let first_step = plan
+            .steps
+            .first()
+            .expect("plan must have at least one step");
+        match &first_step.step_type {
+            BlackStartStepType::StartBlackStartUnit { gen_id } => {
+                assert_eq!(
+                    *gen_id, 1,
+                    "reference unit should be the 300 MW hydro (id=1)"
+                );
+            }
+            other => panic!("expected StartBlackStartUnit, got {:?}", other),
+        }
+    }
+
+    // ---- cranking path validity --------------------------------------------
+
+    /// A three-hop path through a 4-bus ring should contain exactly 3 branch
+    /// indices and accumulate impedance from all three branches.
+    #[test]
+    fn test_cranking_path_three_hop_impedance() {
+        // 4-bus chain: 0──0──1──1──2──2──3
+        let planner = BlackStartPlanner::new(
+            vec![],
+            vec![],
+            4,
+            3,
+            vec![(0, 1), (1, 2), (2, 3)],
+            vec![(0.02, 0.2), (0.02, 0.2), (0.02, 0.2)],
+            vec![0.05, 0.05, 0.05],
+        );
+        let cp = planner
+            .find_cranking_path(0, 3)
+            .expect("path from bus 0 to bus 3 must exist");
+        assert_eq!(cp.branch_sequence.len(), 3, "three hops expected");
+        // Total Z = sqrt((3*0.02)^2 + (3*0.2)^2)
+        let expected_z = (0.06_f64 * 0.06 + 0.6 * 0.6).sqrt();
+        assert!(
+            (cp.path_impedance_pu - expected_z).abs() < 1e-9,
+            "impedance mismatch: got {}, expected {}",
+            cp.path_impedance_pu,
+            expected_z
+        );
+    }
+
+    // ---- load pickup sequence ----------------------------------------------
+
+    /// Loads should be scheduled in ascending priority order: lower numeric
+    /// value means higher priority and should appear earlier in the plan.
+    #[test]
+    fn test_load_pickup_ordered_by_priority() {
+        let gens = vec![make_hydro_gen(0, 0, 500.0)];
+        // Deliberately add loads out of priority order
+        let loads = vec![
+            make_load(0, 1, RestorePriority::Commercial, 5.0, false),
+            make_load(1, 2, RestorePriority::CriticalInfrastructure, 5.0, true),
+            make_load(2, 0, RestorePriority::Hospitals, 5.0, false),
+        ];
+        let planner = make_simple_planner(gens, loads);
+        let plan = planner
+            .generate_plan(1.0, 49.0, 51.0)
+            .expect("plan must succeed");
+
+        // Collect only the PickupLoad steps in order
+        let pickup_ids: Vec<usize> = plan
+            .steps
+            .iter()
+            .filter_map(|s| match s.step_type {
+                BlackStartStepType::PickupLoad { load_group_id, .. } => Some(load_group_id),
+                _ => None,
+            })
+            .collect();
+
+        assert!(
+            !pickup_ids.is_empty(),
+            "at least one load should be picked up"
+        );
+        // CriticalInfrastructure (id=1) must appear before Commercial (id=0)
+        let pos_critical = pickup_ids
+            .iter()
+            .position(|&id| id == 1)
+            .expect("CriticalInfrastructure load must be in plan");
+        let pos_commercial = pickup_ids.iter().position(|&id| id == 0);
+        if let Some(pos_comm) = pos_commercial {
+            assert!(
+                pos_critical < pos_comm,
+                "CriticalInfrastructure should be scheduled before Commercial"
+            );
+        }
+    }
+
+    // ---- frequency during energization -------------------------------------
+
+    /// Frequency nadir for a very small load step on a large island should
+    /// remain within the standard ±1 Hz deviation from nominal (50 Hz).
+    #[test]
+    fn test_frequency_nadir_within_bounds_small_step() {
+        let planner = make_simple_planner(vec![], vec![]);
+        let sim = BlackStartSimulator::new(planner, 0.5, 50.0);
+        // 2 MW step on 200 MW island with H = 8 s
+        let f_nadir = sim.simulate_frequency_nadir(2.0, 200.0, 8.0, 10.0);
+        assert!(
+            (49.0..=51.0).contains(&f_nadir),
+            "nadir {f_nadir} Hz out of ±1 Hz band"
+        );
+    }
+
+    /// Frequency nadir for a moderate disturbance on a well-inertiated island
+    /// should remain above 48 Hz (ENTSO-E standard operational limit).
+    #[test]
+    fn test_frequency_nadir_above_protection_threshold() {
+        let planner = make_simple_planner(vec![], vec![]);
+        let sim = BlackStartSimulator::new(planner, 0.5, 50.0);
+        // 10 MW step on 200 MW island, H = 8 s, fast governor (T_gov = 5 s)
+        // delta_p_pu = 0.05 → small relative disturbance, large inertia
+        let f_nadir = sim.simulate_frequency_nadir(10.0, 200.0, 8.0, 5.0);
+        assert!(
+            f_nadir >= 48.0,
+            "nadir {f_nadir} Hz below operational limit of 48 Hz"
+        );
+    }
+
+    // ---- voltage build-up --------------------------------------------------
+
+    /// After a successful restoration simulation the final island voltages
+    /// should be in the normal operating range [0.9, 1.1] p.u.
+    #[test]
+    fn test_island_voltage_within_normal_range_after_restoration() {
+        let gens = vec![make_hydro_gen(0, 0, 200.0)];
+        let loads = vec![make_load(0, 1, RestorePriority::Hospitals, 20.0, true)];
+        let planner_plan = make_simple_planner(gens.clone(), loads.clone());
+        let plan = planner_plan
+            .generate_plan(4.0, 49.0, 51.0)
+            .expect("plan must succeed");
+        let mut sim = BlackStartSimulator::new(make_simple_planner(gens, loads), 0.5, 50.0);
+        let result = sim.simulate(&plan, 4.0);
+        for island in &result.islands {
+            assert!(
+                (0.9..=1.1).contains(&island.voltage_center_pu),
+                "island {} voltage {} p.u. outside [0.9, 1.1]",
+                island.id,
+                island.voltage_center_pu
+            );
+        }
+    }
+
+    // ---- energization order ------------------------------------------------
+
+    /// Line energization steps must appear before the generator synchronization
+    /// step that depends on them (verify prerequisite ordering in the plan).
+    #[test]
+    fn test_energize_line_precedes_generator_sync() {
+        let gens = vec![
+            make_hydro_gen(0, 0, 200.0),   // BS unit on bus 0
+            make_nuclear_gen(1, 2, 500.0), // non-BS, must be cranked via bus 0→1→2
+        ];
+        let planner = make_simple_planner(gens, vec![]);
+        let plan = planner
+            .generate_plan(3.0, 49.0, 51.0)
+            .expect("plan must succeed");
+
+        // Find the SynchronizeGenerator step for gen_id=1
+        let sync_step = plan.steps.iter().find(|s| {
+            matches!(&s.step_type, BlackStartStepType::SynchronizeGenerator { gen_id, .. } if *gen_id == 1)
+        });
+
+        if let Some(sync) = sync_step {
+            // Every prerequisite of the sync step must have a smaller step_id
+            // (i.e., it was inserted earlier in the plan)
+            for &prereq_id in &sync.prerequisites {
+                assert!(
+                    prereq_id < sync.step_id,
+                    "prerequisite step {} must come before sync step {}",
+                    prereq_id,
+                    sync.step_id
+                );
+            }
+        }
+        // If there is no sync step it means nuclear was unreachable — that is
+        // also acceptable; the test simply ensures ordering when it does exist.
+    }
+
+    // ---- restoration time estimation ---------------------------------------
+
+    /// `estimated_restoration_time_min` must be strictly greater than the
+    /// startup time of the reference generator alone, because load-pickup
+    /// steps extend the total time.
+    #[test]
+    fn test_restoration_time_exceeds_startup_time() {
+        // Hydro startup = 20 min; load pickup adds at least 5 min per load
+        let gens = vec![make_hydro_gen(0, 0, 200.0)];
+        let loads = vec![
+            make_load(0, 1, RestorePriority::WaterWastewater, 10.0, false),
+            make_load(1, 2, RestorePriority::Residential, 20.0, false),
+        ];
+        let planner = make_simple_planner(gens, loads);
+        let plan = planner
+            .generate_plan(2.0, 49.0, 51.0)
+            .expect("plan must succeed");
+        // Reference startup = 20 min; two 5-min+ pickups add at least 10 min
+        assert!(
+            plan.estimated_restoration_time_min > 20.0,
+            "restoration time {} min should exceed 20 min startup",
+            plan.estimated_restoration_time_min
+        );
+    }
+
+    // ---- island formation checks -------------------------------------------
+
+    /// With two BS-capable generators the planner must form at least two
+    /// islands and record an IslandMerge step.
+    #[test]
+    fn test_two_bs_units_trigger_island_merge_step() {
+        let gens = vec![make_hydro_gen(0, 0, 150.0), make_battery_gen(1, 2, 80.0)];
+        let planner = make_simple_planner(gens, vec![]);
+        let plan = planner
+            .generate_plan(1.0, 49.0, 51.0)
+            .expect("plan must succeed");
+
+        // n_islands_formed should be >= 2
+        assert!(
+            plan.n_islands_formed >= 2,
+            "expected at least 2 islands, got {}",
+            plan.n_islands_formed
+        );
+
+        // There must be at least one IslandMerge step
+        let has_merge = plan
+            .steps
+            .iter()
+            .any(|s| matches!(s.step_type, BlackStartStepType::IslandMerge { .. }));
+        assert!(has_merge, "IslandMerge step missing for multi-island plan");
+    }
 }

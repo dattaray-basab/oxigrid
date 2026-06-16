@@ -275,9 +275,11 @@ impl FaultDetector {
 
     /// Get the most severe active fault (highest confidence).
     pub fn most_severe(&self) -> Option<&FaultEvent> {
-        self.active_faults
-            .iter()
-            .max_by(|a, b| a.confidence.partial_cmp(&b.confidence).unwrap())
+        self.active_faults.iter().max_by(|a, b| {
+            a.confidence
+                .partial_cmp(&b.confidence)
+                .unwrap_or(std::cmp::Ordering::Equal)
+        })
     }
 
     // ── Individual detectors ──────────────────────────────────────────────────

@@ -353,4 +353,162 @@ mod tests {
         let r = run_scopf(&net, &costs, &ScopfConfig::default()).unwrap();
         assert_eq!(r.is_n1_secure, r.violations.is_empty());
     }
+
+    // ── new tests ────────────────────────────────────────────────────────────
+
+    /// ScopfConfig::default() must have canonical values.
+    #[test]
+    fn test_scopf_config_default_values() {
+        let cfg = ScopfConfig::default();
+        assert!(
+            (cfg.emergency_rating_fraction - 1.0).abs() < 1e-12,
+            "default emergency_rating_fraction should be 1.0"
+        );
+        assert!(
+            (cfg.flow_threshold_mw - 0.1).abs() < 1e-12,
+            "default flow_threshold_mw should be 0.1"
+        );
+    }
+
+    /// run_scopf on a network with no branches must return an error.
+    #[test]
+    fn test_scopf_no_branches_returns_error() {
+        use crate::network::bus::{Bus, BusType};
+        let mut net = PowerNetwork::new(100.0);
+        net.buses.push(Bus::new(1, BusType::Slack));
+        let result = run_scopf(&net, &[], &ScopfConfig::default());
+        assert!(
+            result.is_err(),
+            "Expected Err for network with no branches, got Ok"
+        );
+    }
+
+    /// screen_contingencies with an out-of-bounds index should be silently skipped.
+    #[test]
+    fn test_screen_contingencies_oob_index_skipped() {
+        let net = ieee14_network();
+        let costs = ieee14_costs(&net);
+        let base = solve_dc_opf(&net, &costs).expect("dc_opf should succeed");
+        let n = net.branch_count();
+        // Pass indices that are all beyond the branch count
+        let result =
+            screen_contingencies(&net, &base, &[n + 100, n + 200], &ScopfConfig::default());
+        let viols = result.expect("screen_contingencies should not error on oob indices");
+        assert!(
+            viols.is_empty(),
+            "Out-of-bounds contingency indices should produce no violations"
+        );
+    }
+
+    /// screen_contingencies with an empty contingency list must return empty violations.
+    #[test]
+    fn test_screen_contingencies_empty_list() {
+        let net = ieee14_network();
+        let costs = ieee14_costs(&net);
+        let base = solve_dc_opf(&net, &costs).expect("dc_opf should succeed");
+        let viols = screen_contingencies(&net, &base, &[], &ScopfConfig::default())
+            .expect("empty contingency list should succeed");
+        assert!(
+            viols.is_empty(),
+            "No contingencies screened ⇒ no violations expected"
+        );
+    }
+
+    /// A very high emergency_rating_fraction makes limits looser — should reduce or
+    /// eliminate violations compared to fraction = 1.0.
+    #[test]
+    fn test_scopf_high_emergency_rating_fewer_violations() {
+        let net = ieee14_network();
+        let costs = ieee14_costs(&net);
+
+        let tight = ScopfConfig {
+            emergency_rating_fraction: 1.0,
+            flow_threshold_mw: 0.1,
+        };
+        let loose = ScopfConfig {
+            emergency_rating_fraction: 1_000.0, // 100 000% limit — nearly impossible to violate
+            flow_threshold_mw: 0.1,
+        };
+
+        let r_tight = run_scopf(&net, &costs, &tight).expect("tight scopf should succeed");
+        let r_loose = run_scopf(&net, &costs, &loose).expect("loose scopf should succeed");
+
+        assert!(
+            r_loose.violations.len() <= r_tight.violations.len(),
+            "Looser rating should not produce more violations ({} > {})",
+            r_loose.violations.len(),
+            r_tight.violations.len()
+        );
+    }
+
+    /// A very high flow_threshold_mw causes all branches to be skipped in screening;
+    /// the result must therefore be N-1 secure with no violations.
+    #[test]
+    fn test_scopf_high_flow_threshold_no_screening() {
+        let net = ieee14_network();
+        let costs = ieee14_costs(&net);
+        let cfg = ScopfConfig {
+            emergency_rating_fraction: 1.0,
+            flow_threshold_mw: 1e15, // above any realistic base-case flow
+        };
+        let r = run_scopf(&net, &costs, &cfg).expect("scopf with huge threshold should succeed");
+        assert!(
+            r.is_n1_secure,
+            "All branches skipped by threshold ⇒ must be N-1 secure"
+        );
+        assert!(
+            r.violations.is_empty(),
+            "All branches skipped ⇒ violations must be empty"
+        );
+    }
+
+    /// ContingencyViolation::loading_fraction returns |post_flow| / limit, checked
+    /// against a hand-crafted struct.
+    #[test]
+    fn test_contingency_violation_loading_fraction_arithmetic() {
+        let v = ContingencyViolation {
+            outage_branch: 0,
+            monitored_branch: 1,
+            post_flow_mw: -150.0,
+            limit_mw: 100.0,
+            lodf: 0.5,
+        };
+        let frac = v.loading_fraction();
+        assert!(
+            (frac - 1.5).abs() < 1e-12,
+            "loading_fraction should be 1.5, got {frac}"
+        );
+    }
+
+    /// ScopfResult, ScopfConfig, and ContingencyViolation all derive Clone and Debug;
+    /// verify they round-trip through serde_json without error.
+    #[test]
+    fn test_scopf_result_serde_roundtrip() {
+        let net = ieee14_network();
+        let costs = ieee14_costs(&net);
+        let r = run_scopf(&net, &costs, &ScopfConfig::default()).expect("scopf should succeed");
+
+        // Clone + Debug smoke test
+        let cloned = r.clone();
+        let _dbg = format!("{cloned:?}");
+
+        // serde_json round-trip
+        let json =
+            serde_json::to_string(&r).expect("ScopfResult should serialise to JSON without error");
+        let decoded: ScopfResult =
+            serde_json::from_str(&json).expect("ScopfResult should deserialise from JSON");
+
+        assert_eq!(decoded.contingencies_screened, r.contingencies_screened);
+        assert_eq!(decoded.is_n1_secure, r.is_n1_secure);
+        assert_eq!(decoded.violations.len(), r.violations.len());
+
+        // Verify ContingencyViolation fields survive round-trip
+        for (orig, dec) in r.violations.iter().zip(decoded.violations.iter()) {
+            assert_eq!(orig.outage_branch, dec.outage_branch);
+            assert_eq!(orig.monitored_branch, dec.monitored_branch);
+            assert!((orig.post_flow_mw - dec.post_flow_mw).abs() < 1e-9);
+            assert!((orig.limit_mw - dec.limit_mw).abs() < 1e-9);
+            assert!((orig.lodf - dec.lodf).abs() < 1e-9);
+        }
+    }
 }

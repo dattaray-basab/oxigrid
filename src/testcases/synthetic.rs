@@ -874,3 +874,586 @@ pub(crate) fn validate_network(net: &PowerNetwork) -> Result<()> {
 
     Ok(())
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    // ------------------------------------------------------------------
+    // 1. LCG64 determinism
+    // ------------------------------------------------------------------
+    #[test]
+    fn test_lcg64_determinism() {
+        let mut rng_a = Lcg64::new(42);
+        let mut rng_b = Lcg64::new(42);
+        let mut rng_c = Lcg64::new(99);
+        let seq_a: Vec<f64> = (0..10).map(|_| rng_a.next_f64()).collect();
+        let seq_b: Vec<f64> = (0..10).map(|_| rng_b.next_f64()).collect();
+        let first_c = rng_c.next_f64();
+        assert_eq!(seq_a, seq_b, "same seed must produce identical sequences");
+        assert_ne!(
+            seq_a[0], first_c,
+            "different seeds must differ on first value"
+        );
+    }
+
+    // ------------------------------------------------------------------
+    // 2. next_f64 range
+    // ------------------------------------------------------------------
+    #[test]
+    fn test_lcg64_next_f64_range() {
+        let mut rng = Lcg64::new(7);
+        for _ in 0..1000 {
+            let v = rng.next_f64();
+            assert!(v >= 0.0, "next_f64 must be >= 0.0, got {v}");
+            assert!(v < 1.0, "next_f64 must be < 1.0, got {v}");
+        }
+    }
+
+    // ------------------------------------------------------------------
+    // 3. next_usize bound
+    // ------------------------------------------------------------------
+    #[test]
+    fn test_lcg64_next_usize_bound() {
+        let mut rng = Lcg64::new(13);
+        for _ in 0..1000 {
+            let v = rng.next_usize(17);
+            assert!(v < 17, "next_usize(17) must be < 17, got {v}");
+        }
+    }
+
+    // ------------------------------------------------------------------
+    // 4. next_normal distribution
+    // ------------------------------------------------------------------
+    #[test]
+    fn test_lcg64_next_normal_distribution() {
+        let mut rng = Lcg64::new(21);
+        let samples: Vec<f64> = (0..500).map(|_| rng.next_normal()).collect();
+        let mean = samples.iter().sum::<f64>() / samples.len() as f64;
+        let variance =
+            samples.iter().map(|x| (x - mean).powi(2)).sum::<f64>() / samples.len() as f64;
+        let std_dev = variance.sqrt();
+        assert!(
+            mean.abs() < 0.4,
+            "sample mean {mean:.4} should be within ±0.4 of 0"
+        );
+        assert!(
+            (0.6..=1.6).contains(&std_dev),
+            "sample std {std_dev:.4} should be in [0.6, 1.6]"
+        );
+    }
+
+    // ------------------------------------------------------------------
+    // 5. next_lognormal positivity
+    // ------------------------------------------------------------------
+    #[test]
+    fn test_lcg64_next_lognormal_positive() {
+        let mut rng = Lcg64::new(33);
+        for _ in 0..200 {
+            let v = rng.next_lognormal(50.0, 0.3);
+            assert!(v > 0.0, "next_lognormal must be > 0.0, got {v}");
+        }
+    }
+
+    // ------------------------------------------------------------------
+    // 6. Default config generation
+    // ------------------------------------------------------------------
+    #[test]
+    fn test_generate_default_config() {
+        let config = SyntheticNetworkConfig::default();
+        let net =
+            generate_synthetic_network(&config).expect("default config must generate successfully");
+        assert_eq!(net.buses.len(), 30, "default config produces 30 buses");
+        assert!(
+            !net.generators.is_empty(),
+            "at least one generator expected"
+        );
+        let has_slack = net.buses.iter().any(|b| b.bus_type == BusType::Slack);
+        assert!(has_slack, "at least one Slack bus must exist");
+    }
+
+    // ------------------------------------------------------------------
+    // 7. Ring topology
+    // ------------------------------------------------------------------
+    #[test]
+    fn test_ring_topology() {
+        let config = SyntheticNetworkConfig {
+            n_buses: 10,
+            topology: NetworkTopology::Ring,
+            ..SyntheticNetworkConfig::default()
+        };
+        let net = generate_synthetic_network(&config).expect("ring topology must succeed");
+        assert_eq!(net.buses.len(), 10, "ring: expected 10 buses");
+        assert_eq!(
+            net.branches.len(),
+            10,
+            "ring topology on 10 nodes must have exactly 10 branches"
+        );
+    }
+
+    // ------------------------------------------------------------------
+    // 8. Radial topology
+    // ------------------------------------------------------------------
+    #[test]
+    fn test_radial_topology() {
+        let config = SyntheticNetworkConfig {
+            n_buses: 12,
+            topology: NetworkTopology::Radial,
+            ..SyntheticNetworkConfig::default()
+        };
+        let net = generate_synthetic_network(&config).expect("radial topology must succeed");
+        assert_eq!(net.buses.len(), 12, "radial: expected 12 buses");
+        assert_eq!(
+            net.branches.len(),
+            11,
+            "radial (tree) on 12 nodes must have exactly 11 branches"
+        );
+    }
+
+    // ------------------------------------------------------------------
+    // 9. Meshed topology
+    // ------------------------------------------------------------------
+    #[test]
+    fn test_meshed_topology() {
+        let config = SyntheticNetworkConfig {
+            n_buses: 15,
+            topology: NetworkTopology::Meshed,
+            ..SyntheticNetworkConfig::default()
+        };
+        let net = generate_synthetic_network(&config).expect("meshed topology must succeed");
+        assert_eq!(net.buses.len(), 15, "meshed: expected 15 buses");
+        assert!(
+            net.branches.len() >= 14,
+            "meshed: connected graph needs at least n-1=14 branches, got {}",
+            net.branches.len()
+        );
+    }
+
+    // ------------------------------------------------------------------
+    // 10. Geographic topology
+    // ------------------------------------------------------------------
+    #[test]
+    fn test_geographic_topology() {
+        let config = SyntheticNetworkConfig {
+            n_buses: 16,
+            topology: NetworkTopology::Geographic,
+            ..SyntheticNetworkConfig::default()
+        };
+        let net = generate_synthetic_network(&config).expect("geographic topology must succeed");
+        assert_eq!(net.buses.len(), 16, "geographic: expected 16 buses");
+        assert!(
+            !net.branches.is_empty(),
+            "geographic: must have at least 1 branch"
+        );
+    }
+
+    // ------------------------------------------------------------------
+    // 11. SmallWorld topology
+    // ------------------------------------------------------------------
+    #[test]
+    fn test_small_world_topology() {
+        let config = SyntheticNetworkConfig {
+            n_buses: 20,
+            topology: NetworkTopology::SmallWorld,
+            ..SyntheticNetworkConfig::default()
+        };
+        let net = generate_synthetic_network(&config).expect("small-world topology must succeed");
+        assert_eq!(net.buses.len(), 20, "small-world: expected 20 buses");
+        assert!(
+            !net.branches.is_empty(),
+            "small-world: must have at least 1 branch"
+        );
+    }
+
+    // ------------------------------------------------------------------
+    // 12. ScaleFree topology
+    // ------------------------------------------------------------------
+    #[test]
+    fn test_scale_free_topology() {
+        let config = SyntheticNetworkConfig {
+            n_buses: 25,
+            topology: NetworkTopology::ScaleFree,
+            ..SyntheticNetworkConfig::default()
+        };
+        let net = generate_synthetic_network(&config).expect("scale-free topology must succeed");
+        assert_eq!(net.buses.len(), 25, "scale-free: expected 25 buses");
+        assert!(
+            !net.branches.is_empty(),
+            "scale-free: must have at least 1 branch"
+        );
+    }
+
+    // ------------------------------------------------------------------
+    // 13. Error: n_buses too small
+    // ------------------------------------------------------------------
+    #[test]
+    fn test_error_n_buses_too_small() {
+        let config = SyntheticNetworkConfig {
+            n_buses: 1,
+            ..SyntheticNetworkConfig::default()
+        };
+        let result = generate_synthetic_network(&config);
+        assert!(
+            matches!(result, Err(OxiGridError::InvalidParameter(_))),
+            "n_buses=1 must return InvalidParameter, got {:?}",
+            result
+        );
+    }
+
+    // ------------------------------------------------------------------
+    // 14. Error: n_generators zero
+    // ------------------------------------------------------------------
+    #[test]
+    fn test_error_n_generators_zero() {
+        let config = SyntheticNetworkConfig {
+            n_generators: 0,
+            ..SyntheticNetworkConfig::default()
+        };
+        let result = generate_synthetic_network(&config);
+        assert!(
+            matches!(result, Err(OxiGridError::InvalidParameter(_))),
+            "n_generators=0 must return InvalidParameter, got {:?}",
+            result
+        );
+    }
+
+    // ------------------------------------------------------------------
+    // 15. validate_network rejects empty network
+    // ------------------------------------------------------------------
+    #[test]
+    fn test_validate_network_rejects_empty() {
+        let net = PowerNetwork::new(100.0);
+        let result = validate_network(&net);
+        assert!(
+            matches!(result, Err(OxiGridError::InvalidNetwork(_))),
+            "empty network must be rejected with InvalidNetwork, got {:?}",
+            result
+        );
+    }
+
+    // ------------------------------------------------------------------
+    // 16. validate_network rejects network with no slack bus
+    // ------------------------------------------------------------------
+    #[test]
+    fn test_validate_network_rejects_no_slack() {
+        let mut net = PowerNetwork::new(100.0);
+        net.buses.push(Bus::new(1, BusType::PQ));
+        net.buses.push(Bus::new(2, BusType::PQ));
+        net.branches.push(Branch {
+            from_bus: 1,
+            to_bus: 2,
+            r: 0.01,
+            x: 0.1,
+            b: 0.0,
+            rate_a: 100.0,
+            rate_b: 100.0,
+            rate_c: 100.0,
+            tap: 0.0,
+            shift: 0.0,
+            status: true,
+        });
+        let result = validate_network(&net);
+        assert!(
+            matches!(result, Err(OxiGridError::InvalidNetwork(_))),
+            "no-slack network must be rejected with InvalidNetwork, got {:?}",
+            result
+        );
+    }
+
+    // ------------------------------------------------------------------
+    // 17. Branch impedances are positive
+    // ------------------------------------------------------------------
+    #[test]
+    fn test_branch_impedances_positive() {
+        let config = SyntheticNetworkConfig::default();
+        let net = generate_synthetic_network(&config).expect("default config must succeed");
+        for (i, branch) in net.branches.iter().enumerate() {
+            assert!(
+                branch.r > 0.0,
+                "branch[{i}] resistance must be > 0.0, got {}",
+                branch.r
+            );
+            assert!(
+                branch.x > 0.0,
+                "branch[{i}] reactance must be > 0.0, got {}",
+                branch.x
+            );
+        }
+    }
+
+    // ------------------------------------------------------------------
+    // 18. Generators dispatched at 70 % of pmax
+    // ------------------------------------------------------------------
+    #[test]
+    fn test_generators_dispatched_at_70_percent() {
+        let config = SyntheticNetworkConfig::default();
+        let net = generate_synthetic_network(&config).expect("default config must succeed");
+        for (i, gen) in net.generators.iter().enumerate() {
+            let expected = gen.pmax * 0.7;
+            assert!(
+                (gen.pg - expected).abs() < 1e-9,
+                "generator[{i}] pg={} but pmax*0.7={expected}",
+                gen.pg
+            );
+        }
+    }
+
+    // ------------------------------------------------------------------
+    // 19. Generator voltage setpoint
+    // ------------------------------------------------------------------
+    #[test]
+    fn test_generator_voltage_setpoint() {
+        let config = SyntheticNetworkConfig::default();
+        let net = generate_synthetic_network(&config).expect("default config must succeed");
+        for (i, gen) in net.generators.iter().enumerate() {
+            assert!(
+                (gen.vg - 1.02).abs() < 1e-9,
+                "generator[{i}] vg={} but expected 1.02",
+                gen.vg
+            );
+        }
+    }
+
+    // ------------------------------------------------------------------
+    // 20. Reproducibility with the same seed
+    // ------------------------------------------------------------------
+    #[test]
+    fn test_reproducibility() {
+        let config = SyntheticNetworkConfig {
+            seed: 42,
+            ..SyntheticNetworkConfig::default()
+        };
+        let net_a = generate_synthetic_network(&config).expect("first call must succeed");
+        let net_b = generate_synthetic_network(&config).expect("second call must succeed");
+        assert_eq!(
+            net_a.buses.len(),
+            net_b.buses.len(),
+            "reproducibility: buses.len() must match"
+        );
+        assert_eq!(
+            net_a.branches.len(),
+            net_b.branches.len(),
+            "reproducibility: branches.len() must match"
+        );
+        assert_eq!(
+            net_a.buses[0].pd.0, net_b.buses[0].pd.0,
+            "reproducibility: buses[0].pd must match"
+        );
+    }
+
+    // ------------------------------------------------------------------
+    // 21. Different seeds produce different networks
+    // ------------------------------------------------------------------
+    #[test]
+    fn test_different_seeds_different_networks() {
+        let config_a = SyntheticNetworkConfig {
+            n_buses: 30,
+            topology: NetworkTopology::Meshed,
+            seed: 42,
+            ..SyntheticNetworkConfig::default()
+        };
+        let config_b = SyntheticNetworkConfig {
+            n_buses: 30,
+            topology: NetworkTopology::Meshed,
+            seed: 999,
+            ..SyntheticNetworkConfig::default()
+        };
+        let net_a = generate_synthetic_network(&config_a).expect("seed=42 must succeed");
+        let net_b = generate_synthetic_network(&config_b).expect("seed=999 must succeed");
+        let any_differ = net_a
+            .buses
+            .iter()
+            .zip(net_b.buses.iter())
+            .any(|(ba, bb)| (ba.pd.0 - bb.pd.0).abs() > 1e-12);
+        assert!(
+            any_differ,
+            "different seeds must produce at least one differing bus pd value"
+        );
+    }
+
+    // ------------------------------------------------------------------
+    // 22. Slack bus is bus id 1
+    // ------------------------------------------------------------------
+    #[test]
+    fn test_slack_bus_is_bus_one() {
+        let config = SyntheticNetworkConfig::default();
+        let net = generate_synthetic_network(&config).expect("default config must succeed");
+        let bus_one = net
+            .buses
+            .iter()
+            .find(|b| b.id == 1)
+            .expect("bus with id==1 must exist");
+        assert_eq!(
+            bus_one.bus_type,
+            BusType::Slack,
+            "bus id=1 must be BusType::Slack"
+        );
+    }
+
+    // ------------------------------------------------------------------
+    // 23. Ring topology: exact bus count for n_buses=7
+    // ------------------------------------------------------------------
+    #[test]
+    fn test_ring_bus_count_exact() {
+        let config = SyntheticNetworkConfig {
+            n_buses: 7,
+            topology: NetworkTopology::Ring,
+            ..SyntheticNetworkConfig::default()
+        };
+        let net = generate_synthetic_network(&config).expect("ring n=7 must succeed");
+        assert_eq!(
+            net.buses.len(),
+            7,
+            "ring topology must have exactly 7 buses"
+        );
+    }
+
+    // ------------------------------------------------------------------
+    // 24. Meshed topology has more branches than a spanning tree
+    // ------------------------------------------------------------------
+    #[test]
+    fn test_meshed_has_more_branches_than_tree() {
+        let config = SyntheticNetworkConfig {
+            n_buses: 20,
+            topology: NetworkTopology::Meshed,
+            ..SyntheticNetworkConfig::default()
+        };
+        let net = generate_synthetic_network(&config).expect("meshed n=20 must succeed");
+        assert!(
+            net.branches.len() > net.buses.len() - 1,
+            "meshed topology must have more branches than a spanning tree (n-1={}), got {}",
+            net.buses.len() - 1,
+            net.branches.len()
+        );
+    }
+
+    // ------------------------------------------------------------------
+    // 25. ScaleFree topology: exact bus count for n_buses=30
+    // ------------------------------------------------------------------
+    #[test]
+    fn test_scale_free_bus_count_exact() {
+        let config = SyntheticNetworkConfig {
+            n_buses: 30,
+            topology: NetworkTopology::ScaleFree,
+            ..SyntheticNetworkConfig::default()
+        };
+        let net = generate_synthetic_network(&config).expect("scale_free n=30 must succeed");
+        assert_eq!(
+            net.buses.len(),
+            30,
+            "scale_free topology must have exactly 30 buses"
+        );
+    }
+
+    // ------------------------------------------------------------------
+    // 26. SmallWorld topology: exact bus count for n_buses=15
+    // ------------------------------------------------------------------
+    #[test]
+    fn test_small_world_bus_count_exact() {
+        let config = SyntheticNetworkConfig {
+            n_buses: 15,
+            topology: NetworkTopology::SmallWorld,
+            ..SyntheticNetworkConfig::default()
+        };
+        let net = generate_synthetic_network(&config).expect("small_world n=15 must succeed");
+        assert_eq!(
+            net.buses.len(),
+            15,
+            "small_world topology must have exactly 15 buses"
+        );
+    }
+
+    // ------------------------------------------------------------------
+    // 27. Two seeds produce different first f64 values
+    // ------------------------------------------------------------------
+    #[test]
+    fn test_lcg64_different_seeds_produce_different_values() {
+        let mut rng1 = Lcg64::new(1);
+        let mut rng2 = Lcg64::new(2);
+        let v1 = rng1.next_f64();
+        let v2 = rng2.next_f64();
+        assert!(
+            (v1 - v2).abs() > f64::EPSILON,
+            "seeds 1 and 2 must produce different first f64 values, got v1={v1}, v2={v2}"
+        );
+    }
+
+    // ------------------------------------------------------------------
+    // 28. next_f64 never returns exactly 1.0
+    // ------------------------------------------------------------------
+    #[test]
+    fn test_lcg64_next_f64_never_exactly_one() {
+        let mut rng = Lcg64::new(77777);
+        for i in 0..5000 {
+            let v = rng.next_f64();
+            assert!(v < 1.0, "next_f64 must be < 1.0, got {v} on iteration {i}");
+        }
+    }
+
+    // ------------------------------------------------------------------
+    // 29. Default config network has positive total load
+    // ------------------------------------------------------------------
+    #[test]
+    fn test_synthetic_network_total_load_positive() {
+        let config = SyntheticNetworkConfig::default();
+        let net = generate_synthetic_network(&config).expect("default config must succeed");
+        let total_pd: f64 = net.buses.iter().map(|b| b.pd.0).sum();
+        assert!(
+            total_pd > 0.0,
+            "total load across all buses must be positive, got {total_pd}"
+        );
+    }
+
+    // ------------------------------------------------------------------
+    // 30. Radial topology: exact bus count for n_buses=8
+    // ------------------------------------------------------------------
+    #[test]
+    fn test_radial_bus_count_exact() {
+        let config = SyntheticNetworkConfig {
+            n_buses: 8,
+            topology: NetworkTopology::Radial,
+            ..SyntheticNetworkConfig::default()
+        };
+        let net = generate_synthetic_network(&config).expect("radial n=8 must succeed");
+        assert_eq!(
+            net.buses.len(),
+            8,
+            "radial topology must have exactly 8 buses"
+        );
+    }
+
+    // ------------------------------------------------------------------
+    // 31. Geographic topology: exact bus count for n_buses=9
+    // ------------------------------------------------------------------
+    #[test]
+    fn test_geographic_bus_count_exact() {
+        let config = SyntheticNetworkConfig {
+            n_buses: 9,
+            topology: NetworkTopology::Geographic,
+            ..SyntheticNetworkConfig::default()
+        };
+        let net = generate_synthetic_network(&config).expect("geographic n=9 must succeed");
+        assert_eq!(
+            net.buses.len(),
+            9,
+            "geographic topology must have exactly 9 buses"
+        );
+    }
+
+    // ------------------------------------------------------------------
+    // 32. All generators have qmax > 0.0
+    // ------------------------------------------------------------------
+    #[test]
+    fn test_generator_qmax_positive() {
+        let config = SyntheticNetworkConfig::default();
+        let net = generate_synthetic_network(&config).expect("default config must succeed");
+        for (i, gen) in net.generators.iter().enumerate() {
+            assert!(
+                gen.qmax > 0.0,
+                "generator[{i}] at bus {} must have qmax > 0.0, got {}",
+                gen.bus_id,
+                gen.qmax
+            );
+        }
+    }
+}

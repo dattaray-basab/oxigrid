@@ -119,4 +119,97 @@ mod tests {
         let expected = 35.0 + 0.3 * 5.0 + (-0.1) * 2.0 + 0.02 * 35.0;
         assert!((lmp_comp.lmp - expected).abs() < 1e-8);
     }
+
+    #[test]
+    fn test_lmp_energy_component_stored() {
+        let lmp_comp = LmpComponents::compute(2, 50.0, &[0.1, -0.2], &[5.0, 3.0], 0.0);
+        assert!(
+            (lmp_comp.energy - 50.0).abs() < 1e-10,
+            "energy component should equal lambda: {:.4}",
+            lmp_comp.energy
+        );
+        assert_eq!(lmp_comp.bus_id, 2);
+    }
+
+    #[test]
+    fn test_lmp_congestion_positive_on_congested_line() {
+        let lambda = 30.0;
+        let gsf = vec![vec![0.8_f64, 0.2_f64]];
+        let shadow_prices = vec![20.0_f64];
+        let mlfs = vec![0.0_f64, 0.0_f64];
+        let lmps = compute_lmps(lambda, &gsf, &shadow_prices, &mlfs);
+        assert!(
+            (lmps[0].congestion - 16.0).abs() < 1e-10,
+            "bus 0 congestion should be 16.0: {:.4}",
+            lmps[0].congestion
+        );
+        assert!(
+            (lmps[1].congestion - 4.0).abs() < 1e-10,
+            "bus 1 congestion should be 4.0: {:.4}",
+            lmps[1].congestion
+        );
+    }
+
+    #[test]
+    fn test_lmp_reference_bus_zero_gsf() {
+        let lmp_comp = LmpComponents::compute(0, 45.0, &[0.0, 0.0, 0.0], &[10.0, 5.0, 8.0], 0.0);
+        assert!(
+            lmp_comp.congestion.abs() < 1e-10,
+            "reference bus congestion should be zero: {:.4}",
+            lmp_comp.congestion
+        );
+        assert!(
+            (lmp_comp.lmp - 45.0).abs() < 1e-10,
+            "reference bus LMP should equal energy price: {:.4}",
+            lmp_comp.lmp
+        );
+    }
+
+    #[test]
+    fn test_lmp_loss_component_proportional_to_lambda() {
+        let lmp_comp = LmpComponents::compute(0, 60.0, &[], &[], 0.05);
+        assert!(
+            (lmp_comp.loss - 0.05 * 60.0).abs() < 1e-10,
+            "loss component should be 0.05 * 60.0 = 3.0: {:.4}",
+            lmp_comp.loss
+        );
+        assert!(
+            (lmp_comp.lmp - 63.0).abs() < 1e-10,
+            "lmp should be 63.0: {:.4}",
+            lmp_comp.lmp
+        );
+    }
+
+    #[test]
+    fn test_lmp_negative_gsf_reduces_lmp() {
+        let lmp_comp = LmpComponents::compute(1, 40.0, &[-0.6], &[15.0], 0.0);
+        assert!(
+            (lmp_comp.congestion - (-9.0)).abs() < 1e-10,
+            "congestion should be -9.0: {:.4}",
+            lmp_comp.congestion
+        );
+        assert!(
+            (lmp_comp.lmp - 31.0).abs() < 1e-10,
+            "lmp should be 31.0: {:.4}",
+            lmp_comp.lmp
+        );
+    }
+
+    #[test]
+    fn test_compute_lmps_bus_count() {
+        let lmps = compute_lmps(
+            35.0,
+            &[vec![0.3_f64, 0.5_f64, -0.2_f64, 0.1_f64]],
+            &[8.0_f64],
+            &[0.0_f64, 0.0_f64, 0.0_f64, 0.0_f64],
+        );
+        assert_eq!(lmps.len(), 4, "should have one LmpComponents per bus");
+        for (i, lmp) in lmps.iter().enumerate() {
+            assert_eq!(
+                lmp.bus_id, i,
+                "bus_id at index {i} should equal {i}, got {}",
+                lmp.bus_id
+            );
+        }
+    }
 }

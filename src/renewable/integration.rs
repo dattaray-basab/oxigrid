@@ -108,7 +108,12 @@ pub fn penetration_analysis(
 
     let n = snapshots.len() as f64;
     let dt_h = if snapshots.len() > 1 {
-        (snapshots.last().unwrap().time_h - snapshots[0].time_h) / (snapshots.len() - 1) as f64
+        (snapshots
+            .last()
+            .expect("invariant: non-empty snapshots checked above")
+            .time_h
+            - snapshots[0].time_h)
+            / (snapshots.len() - 1) as f64
     } else {
         1.0
     };
@@ -121,7 +126,7 @@ pub fn penetration_analysis(
     let mut penetrations: Vec<f64> = snapshots.iter().map(|s| s.penetration()).collect();
     let mean_p = penetrations.iter().sum::<f64>() / n;
     let max_p = penetrations.iter().cloned().fold(0.0_f64, f64::max);
-    penetrations.sort_by(|a, b| a.partial_cmp(b).unwrap());
+    penetrations.sort_by(|a, b| a.partial_cmp(b).unwrap_or(std::cmp::Ordering::Equal));
     let p95_idx = ((0.95 * n) as usize).min(snapshots.len() - 1);
     let p95_p = penetrations[p95_idx];
 
@@ -360,7 +365,7 @@ fn sorted_percentile(data: &mut [f64], p: f64) -> f64 {
     if data.is_empty() {
         return 0.0;
     }
-    data.sort_by(|a, b| a.partial_cmp(b).unwrap());
+    data.sort_by(|a, b| a.partial_cmp(b).unwrap_or(std::cmp::Ordering::Equal));
     let idx = ((p * data.len() as f64) as usize).min(data.len() - 1);
     data[idx]
 }

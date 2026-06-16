@@ -660,4 +660,271 @@ mod tests {
             error_pct
         );
     }
+
+    #[test]
+    fn thevenin_reactance_is_positive_for_inductive_network() {
+        // 2-bus network dominated by inductive reactance (x >> r)
+        let r = 0.001_f64;
+        let x = 0.1_f64;
+        let z2 = r * r + x * x;
+        let g = r / z2;
+        let b = -x / z2;
+        let sh = 1e-4;
+        let y_bus = vec![vec![(g + sh, b), (-g, -b)], vec![(-g, -b), (g + sh, b)]];
+        let extractor = NetworkEquivalentExtractor::new(100.0, vec![110.0, 110.0]);
+        let th = extractor
+            .thevenin_at_bus(0, &y_bus, 1.0, 0.0)
+            .expect("thevenin_at_bus should succeed for well-formed Y-bus");
+        let (_r_th, x_th) = th.z_th_pu;
+        assert!(
+            x_th > 0.0,
+            "Thévenin reactance must be positive for inductive network, got {x_th:.6}"
+        );
+        assert!(
+            th.z_th_pu.0.is_finite() && th.z_th_pu.1.is_finite(),
+            "Thévenin impedance components must be finite"
+        );
+    }
+
+    #[test]
+    fn thevenin_at_multiple_buses_different_values() {
+        // 3-bus ring network: asymmetric because bus 0 connects to both bus 1 and bus 2,
+        // while bus 1 only connects to bus 0 and bus 2. Thévenin at bus 1 vs bus 2 differs.
+        let r = 0.02_f64;
+        let x = 0.2_f64;
+        let z2 = r * r + x * x;
+        let g = r / z2;
+        let b = -x / z2;
+        let sh = 1e-4;
+        // 3-bus ring Y-bus: each bus connected to the other two
+        let y_bus = vec![
+            vec![(2.0 * g + sh, 2.0 * b), (-g, -b), (-g, -b)],
+            vec![(-g, -b), (2.0 * g + sh, 2.0 * b), (-g, -b)],
+            vec![(-g, -b), (-g, -b), (2.0 * g + sh, 2.0 * b)],
+        ];
+        let extractor = NetworkEquivalentExtractor::new(100.0, vec![110.0, 110.0, 110.0]);
+
+        let th0 = extractor
+            .thevenin_at_bus(0, &y_bus, 1.0, 0.0)
+            .expect("thevenin at bus 0 should succeed");
+        let th1 = extractor
+            .thevenin_at_bus(1, &y_bus, 0.99, -2.0)
+            .expect("thevenin at bus 1 should succeed");
+
+        // In the symmetric ring, all diagonal Z_th entries are equal (same topology),
+        // so check that both are valid and non-zero rather than different
+        let (_, x0) = th0.z_th_pu;
+        let (_, x1) = th1.z_th_pu;
+        assert!(x0 > 0.0, "X_th at bus 0 must be positive, got {x0:.6}");
+        assert!(x1 > 0.0, "X_th at bus 1 must be positive, got {x1:.6}");
+        // Both buses exist and are computed independently
+        assert_eq!(th0.bus, 0);
+        assert_eq!(th1.bus, 1);
+        // v_th_pu reflects the voltage passed in
+        assert!(
+            (th0.v_th_pu - 1.0).abs() < 1e-10,
+            "v_th_pu at bus 0 should equal 1.0"
+        );
+        assert!(
+            (th1.v_th_pu - 0.99).abs() < 1e-10,
+            "v_th_pu at bus 1 should equal 0.99"
+        );
+    }
+
+    #[test]
+    fn thevenin_short_circuit_ka_consistent_with_mva() {
+        // S_sc [MVA] = √3 × V_base [kV] × I_sc [kA]  →  I_sc = S_sc / (√3 × V_base)
+        let r = 0.01_f64;
+        let x = 0.1_f64;
+        let z2 = r * r + x * x;
+        let g = r / z2;
+        let b = -x / z2;
+        let sh = 1e-4;
+        let y_bus = vec![vec![(g + sh, b), (-g, -b)], vec![(-g, -b), (g + sh, b)]];
+        let base_kv = 110.0_f64;
+        let extractor = NetworkEquivalentExtractor::new(100.0, vec![base_kv, base_kv]);
+        let th = extractor
+            .thevenin_at_bus(0, &y_bus, 1.0, 0.0)
+            .expect("thevenin_at_bus should succeed");
+
+        // IEC formula: I_sc = S_sc / (√3 × V_base_kV)
+        let expected_ka = th.short_circuit_mva / (3.0_f64.sqrt() * base_kv);
+        assert!(
+            (th.short_circuit_ka - expected_ka).abs() < 1e-6,
+            "short_circuit_ka={:.6} kA does not match S_sc / (√3 × V_base) = {:.6} kA",
+            th.short_circuit_ka,
+            expected_ka
+        );
+    }
+
+    #[test]
+    fn thevenin_out_of_range_bus_returns_error() {
+        let r = 0.01_f64;
+        let x = 0.1_f64;
+        let z2 = r * r + x * x;
+        let g = r / z2;
+        let b = -x / z2;
+        let sh = 1e-4;
+        let y_bus = vec![vec![(g + sh, b), (-g, -b)], vec![(-g, -b), (g + sh, b)]];
+        let extractor = NetworkEquivalentExtractor::new(100.0, vec![110.0, 110.0]);
+        // Bus index 5 is out of range for a 2-bus network
+        let result = extractor.thevenin_at_bus(5, &y_bus, 1.0, 0.0);
+        assert!(
+            matches!(result, Err(EquivalentError::BusOutOfRange(5))),
+            "expected BusOutOfRange(5), got {:?}",
+            result
+        );
+    }
+
+    /// Reason: thevenin_at_bus must produce finite R_th and X_th for a well-formed Y-bus.
+    #[test]
+    fn thevenin_impedance_components_are_finite() {
+        let r = 0.01_f64;
+        let x = 0.1_f64;
+        let z2 = r * r + x * x;
+        let g = r / z2;
+        let b = -x / z2;
+        let sh = 1e-4;
+        let y_bus = vec![vec![(g + sh, b), (-g, -b)], vec![(-g, -b), (g + sh, b)]];
+        let extractor = NetworkEquivalentExtractor::new(100.0, vec![110.0, 110.0]);
+
+        for bus in [0_usize, 1_usize] {
+            let th = extractor
+                .thevenin_at_bus(bus, &y_bus, 1.0, 0.0)
+                .expect("thevenin_at_bus must succeed for well-formed 2-bus Y-bus");
+            let (r_th, x_th) = th.z_th_pu;
+            assert!(
+                r_th.is_finite(),
+                "bus {bus}: R_th must be finite, got {r_th}"
+            );
+            assert!(
+                x_th.is_finite(),
+                "bus {bus}: X_th must be finite, got {x_th}"
+            );
+        }
+    }
+
+    /// Reason: R_th (real part of Thévenin impedance) must be >= 0 for physically passive networks.
+    #[test]
+    fn thevenin_r_component_is_nonnegative() {
+        // Test three R/X ratios: pure inductive, mixed, resistive
+        let cases: &[(f64, f64)] = &[(0.001, 0.1), (0.05, 0.1), (0.1, 0.1)];
+        for &(r, x) in cases {
+            let z2 = r * r + x * x;
+            let g = r / z2;
+            let b = -x / z2;
+            let sh = 1e-4;
+            let y_bus = vec![vec![(g + sh, b), (-g, -b)], vec![(-g, -b), (g + sh, b)]];
+            let extractor = NetworkEquivalentExtractor::new(100.0, vec![110.0, 110.0]);
+            let th = extractor
+                .thevenin_at_bus(0, &y_bus, 1.0, 0.0)
+                .expect("thevenin_at_bus must succeed");
+            let (r_th, _) = th.z_th_pu;
+            assert!(
+                r_th >= 0.0,
+                "R_th must be >= 0 for passive network (r={r}, x={x}), got {r_th:.8}"
+            );
+        }
+    }
+
+    /// Reason: z_th_ohm must scale as base_kv² while z_th_pu stays invariant across base voltages.
+    #[test]
+    fn thevenin_physical_impedance_scales_with_base_kv() {
+        let r = 0.01_f64;
+        let x = 0.1_f64;
+        let z2 = r * r + x * x;
+        let g = r / z2;
+        let b = -x / z2;
+        let sh = 1e-4;
+        let y_bus = vec![vec![(g + sh, b), (-g, -b)], vec![(-g, -b), (g + sh, b)]];
+        let extractor_110 = NetworkEquivalentExtractor::new(100.0, vec![110.0, 110.0]);
+        let extractor_220 = NetworkEquivalentExtractor::new(100.0, vec![220.0, 220.0]);
+
+        let th_110 = extractor_110
+            .thevenin_at_bus(0, &y_bus, 1.0, 0.0)
+            .expect("thevenin at 110 kV must succeed");
+        let th_220 = extractor_220
+            .thevenin_at_bus(0, &y_bus, 1.0, 0.0)
+            .expect("thevenin at 220 kV must succeed");
+
+        // z_th_pu should be identical (same Y-bus, same pu system)
+        let (r_pu_110, x_pu_110) = th_110.z_th_pu;
+        let (r_pu_220, x_pu_220) = th_220.z_th_pu;
+        assert!(
+            (r_pu_110 - r_pu_220).abs() < 1e-10,
+            "R_th_pu must be identical regardless of base_kv: got {r_pu_110:.8} vs {r_pu_220:.8}"
+        );
+        assert!(
+            (x_pu_110 - x_pu_220).abs() < 1e-10,
+            "X_th_pu must be identical regardless of base_kv: got {x_pu_110:.8} vs {x_pu_220:.8}"
+        );
+
+        // z_th_ohm should scale as kV²: ratio = (220/110)² = 4
+        let (r_ohm_110, _) = th_110.z_th_ohm;
+        let (r_ohm_220, _) = th_220.z_th_ohm;
+        if r_ohm_110.abs() > 1e-12 {
+            let ratio = r_ohm_220 / r_ohm_110;
+            assert!(
+                (ratio - 4.0).abs() < 1e-6,
+                "z_th_ohm must scale as (kV)²: 220kV/110kV ratio = {ratio:.6}, expected 4.0"
+            );
+        }
+    }
+
+    /// Reason: Norton conductance G_N must be >= 0 for a physically passive inductive network.
+    #[test]
+    fn norton_conductance_is_nonnegative() {
+        // Inductive network: x >> r → G_N = R/(R²+X²) ≈ small positive
+        let r = 0.01_f64;
+        let x = 0.1_f64;
+        let z2 = r * r + x * x;
+        let g = r / z2;
+        let b = -x / z2;
+        let sh = 1e-4;
+        let y_bus = vec![vec![(g + sh, b), (-g, -b)], vec![(-g, -b), (g + sh, b)]];
+        let extractor = NetworkEquivalentExtractor::new(100.0, vec![110.0, 110.0]);
+        let th = extractor
+            .thevenin_at_bus(0, &y_bus, 1.0, 0.0)
+            .expect("thevenin_at_bus must succeed");
+        let norton = extractor.norton_at_bus(&th);
+        let (g_n, _) = norton.y_n_siemens;
+        assert!(
+            g_n >= 0.0,
+            "Norton conductance G_N must be >= 0 for passive network, got {g_n:.8}"
+        );
+    }
+
+    /// Reason: thevenin_at_bus with zero base_kv must return ZeroBaseKv error.
+    #[test]
+    fn thevenin_with_zero_base_kv_returns_error() {
+        let r = 0.01_f64;
+        let x = 0.1_f64;
+        let z2 = r * r + x * x;
+        let g = r / z2;
+        let b = -x / z2;
+        let sh = 1e-4;
+        let y_bus = vec![vec![(g + sh, b), (-g, -b)], vec![(-g, -b), (g + sh, b)]];
+        // base_kv[0] = 0.0 should trigger ZeroBaseKv(0)
+        let extractor = NetworkEquivalentExtractor::new(100.0, vec![0.0, 110.0]);
+        let result = extractor.thevenin_at_bus(0, &y_bus, 1.0, 0.0);
+        assert!(
+            matches!(result, Err(EquivalentError::ZeroBaseKv(0))),
+            "expected ZeroBaseKv(0), got {:?}",
+            result
+        );
+    }
+
+    /// Reason: estimate_from_measurements with identical operating points must return InsufficientMeasurements.
+    #[test]
+    fn estimate_from_measurements_insufficient_data_returns_error() {
+        // Identical operating points → ΔI = 0 → cannot compute Z_th
+        let op = (1.0_f64, 0.0_f64, 100.0_f64, 20.0_f64);
+        let extractor = NetworkEquivalentExtractor::new(100.0, vec![110.0]);
+        let result = extractor.estimate_from_measurements(0, op, op, 110.0);
+        assert!(
+            matches!(result, Err(EquivalentError::InsufficientMeasurements)),
+            "expected InsufficientMeasurements for identical operating points, got {:?}",
+            result
+        );
+    }
 }

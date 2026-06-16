@@ -290,4 +290,289 @@ mod tests {
         assert_eq!(f.p_from_mw, 0.0);
         assert_eq!(f.loading_pct, 0.0);
     }
+
+    #[test]
+    fn test_ac_branch_reactive_flow() {
+        let net = make_2bus_net();
+        let v_mag = vec![1.0_f64; net.bus_count()];
+        let v_ang = vec![0.0_f64; net.bus_count()];
+        let flows = compute_branch_flows(&net, &v_mag, &v_ang);
+        let f = &flows[0];
+        assert!(f.q_from_mvar.is_finite(), "q_from_mvar must be finite");
+        assert!(
+            f.q_from_mvar != 0.0,
+            "q_from_mvar must be non-zero with line charging"
+        );
+    }
+
+    #[test]
+    fn test_dc_branch_reverse_flow() {
+        let net = make_2bus_net();
+        // Bus 2 leads bus 1 in angle → power flows from bus 2 to bus 1
+        let angles = vec![0.0_f64, 0.05];
+        let flows = compute_dc_branch_flows(&net, &angles);
+        let f = &flows[0];
+        assert!(
+            f.p_from_mw < 0.0,
+            "p_from_mw should be negative (reverse flow)"
+        );
+        assert!(f.p_to_mw > 0.0, "p_to_mw should be positive (reverse flow)");
+        assert_eq!(f.p_loss_mw, 0.0, "DC model must be lossless");
+    }
+
+    #[test]
+    fn test_ac_loading_nonzero() {
+        let net = make_2bus_net();
+        let v_mag = vec![1.0_f64, 0.98];
+        let v_ang = vec![0.0_f64, -0.05];
+        let flows = compute_branch_flows(&net, &v_mag, &v_ang);
+        assert!(
+            flows[0].loading_pct > 0.0,
+            "loading_pct must be positive under load"
+        );
+    }
+
+    #[test]
+    fn test_dc_branch_zero_angle_diff_zero_flow() {
+        let net = make_2bus_net();
+        let angles = vec![0.0_f64, 0.0];
+        let flows = compute_dc_branch_flows(&net, &angles);
+        let f = &flows[0];
+        assert_eq!(f.p_from_mw, 0.0, "zero angle diff must give zero DC flow");
+        assert_eq!(
+            f.p_to_mw, 0.0,
+            "zero angle diff must give zero DC flow at to-end"
+        );
+    }
+
+    #[test]
+    fn test_ac_flow_with_angle_diff() {
+        let net = make_2bus_net();
+        let v_mag = vec![1.0_f64, 0.98];
+        let v_ang = vec![0.0_f64, -0.05];
+        let flows = compute_branch_flows(&net, &v_mag, &v_ang);
+        let f = &flows[0];
+        assert!(f.p_from_mw > 0.0, "power should flow from bus 1 to bus 2");
+    }
+
+    #[test]
+    fn test_open_branch_dc_zeroed() {
+        let mut net = make_2bus_net();
+        net.branches[0].status = false;
+        let angles = vec![0.0_f64, -0.05];
+        let flows = compute_dc_branch_flows(&net, &angles);
+        let f = &flows[0];
+        assert_eq!(f.p_from_mw, 0.0, "open branch must have zero DC flow");
+        assert_eq!(f.loading_pct, 0.0, "open branch must have zero loading");
+    }
+
+    #[test]
+    fn test_dc_loading_full_rating() {
+        let net = make_2bus_net();
+        // P = (θ1 - θ2) / x * base_mva = 0.1 / 0.1 * 100 = 100 MW = rate_a
+        let angles = vec![0.1_f64, 0.0];
+        let flows = compute_dc_branch_flows(&net, &angles);
+        let f = &flows[0];
+        assert!(
+            (f.loading_pct - 100.0).abs() < 1e-6,
+            "loading_pct should be ~100% at full rating, got {}",
+            f.loading_pct
+        );
+    }
+
+    #[test]
+    fn test_branch_count_matches_network() {
+        let mut net = PowerNetwork::new(100.0);
+        net.buses.push({
+            let mut b = Bus::new(1, BusType::Slack);
+            b.vm = 1.0;
+            b
+        });
+        net.buses.push({
+            let mut b = Bus::new(2, BusType::PQ);
+            b.vm = 1.0;
+            b
+        });
+        net.buses.push({
+            let mut b = Bus::new(3, BusType::PQ);
+            b.vm = 1.0;
+            b
+        });
+        net.branches.push(Branch {
+            from_bus: 1,
+            to_bus: 2,
+            r: 0.01,
+            x: 0.1,
+            b: 0.02,
+            rate_a: 100.0,
+            rate_b: 100.0,
+            rate_c: 100.0,
+            tap: 0.0,
+            shift: 0.0,
+            status: true,
+        });
+        net.branches.push(Branch {
+            from_bus: 2,
+            to_bus: 3,
+            r: 0.01,
+            x: 0.1,
+            b: 0.02,
+            rate_a: 100.0,
+            rate_b: 100.0,
+            rate_c: 100.0,
+            tap: 0.0,
+            shift: 0.0,
+            status: true,
+        });
+        net.generators.push(Generator {
+            bus_id: 1,
+            pg: 0.0,
+            qg: 0.0,
+            qmax: 999.0,
+            qmin: -999.0,
+            vg: 1.0,
+            mbase: 100.0,
+            status: true,
+            pmax: 999.0,
+            pmin: 0.0,
+        });
+        let v_mag = vec![1.0_f64; net.bus_count()];
+        let v_ang = vec![0.0_f64; net.bus_count()];
+        let flows = compute_branch_flows(&net, &v_mag, &v_ang);
+        assert_eq!(
+            flows.len(),
+            2,
+            "number of flows must equal number of branches"
+        );
+        assert_eq!(
+            flows[0].branch_index, 0,
+            "first flow must have branch_index 0"
+        );
+        assert_eq!(
+            flows[1].branch_index, 1,
+            "second flow must have branch_index 1"
+        );
+    }
+
+    #[test]
+    fn test_from_to_bus_fields_match_branch() {
+        let net = make_2bus_net();
+        let v_mag = vec![1.0_f64; net.bus_count()];
+        let v_ang = vec![0.0_f64; net.bus_count()];
+        let flows = compute_branch_flows(&net, &v_mag, &v_ang);
+        assert_eq!(
+            flows[0].from_bus, net.branches[0].from_bus,
+            "from_bus must match network branch"
+        );
+        assert_eq!(
+            flows[0].to_bus, net.branches[0].to_bus,
+            "to_bus must match network branch"
+        );
+    }
+
+    #[test]
+    fn test_ac_flow_magnitudes_finite() {
+        let net = make_2bus_net();
+        let v_mag = vec![1.02_f64, 0.98_f64];
+        let v_ang = vec![0.0_f64, -0.05_f64];
+        let flows = compute_branch_flows(&net, &v_mag, &v_ang);
+        assert!(flows[0].p_from_mw.is_finite(), "p_from_mw must be finite");
+        assert!(
+            flows[0].q_from_mvar.is_finite(),
+            "q_from_mvar must be finite"
+        );
+        assert!(flows[0].p_to_mw.is_finite(), "p_to_mw must be finite");
+        assert!(flows[0].q_to_mvar.is_finite(), "q_to_mvar must be finite");
+        assert!(
+            flows[0].loading_pct.is_finite(),
+            "loading_pct must be finite"
+        );
+    }
+
+    #[test]
+    fn test_loading_pct_nonnegative() {
+        let net = make_2bus_net();
+        let v_mag = vec![1.0_f64; net.bus_count()];
+        let v_ang = vec![0.0_f64, -0.1_f64];
+        let flows = compute_branch_flows(&net, &v_mag, &v_ang);
+        assert!(
+            flows[0].loading_pct >= 0.0,
+            "loading_pct must be non-negative"
+        );
+        let angles_dc = vec![0.0_f64, -0.1_f64];
+        let flows_dc = compute_dc_branch_flows(&net, &angles_dc);
+        assert!(
+            flows_dc[0].loading_pct >= 0.0,
+            "DC loading_pct must be non-negative"
+        );
+    }
+
+    #[test]
+    fn test_p_loss_nonnegative_ac() {
+        let net = make_2bus_net();
+        let v_mag = vec![1.0_f64, 0.98_f64];
+        let v_ang = vec![0.0_f64, -0.05_f64];
+        let flows = compute_branch_flows(&net, &v_mag, &v_ang);
+        assert!(
+            flows[0].p_loss_mw >= -1e-9,
+            "p_loss_mw must be non-negative (within numerical tolerance) for resistive branch"
+        );
+    }
+
+    #[test]
+    fn test_rate_a_zero_gives_zero_loading() {
+        let mut net = make_2bus_net();
+        net.branches[0].rate_a = 0.0;
+        let v_mag = vec![1.0_f64; net.bus_count()];
+        let v_ang = vec![0.0_f64; net.bus_count()];
+        let flows = compute_branch_flows(&net, &v_mag, &v_ang);
+        assert_eq!(
+            flows[0].loading_pct, 0.0,
+            "loading_pct must be 0.0 when rate_a is zero (no division by zero)"
+        );
+        let angles_dc = vec![0.0_f64, -0.05_f64];
+        let flows_dc = compute_dc_branch_flows(&net, &angles_dc);
+        assert_eq!(
+            flows_dc[0].loading_pct, 0.0,
+            "loading_pct must be 0.0 when rate_a is zero (no division by zero)"
+        );
+    }
+
+    #[test]
+    fn test_disabled_branch_gives_zero_flows() {
+        let mut net = make_2bus_net();
+        net.branches[0].status = false;
+        let v_mag = vec![1.0_f64; net.bus_count()];
+        let v_ang = vec![0.0_f64; net.bus_count()];
+        let flows = compute_branch_flows(&net, &v_mag, &v_ang);
+        assert_eq!(
+            flows.len(),
+            1,
+            "disabled branch must still produce one BranchFlow entry"
+        );
+        assert_eq!(
+            flows[0].p_from_mw, 0.0,
+            "p_from_mw must be zero for disabled branch"
+        );
+        assert_eq!(
+            flows[0].q_from_mvar, 0.0,
+            "q_from_mvar must be zero for disabled branch"
+        );
+        assert_eq!(
+            flows[0].p_to_mw, 0.0,
+            "p_to_mw must be zero for disabled branch"
+        );
+        assert_eq!(
+            flows[0].q_to_mvar, 0.0,
+            "q_to_mvar must be zero for disabled branch"
+        );
+        assert_eq!(
+            flows[0].p_loss_mw, 0.0,
+            "p_loss_mw must be zero for disabled branch"
+        );
+        assert_eq!(
+            flows[0].loading_pct, 0.0,
+            "loading_pct must be zero for disabled branch"
+        );
+    }
 }

@@ -423,7 +423,7 @@ fn solve_unit_subproblem(
     let final_s = dp
         .iter()
         .enumerate()
-        .min_by(|(_, a), (_, b)| a.partial_cmp(b).unwrap())
+        .min_by(|(_, a), (_, b)| a.partial_cmp(b).unwrap_or(std::cmp::Ordering::Equal))
         .map(|(i, _)| i)
         .unwrap_or(0);
 
@@ -488,7 +488,12 @@ fn feasibility_repair(
             // Need more: increase output of committed units, then commit more
             // Sort by cost
             let mut order: Vec<usize> = (0..n_gen).filter(|&g| commit_f[g][t]).collect();
-            order.sort_by(|&a, &b| units[a].cost_mwh.partial_cmp(&units[b].cost_mwh).unwrap());
+            order.sort_by(|&a, &b| {
+                units[a]
+                    .cost_mwh
+                    .partial_cmp(&units[b].cost_mwh)
+                    .unwrap_or(std::cmp::Ordering::Equal)
+            });
 
             for g in order {
                 if total >= demand - 1e-6 {
@@ -503,8 +508,12 @@ fn feasibility_repair(
             // If still short, commit the cheapest uncommitted unit
             if total < demand - 1e-6 {
                 let mut candidates: Vec<usize> = (0..n_gen).filter(|&g| !commit_f[g][t]).collect();
-                candidates
-                    .sort_by(|&a, &b| units[a].cost_mwh.partial_cmp(&units[b].cost_mwh).unwrap());
+                candidates.sort_by(|&a, &b| {
+                    units[a]
+                        .cost_mwh
+                        .partial_cmp(&units[b].cost_mwh)
+                        .unwrap_or(std::cmp::Ordering::Equal)
+                });
                 for g in candidates {
                     if total >= demand - 1e-6 {
                         break;
@@ -518,7 +527,12 @@ fn feasibility_repair(
         } else if total > demand + 1e-6 {
             // Need less: reduce highest-cost units first
             let mut order: Vec<usize> = (0..n_gen).filter(|&g| commit_f[g][t]).collect();
-            order.sort_by(|&a, &b| units[b].cost_mwh.partial_cmp(&units[a].cost_mwh).unwrap());
+            order.sort_by(|&a, &b| {
+                units[b]
+                    .cost_mwh
+                    .partial_cmp(&units[a].cost_mwh)
+                    .unwrap_or(std::cmp::Ordering::Equal)
+            });
 
             for g in order {
                 if total <= demand + 1e-6 {

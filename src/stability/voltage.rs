@@ -181,7 +181,11 @@ pub fn compute_qv_curve(
     // Q margin: Q at operating point (q_inj = 0) minus Q at nose
     let q_op = points
         .iter()
-        .min_by(|a, b| a.x.abs().partial_cmp(&b.x.abs()).unwrap())
+        .min_by(|a, b| {
+            a.x.abs()
+                .partial_cmp(&b.x.abs())
+                .unwrap_or(std::cmp::Ordering::Equal)
+        })
         .map(|p| p.x)
         .unwrap_or(0.0);
 
@@ -315,7 +319,7 @@ pub fn compute_l_index(
     let (critical_bus, &l_max) = l_values
         .iter()
         .enumerate()
-        .max_by(|(_, a), (_, b)| a.partial_cmp(b).unwrap())
+        .max_by(|(_, a), (_, b)| a.partial_cmp(b).unwrap_or(std::cmp::Ordering::Equal))
         .unwrap_or((0, &0.0));
 
     Ok(LIndex {
@@ -380,7 +384,7 @@ pub fn compute_vsmi(
     let (weakest_bus, &vsmi_min) = vsmi_per_bus
         .iter()
         .enumerate()
-        .min_by(|(_, a), (_, b)| a.partial_cmp(b).unwrap())
+        .min_by(|(_, a), (_, b)| a.partial_cmp(b).unwrap_or(std::cmp::Ordering::Equal))
         .unwrap_or((0, &0.0));
 
     Ok(VsmiResult {

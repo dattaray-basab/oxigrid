@@ -405,4 +405,119 @@ mod tests {
         assert!(!pass);
         assert!(violation > 0.0);
     }
+
+    #[test]
+    fn voltage_proximity_passes_when_close() {
+        let constraint = PhysicalConstraint::VoltageProximity {
+            bus_i: 0,
+            bus_j: 1,
+            max_diff_pu: 0.1,
+        };
+        // |1.0 - 1.05| = 0.05 ≤ 0.10 → pass
+        let measurements = vec![1.0_f64, 1.05];
+        let (pass, violation) = evaluate_constraint(&constraint, &measurements, 2);
+        assert!(pass, "Expected pass but violation = {violation}");
+        assert_eq!(violation, 0.0);
+    }
+
+    #[test]
+    fn voltage_proximity_fails_when_too_different() {
+        let constraint = PhysicalConstraint::VoltageProximity {
+            bus_i: 0,
+            bus_j: 1,
+            max_diff_pu: 0.05,
+        };
+        // |1.0 - 1.2| = 0.2 > 0.05 → fail
+        let measurements = vec![1.0_f64, 1.2];
+        let (pass, violation) = evaluate_constraint(&constraint, &measurements, 2);
+        assert!(!pass, "Expected failure but got pass");
+        assert!(
+            violation > 0.0,
+            "Violation magnitude should be > 0, got {violation}"
+        );
+    }
+
+    #[test]
+    fn flow_direction_passes_for_positive_flow() {
+        let constraint = PhysicalConstraint::FlowDirection { branch: 0 };
+        // flow = +50 MW (non-negative) → pass
+        let measurements = vec![50.0_f64];
+        let (pass, violation) = evaluate_constraint(&constraint, &measurements, 1);
+        assert!(pass, "Expected pass for positive flow");
+        assert_eq!(violation, 0.0);
+    }
+
+    #[test]
+    fn flow_direction_fails_for_negative_flow() {
+        let constraint = PhysicalConstraint::FlowDirection { branch: 0 };
+        // flow = -30 MW → fail
+        let measurements = vec![-30.0_f64];
+        let (pass, violation) = evaluate_constraint(&constraint, &measurements, 1);
+        assert!(!pass, "Expected fail for negative flow");
+        assert!(
+            violation > 0.0,
+            "Violation magnitude should be > 0, got {violation}"
+        );
+    }
+
+    #[test]
+    fn frequency_uniformity_passes_small_spread() {
+        let constraint = PhysicalConstraint::FrequencyUniformity {
+            max_spread_hz: 0.01,
+        };
+        // spread = 50.005 - 49.998 = 0.007 ≤ 0.01 → pass
+        let measurements = vec![49.998_f64, 50.002, 50.005];
+        let (pass, violation) = evaluate_constraint(&constraint, &measurements, 3);
+        assert!(
+            pass,
+            "Expected pass for small spread, violation = {violation}"
+        );
+    }
+
+    #[test]
+    fn global_power_balance_via_verify_measurements_passes() {
+        // GlobalPowerBalance sums measurements; near-zero sum → pass
+        let constraint = PhysicalConstraint::GlobalPowerBalance { tolerance_mw: 1.0 };
+        let verifier = IntegrityVerifier::new(vec![constraint]);
+        // sum = 100.0 - 95.0 - 5.0 = 0.0 ≤ 1.0 → pass
+        let measurements = vec![100.0_f64, -95.0, -5.0];
+        let report = verifier.verify_measurements(&measurements);
+        assert!(report.overall_pass, "Expected overall_pass = true");
+        assert_eq!(report.n_violations, 0);
+    }
+
+    #[test]
+    fn n_violations_counts_multiple_failures() {
+        // Two KCL constraints both violated + one VoltageProximity violated → 3 failures
+        let constraints = vec![
+            PhysicalConstraint::Kcl {
+                bus: 0,
+                tolerance_mw: 1.0,
+            },
+            PhysicalConstraint::Kcl {
+                bus: 1,
+                tolerance_mw: 1.0,
+            },
+            PhysicalConstraint::VoltageProximity {
+                bus_i: 0,
+                bus_j: 1,
+                max_diff_pu: 0.01,
+            },
+        ];
+        let verifier = IntegrityVerifier::new(constraints);
+        // measurements[0] = 50.0 → KCL bus 0 imbalance = 50 (violation)
+        // measurements[1] = 40.0 → KCL bus 1 imbalance = 40 (violation)
+        // |50.0 - 40.0| = 10.0 > 0.01 → VoltageProximity violation
+        let measurements = vec![50.0_f64, 40.0];
+        let report = verifier.verify_measurements(&measurements);
+        assert!(!report.overall_pass);
+        assert_eq!(
+            report.n_violations, 3,
+            "Expected 3 violations, got {}",
+            report.n_violations
+        );
+        // Both KCL failures add their bus indices to suspected_compromised
+        assert!(report.suspected_compromised.contains(&0));
+        assert!(report.suspected_compromised.contains(&1));
+    }
 }

@@ -99,3 +99,111 @@ pub use dc_switching::{
     DcCable, DcFaultEvent, DcFaultType, DcGridSolution, DcSwitchingSimulator, DcTransientResult,
     DcTransientState,
 };
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    // 1. Bus::new sets id, vm, va, gs to expected defaults.
+    #[test]
+    fn test_bus_new_defaults() {
+        let b = Bus::new(1, BusType::Slack);
+        assert_eq!(b.id, 1);
+        assert!((b.vm - 1.0).abs() < 1e-12, "vm should default to 1.0");
+        assert!((b.va - 0.0).abs() < 1e-12, "va should default to 0.0");
+        assert!((b.gs - 0.0).abs() < 1e-12, "gs should default to 0.0");
+    }
+
+    // 2. BusType is preserved correctly for PV buses.
+    #[test]
+    fn test_bus_type_pv() {
+        let b = Bus::new(2, BusType::PV);
+        assert_eq!(b.bus_type, BusType::PV);
+    }
+
+    // 3. Branch::effective_tap() returns 1.0 when tap == 0.0.
+    #[test]
+    fn test_branch_effective_tap_zero() {
+        let br = Branch {
+            from_bus: 1,
+            to_bus: 2,
+            r: 0.01,
+            x: 0.1,
+            b: 0.0,
+            rate_a: 100.0,
+            rate_b: 100.0,
+            rate_c: 100.0,
+            tap: 0.0,
+            shift: 0.0,
+            status: true,
+        };
+        assert_eq!(br.effective_tap(), 1.0);
+    }
+
+    // 4. Branch::effective_tap() returns the stored tap when tap != 0.0.
+    #[test]
+    fn test_branch_effective_tap_nonzero() {
+        let br = Branch {
+            from_bus: 1,
+            to_bus: 2,
+            r: 0.01,
+            x: 0.1,
+            b: 0.0,
+            rate_a: 100.0,
+            rate_b: 100.0,
+            rate_c: 100.0,
+            tap: 1.05,
+            shift: 0.0,
+            status: true,
+        };
+        assert!((br.effective_tap() - 1.05).abs() < 1e-9);
+    }
+
+    // 5. Branch::tap_complex() with tap=1.0 and shift=0.0 is purely real (≈ 1+0j).
+    #[test]
+    fn test_branch_tap_complex_no_shift() {
+        let br = Branch {
+            from_bus: 1,
+            to_bus: 2,
+            r: 0.01,
+            x: 0.1,
+            b: 0.0,
+            rate_a: 100.0,
+            rate_b: 100.0,
+            rate_c: 100.0,
+            tap: 1.0,
+            shift: 0.0,
+            status: true,
+        };
+        let tc = br.tap_complex();
+        assert!(
+            (tc.re - 1.0).abs() < 1e-6,
+            "real part should be ≈ 1.0, got {}",
+            tc.re
+        );
+        assert!(
+            tc.im.abs() < 1e-6,
+            "imaginary part should be ≈ 0.0, got {}",
+            tc.im
+        );
+    }
+
+    // 6. PowerNetwork::new sets base_mva and starts with empty buses.
+    #[test]
+    fn test_power_network_new() {
+        let net = PowerNetwork::new(100.0);
+        assert!((net.base_mva - 100.0).abs() < 1e-12);
+        assert!(net.buses.is_empty());
+    }
+
+    // 7. validate() on an empty network (no slack bus) returns Err.
+    #[test]
+    fn test_power_network_validate_empty_no_slack() {
+        let net = PowerNetwork::new(100.0);
+        let result = net.validate();
+        assert!(
+            result.is_err(),
+            "empty network with no slack bus should fail validation"
+        );
+    }
+}

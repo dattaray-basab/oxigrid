@@ -338,4 +338,199 @@ mod tests {
             assert!((row[i] - 1.0).abs() < 1e-10);
         }
     }
+
+    #[test]
+    fn detect_point_empty_history() {
+        let detector = GridAnomalyDetector::new(10, 3.0);
+        // With empty history mean=0, std=0; value=0 is within 1e-4 of mean so not anomalous.
+        let result = detector.detect_point(0.0, &[]);
+        assert!(
+            !result.is_anomaly,
+            "value equal to mean of empty history (0.0) should not flag an anomaly"
+        );
+        // Sanity: a value far from zero should be flagged.
+        let result_far = detector.detect_point(100.0, &[]);
+        assert!(
+            result_far.is_anomaly,
+            "value far from mean of empty history should be flagged as anomaly"
+        );
+    }
+
+    #[test]
+    fn detect_batch_returns_correct_count() {
+        let detector = GridAnomalyDetector::new(10, 3.0);
+        let values = vec![1.0, 2.0, 3.0];
+        let history = vec![
+            vec![0.0, 1.0, 2.0, 3.0],
+            vec![0.5, 1.5, 2.5, 3.5],
+            vec![1.0, 2.0, 3.0, 4.0],
+        ];
+        let results = detector.detect_batch(&values, &history);
+        assert_eq!(
+            results.len(),
+            3,
+            "detect_batch should return one result per value"
+        );
+    }
+
+    #[test]
+    fn ewma_tracks_trend() {
+        let rising: Vec<f64> = (0..10).map(|i| i as f64).collect();
+        let ewma_val = compute_ewma(&rising, 0.3);
+        assert!(
+            ewma_val > rising[0],
+            "EWMA on rising series ({ewma_val}) should exceed first element ({})",
+            rising[0]
+        );
+    }
+
+    #[test]
+    fn mean_empty_returns_zero() {
+        let result = mean(&[]);
+        assert_eq!(result, 0.0, "mean of empty slice should be 0.0");
+    }
+
+    #[test]
+    fn std_dev_single_returns_zero() {
+        let result = std_dev(&[5.0]);
+        assert_eq!(
+            result, 0.0,
+            "std_dev of a single-element slice should be 0.0"
+        );
+    }
+
+    #[test]
+    fn cusum_no_change_returns_none() {
+        let detector = GridAnomalyDetector::new(10, 3.0);
+        // Perfectly flat series — CUSUM should never accumulate enough to trigger.
+        let series = vec![1.0_f64; 30];
+        let result = detector.cusum_test(&series, 1e6, 1e9);
+        assert!(
+            result.is_none(),
+            "CUSUM on a flat series with very large thresholds should return None"
+        );
+    }
+
+    #[test]
+    fn correlation_perfectly_correlated_channels() {
+        let analyzer = MeasurementCorrelationAnalyzer::new(2, 5);
+        let series: Vec<f64> = vec![1.0, 2.0, 3.0, 4.0, 5.0];
+        let history = vec![series.clone(), series.clone()];
+        let corr = analyzer.compute_correlation(&history);
+        assert!(
+            (corr[0][1] - 1.0).abs() < 1e-10,
+            "two identical series should have Pearson correlation 1.0, got {}",
+            corr[0][1]
+        );
+    }
+
+    #[test]
+    fn detect_correlation_change_identical_returns_near_zero() {
+        let analyzer = MeasurementCorrelationAnalyzer::new(3, 4);
+        let baseline_window = vec![
+            vec![1.0, 2.0, 3.0, 4.0],
+            vec![4.0, 3.0, 2.0, 1.0],
+            vec![1.0, 1.0, 2.0, 2.0],
+        ];
+        let baseline_corr = analyzer.compute_correlation(&baseline_window);
+        let frobenius = analyzer.detect_correlation_change(&baseline_window, &baseline_corr);
+        assert!(
+            frobenius < 1e-9,
+            "Frobenius norm of (baseline - baseline) should be ~0, got {frobenius}"
+        );
+    }
+
+    #[test]
+    fn detect_point_empty_history_zero_value() {
+        let detector = GridAnomalyDetector::new(20, 3.0);
+        let result = detector.detect_point(0.0, &[]);
+        // With empty history mean=0, value=0 → deviation=0 → not anomalous.
+        assert!(!result.is_anomaly);
+    }
+
+    #[test]
+    fn ewma_value_approaches_latest() {
+        let mut detector = GridAnomalyDetector::new(20, 3.0);
+        detector.ewma_alpha = 0.9;
+        // History ends at 100.0; with alpha=0.9 EWMA should be very close to 100.
+        let history: Vec<f64> = (0..20).map(|i| if i < 19 { 0.0 } else { 100.0 }).collect();
+        let result = detector.detect_point(100.0, &history);
+        assert!(
+            result.ewma_value > 80.0,
+            "EWMA should be close to 100; got {}",
+            result.ewma_value
+        );
+    }
+
+    #[test]
+    fn detect_batch_returns_per_channel() {
+        let detector = GridAnomalyDetector::new(10, 3.0);
+        let values = vec![1.0, 2.0, 3.0];
+        let history = vec![
+            vec![1.0, 1.0, 1.0, 1.0, 1.0],
+            vec![2.0, 2.0, 2.0, 2.0, 2.0],
+            vec![3.0, 3.0, 3.0, 3.0, 3.0],
+        ];
+        let results = detector.detect_batch(&values, &history);
+        assert_eq!(results.len(), 3);
+    }
+
+    #[test]
+    fn cusum_no_alarm_constant_series() {
+        let detector = GridAnomalyDetector::new(20, 3.0);
+        let series = vec![1.0_f64; 20];
+        // With a perfectly constant series the CUSUM accumulator stays at 0.
+        let result = detector.cusum_test(&series, 0.5, 1.0);
+        assert!(
+            result.is_none(),
+            "Constant series should not trigger CUSUM alarm"
+        );
+    }
+
+    #[test]
+    fn detect_point_bounds_contain_normal() {
+        let detector = GridAnomalyDetector::new(20, 3.0);
+        let history: Vec<f64> = (0..20).map(|i| i as f64).collect(); // mean=9.5, std≈5.77
+        let value = 9.5_f64; // right at the mean
+        let result = detector.detect_point(value, &history);
+        assert!(
+            result.lower_bound <= value && value <= result.upper_bound,
+            "Normal value {} should be inside [{}, {}]",
+            value,
+            result.lower_bound,
+            result.upper_bound
+        );
+    }
+
+    #[test]
+    fn score_is_abs_z_score() {
+        let detector = GridAnomalyDetector::new(20, 3.0);
+        let history: Vec<f64> = (0..20).map(|i| i as f64).collect();
+        // Use a value that is below the mean to get a negative z_score.
+        let result = detector.detect_point(-5.0, &history);
+        assert!(
+            (result.score - result.z_score.abs()).abs() < 1e-10,
+            "score {} should equal |z_score| {}",
+            result.score,
+            result.z_score.abs()
+        );
+    }
+
+    #[test]
+    fn correlation_change_zero_for_identical_window() {
+        let analyzer = MeasurementCorrelationAnalyzer::new(3, 10);
+        let data = vec![
+            vec![1.0, 2.0, 3.0, 4.0, 5.0],
+            vec![5.0, 4.0, 3.0, 2.0, 1.0],
+            vec![2.0, 2.0, 3.0, 3.0, 4.0],
+        ];
+        let baseline = analyzer.compute_correlation(&data);
+        // Comparing the same window against its own baseline should yield ~0.
+        let change = analyzer.detect_correlation_change(&data, &baseline);
+        assert!(
+            change < 1e-10,
+            "Correlation change for identical windows should be ~0, got {}",
+            change
+        );
+    }
 }

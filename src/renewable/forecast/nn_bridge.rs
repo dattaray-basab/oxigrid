@@ -12,7 +12,7 @@
 ///       ├── PersistenceBridge   — wraps persistence.rs
 ///       ├── ArimaBridge         — wraps arima.rs
 ///       ├── EnsembleBridge      — weighted combination of models
-///       └── ExternalNnBridge    — placeholder for torsh/trustformers
+///       └── ExternalNnBridge    — polynomial fallback + native-runtime hook (torsh/trustformers)
 /// ```
 ///
 /// # Usage
@@ -132,7 +132,9 @@ impl ForecastModel for PersistenceBridge {
             let period_forecast = dp.forecast_next_period();
             period_forecast.into_iter().cycle().take(horizon).collect()
         } else {
-            let last = *history.last().unwrap();
+            let last = *history
+                .last()
+                .expect("invariant: history non-empty after branch guard");
             vec![last; horizon]
         }
     }
@@ -180,7 +182,9 @@ impl ForecastModel for ArimaBridge {
         match &self.fitted_model {
             Some(model) => model.forecast(history, horizon),
             None => {
-                let last = *history.last().unwrap();
+                let last = *history
+                    .last()
+                    .expect("invariant: history non-empty after branch guard");
                 vec![last; horizon]
             }
         }
@@ -253,7 +257,7 @@ impl ForecastModel for EnsembleBridge {
     }
 }
 
-// ── External NN bridge (placeholder) ─────────────────────────────────────────
+// ── External NN bridge (polynomial fallback + native-runtime hook) ───────────
 
 /// Metadata describing an external neural network model.
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -287,15 +291,59 @@ impl NnModelSpec {
     }
 }
 
-/// Placeholder bridge for external neural network runtimes.
+/// JSON-serialisable config for the polynomial regression fallback model.
 ///
-/// When torsh/trustformers/tract-onnx are available, this struct
-/// holds the loaded model and dispatches inference. Until then,
-/// it falls back to a statistical model.
+/// File format (example):
+/// ```json
+/// {
+///   "coefficients": [200.0, 15.0, -0.5, 0.1],
+///   "window": 24
+/// }
+/// ```
+///
+/// `coefficients[0]` is the bias term; `coefficients[1]` scales the history
+/// mean; `coefficients[2]` scales the linear trend slope (units per step);
+/// `coefficients[3]` (if present) scales the step index within the forecast
+/// horizon (0-based).  Additional coefficients are ignored.
+///
+/// `window` is the number of recent history points used to compute mean and
+/// trend.  If `window` is 0 or larger than the history length, all available
+/// history is used.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct PolyModelConfig {
+    /// Polynomial coefficients: `[bias, mean_coef, slope_coef, horizon_coef?]`.
+    pub coefficients: Vec<f64>,
+    /// Number of recent history points used to compute features.
+    pub window: usize,
+}
+
+impl Default for PolyModelConfig {
+    fn default() -> Self {
+        // Trivial identity: predict the history mean, ignoring slope/horizon.
+        Self {
+            coefficients: vec![0.0, 1.0],
+            window: 24,
+        }
+    }
+}
+
+/// Bridge for external neural network runtimes with a polynomial regression
+/// fallback.
+///
+/// When an ONNX/tract/torsh runtime becomes available it can be wired in under
+/// a feature flag.  Until then the bridge loads a [`PolyModelConfig`] from the
+/// JSON file at `spec.model_path` and evaluates a lightweight polynomial on
+/// recent history features (mean and trend slope) to produce non-trivial
+/// forecasts.
+///
+/// If `spec.model_path` is `None` or the file cannot be parsed, `try_load`
+/// returns `false` and `predict` delegates to the ARIMA fallback.
 pub struct ExternalNnBridge {
     pub spec: NnModelSpec,
     fallback: Box<dyn ForecastModel>,
     is_loaded: bool,
+    /// Polynomial config loaded from `spec.model_path`.
+    poly_config: Option<PolyModelConfig>,
 }
 
 impl ExternalNnBridge {
@@ -305,19 +353,83 @@ impl ExternalNnBridge {
             spec,
             fallback,
             is_loaded: false,
+            poly_config: None,
         }
     }
 
-    /// Attempt to load the model from disk (no-op until runtime crate available).
+    /// Attempt to load the polynomial model config from `spec.model_path`.
+    ///
+    /// Returns `true` and sets `is_loaded` when the JSON config is read and
+    /// parsed successfully.  Returns `false` (using ARIMA fallback) when:
+    /// - `spec.model_path` is `None`
+    /// - the file cannot be opened or read
+    /// - the JSON cannot be deserialised into [`PolyModelConfig`]
+    ///
+    /// When a native ONNX/tract runtime is wired in under a feature flag, this
+    /// method is the entry point to load the session instead.
     pub fn try_load(&mut self) -> bool {
-        // TODO: when tract/ort/torsh available, load model here
-        // For now always returns false (uses fallback)
-        self.is_loaded = false;
-        false
+        let path = match &self.spec.model_path {
+            Some(p) => p.clone(),
+            None => {
+                self.is_loaded = false;
+                return false;
+            }
+        };
+
+        let contents = match std::fs::read_to_string(&path) {
+            Ok(s) => s,
+            Err(_) => {
+                self.is_loaded = false;
+                return false;
+            }
+        };
+
+        match serde_json::from_str::<PolyModelConfig>(&contents) {
+            Ok(cfg) => {
+                self.poly_config = Some(cfg);
+                self.is_loaded = true;
+                true
+            }
+            Err(_) => {
+                self.is_loaded = false;
+                false
+            }
+        }
     }
 
     pub fn is_loaded(&self) -> bool {
         self.is_loaded
+    }
+
+    /// Compute (mean, slope) features over the last `window` points of `history`.
+    ///
+    /// `slope` is the ordinary-least-squares slope of the windowed series
+    /// (units per step).  Returns `(0.0, 0.0)` when `window_data` is empty.
+    fn compute_features(history: &[f64], window: usize) -> (f64, f64) {
+        if history.is_empty() {
+            return (0.0, 0.0);
+        }
+        let effective_window = if window == 0 || window > history.len() {
+            history.len()
+        } else {
+            window
+        };
+        let slice = &history[history.len() - effective_window..];
+        let n = slice.len() as f64;
+        let mean = slice.iter().sum::<f64>() / n;
+
+        // OLS slope: β = Σ(x_i - x̄)(y_i - ȳ) / Σ(x_i - x̄)²
+        // x_i = i (0-based), x̄ = (n-1)/2
+        let x_mean = (n - 1.0) / 2.0;
+        let mut num = 0.0_f64;
+        let mut den = 0.0_f64;
+        for (i, &y) in slice.iter().enumerate() {
+            let dx = i as f64 - x_mean;
+            num += dx * (y - mean);
+            den += dx * dx;
+        }
+        let slope = if den.abs() < 1e-12 { 0.0 } else { num / den };
+        (mean, slope)
     }
 }
 
@@ -332,13 +444,49 @@ impl ForecastModel for ExternalNnBridge {
         }
     }
 
+    /// Produce a multi-step forecast.
+    ///
+    /// When the polynomial model is loaded the prediction at step `h` (0-based)
+    /// is:
+    ///
+    /// ```text
+    /// ŷ_h = coef[0]
+    ///     + coef[1] * mean
+    ///     + coef[2] * slope          (if present)
+    ///     + coef[3] * (h as f64)     (if present)
+    /// ```
+    ///
+    /// where `mean` and `slope` are computed over the last `config.window`
+    /// observations.
     fn predict(&self, history: &[f64], horizon: usize) -> Vec<f64> {
-        if self.is_loaded {
-            // TODO: call runtime inference
-            vec![0.0; horizon]
-        } else {
-            self.fallback.predict(history, horizon)
+        if !self.is_loaded {
+            return self.fallback.predict(history, horizon);
         }
+
+        let cfg = match &self.poly_config {
+            Some(c) => c,
+            // is_loaded should not be true without poly_config, but be safe.
+            None => return self.fallback.predict(history, horizon),
+        };
+
+        let (mean, slope) = Self::compute_features(history, cfg.window);
+        let coefficients = &cfg.coefficients;
+
+        (0..horizon)
+            .map(|h| {
+                let mut y = coefficients.first().copied().unwrap_or(0.0);
+                if let Some(&c1) = coefficients.get(1) {
+                    y += c1 * mean;
+                }
+                if let Some(&c2) = coefficients.get(2) {
+                    y += c2 * slope;
+                }
+                if let Some(&c3) = coefficients.get(3) {
+                    y += c3 * h as f64;
+                }
+                y
+            })
+            .collect()
     }
 }
 
@@ -516,5 +664,66 @@ mod tests {
             "Quantile should be symmetric: {z95:.4} vs {z95_neg:.4}"
         );
         assert!((z95 - 1.96).abs() < 0.05, "z0.975 ≈ 1.96, got {z95:.4}");
+    }
+
+    /// Test that a polynomial model loaded from a JSON config produces non-zero
+    /// predictions consistent with the config coefficients.
+    ///
+    /// Config: `{"coefficients": [10.0, 1.0, 0.5, 0.1], "window": 5}`
+    ///   ŷ_h = 10.0 + 1.0*mean + 0.5*slope + 0.1*h
+    #[test]
+    fn test_external_nn_bridge_poly_model_loaded() {
+        use std::io::Write;
+
+        // Write a temporary JSON config.
+        let tmp_dir = std::env::temp_dir();
+        let cfg_path = tmp_dir.join("oxigrid_test_poly_model.json");
+        {
+            let mut f = std::fs::File::create(&cfg_path).expect("should create temp file");
+            f.write_all(b"{\"coefficients\":[10.0,1.0,0.5,0.1],\"window\":5}")
+                .expect("should write config");
+        }
+
+        let spec = NnModelSpec::new("poly-test", 5, 3, "polynomial")
+            .with_path(cfg_path.to_str().expect("path is valid UTF-8"));
+
+        let mut bridge = ExternalNnBridge::new(spec);
+        assert!(bridge.try_load(), "poly model should load from JSON file");
+        assert!(bridge.is_loaded());
+
+        // History: constant 100.0 → mean=100, slope=0
+        let hist = vec![100.0_f64; 10];
+        let f = bridge.predict(&hist, 3);
+        assert_eq!(f.len(), 3);
+
+        // Expected: 10.0 + 1.0*100.0 + 0.5*0.0 + 0.1*h = 110.0 + 0.1*h
+        for (h, &val) in f.iter().enumerate() {
+            let expected = 110.0 + 0.1 * h as f64;
+            assert!(
+                (val - expected).abs() < 1e-9,
+                "step {h}: expected {expected:.3}, got {val:.3}"
+            );
+        }
+
+        // Clean up.
+        let _ = std::fs::remove_file(&cfg_path);
+    }
+
+    /// Test that a bridge with a nonexistent model path falls back to ARIMA.
+    #[test]
+    fn test_external_nn_bridge_missing_path_falls_back() {
+        let spec = NnModelSpec::new("poly-missing", 5, 3, "polynomial")
+            .with_path("/nonexistent/path/to/model.json");
+        let mut bridge = ExternalNnBridge::new(spec);
+        assert!(!bridge.try_load(), "should fail when file does not exist");
+        assert!(!bridge.is_loaded());
+
+        let hist: Vec<f64> = (0..20).map(|i| i as f64).collect();
+        bridge.fit(&hist);
+        let f = bridge.predict(&hist, 4);
+        assert_eq!(f.len(), 4);
+        for &v in &f {
+            assert!(v.is_finite(), "fallback forecast should be finite");
+        }
     }
 }

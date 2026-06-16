@@ -195,4 +195,136 @@ mod tests {
             mpp.power
         );
     }
+
+    #[test]
+    fn test_po_duty_cycle_clamped_at_max() {
+        let p = params();
+        let mut ctrl = PerturbObserve::new(28.0, 1.0, 1.0, 30.0);
+
+        for _ in 0..100 {
+            let v = ctrl.v_op;
+            let i = diode_current(&p, v, 1000.0, 298.15);
+            ctrl.update(v, i);
+            assert!(
+                ctrl.v_op <= 30.0,
+                "v_op={:.4} exceeded v_max=30.0",
+                ctrl.v_op
+            );
+        }
+    }
+
+    #[test]
+    fn test_po_duty_cycle_clamped_at_min() {
+        let mut ctrl = PerturbObserve::new(7.0, 1.0, 5.0, 50.0);
+
+        for _ in 0..50 {
+            let v = ctrl.v_op;
+            ctrl.update(v, 0.0);
+            assert!(
+                ctrl.v_op >= 5.0,
+                "v_op={:.4} went below v_min=5.0",
+                ctrl.v_op
+            );
+        }
+    }
+
+    #[test]
+    fn test_po_power_increases_after_correct_perturbation() {
+        let p = params();
+        let mpp = find_mpp(&p, 1000.0, 298.15);
+        let start_v = mpp.voltage * 0.7;
+        let mut ctrl = PerturbObserve::new(start_v, 0.5, 1.0, 50.0);
+        let v_init = ctrl.v_op;
+
+        let v = ctrl.v_op;
+        let i = diode_current(&p, v, 1000.0, 298.15);
+        ctrl.update(v, i);
+
+        assert!(
+            ctrl.v_op > v_init,
+            "Expected upward step from below MPP: v_op={:.4} v_init={:.4}",
+            ctrl.v_op,
+            v_init
+        );
+    }
+
+    #[test]
+    fn test_po_starts_above_mpp_converges_near_mpp() {
+        let p = params();
+        let mpp = find_mpp(&p, 1000.0, 298.15);
+        // Start 15% above MPP (not too close to Voc where I≈0 creates P&O lock-up).
+        // After many iterations the delivered power must be within 5% of the true MPP.
+        let start_v = mpp.voltage * 1.15;
+        let mut ctrl = PerturbObserve::new(start_v, 0.5, 1.0, 50.0);
+
+        for _ in 0..300 {
+            let v = ctrl.v_op;
+            let i = diode_current(&p, v, 1000.0, 298.15);
+            ctrl.update(v, i);
+        }
+
+        let v_final = ctrl.v_op;
+        let i_final = diode_current(&p, v_final, 1000.0, 298.15);
+        let p_final = v_final * i_final;
+
+        assert!(
+            (p_final - mpp.power).abs() / mpp.power < 0.05,
+            "P&O starting above MPP: p_final={:.2} mpp={:.2} (>5% error)",
+            p_final,
+            mpp.power
+        );
+    }
+
+    #[test]
+    fn test_inc_dv_zero_branch_di_positive() {
+        let mut ctrl = IncrementalConductance::new(20.0, 0.5, 1.0, 50.0);
+        ctrl.update(20.0, 5.0);
+        let v_ref_after = ctrl.update(20.0, 6.0);
+        assert!(
+            v_ref_after > 20.0,
+            "Expected upward step when dI>0 and dV≈0: v_ref={:.4}",
+            v_ref_after
+        );
+    }
+
+    #[test]
+    fn test_inc_dv_zero_branch_di_negative() {
+        let mut ctrl = IncrementalConductance::new(20.0, 0.5, 1.0, 50.0);
+        ctrl.update(20.0, 5.0);
+        let v_ref_after = ctrl.update(20.0, 4.0);
+        assert!(
+            v_ref_after < 20.0,
+            "Expected downward step when dI<0 and dV≈0: v_ref={:.4}",
+            v_ref_after
+        );
+    }
+
+    #[test]
+    fn test_po_oscillation_within_delta_v() {
+        let p = params();
+        let mpp = find_mpp(&p, 1000.0, 298.15);
+        let mut ctrl = PerturbObserve::new(mpp.voltage * 0.5, 0.5, 1.0, 50.0);
+
+        let mut last_20 = Vec::with_capacity(20);
+
+        for iter in 0..500 {
+            let v = ctrl.v_op;
+            let i = diode_current(&p, v, 1000.0, 298.15);
+            ctrl.update(v, i);
+            if iter >= 480 {
+                last_20.push(ctrl.v_op);
+            }
+        }
+
+        let v_max = last_20.iter().cloned().fold(f64::NEG_INFINITY, f64::max);
+        let v_min = last_20.iter().cloned().fold(f64::INFINITY, f64::min);
+        let peak_to_peak = v_max - v_min;
+
+        assert!(
+            peak_to_peak <= 2.0 * ctrl.delta_v + 1e-9,
+            "P&O steady-state oscillation too large: p2p={:.4} limit={:.4}",
+            peak_to_peak,
+            2.0 * ctrl.delta_v
+        );
+    }
 }

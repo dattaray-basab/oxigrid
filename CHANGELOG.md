@@ -5,6 +5,158 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.1.2] - 2026-06-16
+
+### Added
+
+#### Analytics
+- New `analytics` module with standard IEEE 1366 reliability KPIs (SAIDI, SAIFI, CAIDI, ASAI, ENS),
+  power quality metrics (THD), and economic metrics (LCOE, NPV, IRR) via `GridKpiDashboard`
+- `GridHealthScorer` — component-level health scoring by category with configurable weights and
+  `GridHealthReport` aggregation
+- `CarbonAccountant` — scope 1/2/3 CO₂e accounting with `CarbonBudgetTracker`, ETS scheme tracking,
+  grid emission intensity (average and marginal), and ISO 14064-1 compliant reporting
+- `CarbonIntensityForecaster` — fuel-mix-based marginal emission rate forecasting
+- `EnergyEquityAnalyzer` — energy burden, affordability, and gini-coefficient equity metrics
+- `OperationalAnalytics` — time-series KPI trending with anomaly scoring and `OperationalDashboard`
+- `PredictiveMaintenance` — asset RUL estimation with `DegradationModel`, `HealthIndex`, and
+  maintenance schedule generation
+- `CongestionAnalyzer` and `OperationsReport` for real-time generation and renewable performance KPIs
+
+#### Network
+- `FlisrSystem` — FLISR (Fault Location, Isolation and Service Restoration) for distribution
+  automation: fault indicator scanning, minimum-zone isolation, tie-switch restoration search
+- `DynamicLineRating` — temperature/weather-driven thermal ampacity with IEEE 738 heat balance model
+- `TheveninEquivalent` — network reduction to Thevenin impedance via iterative perturbation method
+- `NetworkReduction` — Ward/REI equivalents and kron reduction for large system simplification
+- `AdmittanceMatrix` — full Y-bus construction with tap/phase-shift transformer handling
+- `CongestionManager` — line-flow congestion detection and redispatch cost computation
+- `UpfcModel` — detailed UPFC power injection model with series and shunt compensation
+- Resilience planning types (`ResiliencePlanningTypes`, `InfrastructureHardeningPlan`) for
+  multi-hazard N-k hardening optimisation
+- Voltage regulation type hierarchy (`VoltageRegulationConfig`, tap-changer / capacitor-bank control)
+- MatPower format import/export enhancements (`src/network/formats/matpower.rs`)
+
+#### Power Flow
+- `DcPowerFlow` — full sparse DC power flow with B-matrix assembly, LU factorisation, and
+  sensitivity-matrix computation (897 lines, `src/powerflow/dc_powerflow.rs`)
+- `HarmonicPowerFlow` — harmonic-coupled power flow (fundamental + harmonic bus voltages) for
+  network harmonic interaction studies
+- `StochasticLoadFlow` — Monte Carlo AC load flow with configurable uncertainty distributions for
+  renewable injection and load variability
+- `UnbalancedContinuationPowerFlow` — predictor-corrector continuation for three-phase unbalanced
+  systems with nose-point detection
+- `PowerFlowJacobian` — standalone Jacobian builder with sparsity-pattern caching for use outside
+  the NR solver inner loop
+- Refactored `timeseries_sim` from a 1,994-line monolithic file into a well-structured module
+  (`functions.rs`, `types.rs`, `types_4.rs`) for maintainability
+- Enhanced `PowerFlowResult` with detailed line-loss, reactive-power, and convergence diagnostics
+
+#### Optimization — OPF
+- `CarbonOpfSolver` — carbon-constrained DC-OPF with hard CO₂ cap enforcement, augmented marginal
+  cost (dual cost/emission weight), and Pareto-front sweep (`CarbonOpfResult`, `Green LMP`)
+- `N1Scopf` — N-1 security-constrained OPF with post-contingency constraint enforcement and
+  corrective action dispatch
+- `SecurityOPF` — bus-level security OPF coupling voltage/thermal limits with contingency screening
+- Expanded multi-period OPF with improved ramp-product modelling
+
+#### Optimization — Dispatch
+- `EconomicDispatch` — merit-order economic dispatch with incremental heat-rate curves
+- `RampProductMarket` — ramp capability product market clearing (up/down ramp capacity, prices)
+- `StochasticUnitCommitment` — scenario-tree stochastic UC with expected-cost minimisation
+
+#### Optimization — Market
+- `CarbonBudget` / `CarbonMarket` — EU ETS-style carbon allowance market with price dynamics,
+  auction clearing, permit allocation methods (grandfathering, benchmarking, auction), and
+  multi-year carbon plans; Pareto cost-vs-emissions analysis
+- `P2pMarket` — peer-to-peer energy trading with six clearing mechanisms: double-sided auction,
+  community micromarket, bilateral contract, blockchain ledger, virtual net-billing, and
+  flexibility market; prosumer bid/offer matching with congestion-aware network constraints
+- `RestorationSequenceOptimizer` — optimal switching sequence for post-fault service restoration
+  subject to generation headroom and CLPU frequency constraints (340 lines)
+
+#### Optimization — Multi-Energy & Microgrid
+- `EnergyHub` / `MesOptimizer` — multi-energy system hub model coupling electricity, gas, heat,
+  cooling, and hydrogen through converters (CHP, heat pump, boiler, electrolyser) and storage
+  with greedy DP dispatch
+- `MicrogridSizingOptimizer` — optimal DER sizing (PV + BESS + diesel) for islanded/grid-connected
+  microgrids with LCOE and reliability constraints
+
+#### Optimization — Expansion
+- `StochasticTepV2` — enhanced stochastic transmission expansion planning v2 with improved
+  scenario tree and Benders decomposition
+
+#### Stability
+- `BlackStartProcedure` — full black-start capability assessment: cranking-path discovery (BFS),
+  step-by-step restoration plan respecting generation headroom and cold-load-pickup frequency
+  constraints, and time-domain simulation tracking frequency nadir and voltage violations
+- `AvrModel` — automatic voltage regulator (IEEE Type I/II/III) with anti-windup limiting, coupled
+  into transient stability simulation
+- `PssTuner` — PSS parameter optimisation using residue method and frequency-domain criteria
+
+#### Protection
+- `HifDetector` — high-impedance fault detection combining even-harmonic ratio, half-cycle
+  asymmetry, and incremental-energy methods with Dempster-Shafer evidence fusion
+- `FaultCurrentLimiter` — superconducting (SFCL), resistive, and bridge-type FCL models
+- `ZoneProtectionCoordinator` — comprehensive zone protection coordination with 966-line full
+  relay grading, CTI verification, and coordination report generation
+
+#### Renewable Energy
+- Enhanced solar submodule: `IrradianceModel` (direct/diffuse/reflected decomposition),
+  `MpptController` (P&O and INC algorithms), `PvCellModel` (single-diode IV curve)
+- `IntegrationStudy` — renewable integration study workflow (hosting capacity, fault-level
+  impact, harmonic contribution, protection coordination)
+- Grid codes: expanded `HvrtProfile` and `RampRateLimiter` for ENTSO-E RfG compliance
+
+#### Simulation
+- `CosimFramework` — cyber-physical co-simulation coupling physical voltage dynamics, SCADA
+  communication (latency, packet-loss), control layer, and CUSUM-based cyber-attack detection;
+  supports false-data injection, replay, DoS, and man-in-the-middle attack scenarios
+- `OperatorTrainingSimulator` — scenario-based operator training with automatic event injection,
+  action grading, emergency procedure guidance, and competency scoring
+- Refactored `grid_ops` from a 1,994-line monolithic file into a structured module
+  (`constants.rs`, `functions.rs`, `types.rs`, `types_4.rs`, `tests.rs`)
+
+#### Security
+- `GridAnomalyDetector` — z-score, EWMA, and CUSUM-based anomaly detection for grid measurement
+  streams with `MeasurementCorrelationAnalyzer` for cross-sensor change detection
+- `DataIntegrityChecker` — measurement integrity verification with hash-chain audit trail
+
+#### Monitoring
+- `WamsAnalyzer` — Wide-Area Monitoring System based on GPS-synchronized PMU phasors: angular
+  stability index, inter-area oscillation detection (AR Prony), frequency coherency clustering
+  (K-means), voltage stability L-index proxy, and alarm generation with severity classification
+- `OscillationMonitor` types for structured inter-area mode tracking
+
+#### Battery
+- `BatteryAgingModel` — cycle-counting and calendar aging model with capacity-fade and
+  resistance-growth estimation
+- Battery ECM enhancements: L-BFGS parameter identification (`ecm/lbfgs.rs`), R-int and RC
+  parameter structs with improved state-of-charge dependency
+
+#### Harmonics
+- `HarmonicPowerFlow` integration within harmonics module (`harmonics/harmonic_pf.rs`)
+- Enhanced passive/active filter design (`harmonics/filter.rs`, 206 lines)
+
+#### Test Cases
+- `DistributionTestCase` — IEEE 13/34/123-bus distribution test feeders
+- Synthetic test case generator enhancements (583 lines added to `testcases/synthetic.rs`)
+- Integrated Resource Planning test suite (`planning/integrated/tests.rs`, 795 lines)
+- Additional IEEE test system data (396 lines added to `testcases/ieee.rs`)
+- Geospatial integration tests (`tests/geospatial_test.rs`)
+
+#### Units
+- `EnergyUnit` — structured energy unit conversions (Wh, kWh, MWh, GWh, BTU, GJ)
+- `ThermalUnit` — thermal conductance and resistance unit conversions
+
+### Changed
+- `timeseries_sim` and `grid_ops` modules refactored from single oversized files into structured
+  submodules, improving navigability and reducing per-file line count
+- `zone_protection` refactored to a module with dedicated `coordination.rs` (966 lines)
+- `planning/integrated` refactored to a module with a comprehensive test suite
+- `carbon_budget` market module reorganised: new types in `carbon_budget.rs`, legacy API
+  preserved via `carbon_budget_legacy.rs` re-export for backward compatibility
+
 ## [0.1.1] - 2026-05-03
 
 ### Fixed
@@ -145,5 +297,6 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Synthetic topologies (Ring/Radial/Meshed/Geographic/SmallWorld/ScaleFree)
 - Benchmark suite with reference solutions
 
+[0.1.2]: https://github.com/cool-japan/oxigrid/releases/tag/v0.1.2
 [0.1.1]: https://github.com/cool-japan/oxigrid/releases/tag/v0.1.1
 [0.1.0]: https://github.com/cool-japan/oxigrid/releases/tag/v0.1.0

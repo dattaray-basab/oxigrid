@@ -741,4 +741,150 @@ mod tests {
             expected
         );
     }
+
+    #[test]
+    fn test_classify_events_swell() {
+        let fs = 10_000.0_f64;
+        let f0 = 50.0_f64;
+        let samples_per_cycle = (fs / f0) as usize; // 200
+                                                    // The detector uses half-cycle RMS. A unit-peak sine has RMS ≈ 0.707.
+                                                    // Thresholds: sag < 0.9, swell > 1.1 (both in RMS pu).
+                                                    // For normal cycles: peak = √2 → RMS = 1.0 pu (at nominal).
+                                                    // For swell cycles: peak = 1.3*√2 → RMS = 1.3 pu > 1.1 threshold.
+        let sqrt2 = std::f64::consts::SQRT_2;
+        let nominal_peak = sqrt2; // RMS = 1.0 pu
+        let swell_peak = 1.3 * sqrt2; // RMS = 1.3 pu → swell
+        let n_total = 45 * samples_per_cycle;
+        let swell_start = 20 * samples_per_cycle;
+        let swell_end = 25 * samples_per_cycle;
+        let wave: Vec<f64> = (0..n_total)
+            .map(|i| {
+                let amp = if i >= swell_start && i < swell_end {
+                    swell_peak
+                } else {
+                    nominal_peak
+                };
+                amp * (2.0 * PI * f0 * i as f64 / fs).sin()
+            })
+            .collect();
+
+        let clf = PqEventClassifier::new(fs, f0);
+        let events = clf.classify_events(&wave);
+        assert!(
+            events
+                .iter()
+                .any(|e| matches!(e.event_class, PqEventClass::VoltageSwell(_))),
+            "Expected at least one VoltageSwell event, got: {:?}",
+            events
+        );
+    }
+
+    #[test]
+    fn test_classify_events_interruption() {
+        let fs = 10_000.0_f64;
+        let f0 = 50.0_f64;
+        let samples_per_cycle = (fs / f0) as usize; // 200
+                                                    // 20 cycles normal + 15 cycles near-zero (0.05 pu) + 20 cycles normal
+        let n_total = 55 * samples_per_cycle;
+        let interr_start = 20 * samples_per_cycle;
+        let interr_end = 35 * samples_per_cycle;
+        let wave: Vec<f64> = (0..n_total)
+            .map(|i| {
+                let amp = if i >= interr_start && i < interr_end {
+                    0.05
+                } else {
+                    1.0
+                };
+                amp * (2.0 * PI * f0 * i as f64 / fs).sin()
+            })
+            .collect();
+
+        let clf = PqEventClassifier::new(fs, f0);
+        let events = clf.classify_events(&wave);
+        assert!(
+            events
+                .iter()
+                .any(|e| e.event_class == PqEventClass::Interruption),
+            "Expected at least one Interruption event, got: {:?}",
+            events
+        );
+    }
+
+    #[test]
+    fn test_event_duration_category() {
+        let clf = PqEventClassifier::new(10_000.0, 50.0);
+
+        // Part 1: InstantaneousSag with rms_impact=0.1 → Minor (≤ 0.5)
+        let ev_minor = PqEvent {
+            start_sample: 0,
+            end_sample: 10,
+            event_class: PqEventClass::VoltageSag(VoltageEventType::InstantaneousSag),
+            severity: PqSeverity::Minor,
+            rms_impact: 0.1,
+            frequency_impact: 0.0,
+        };
+        assert_eq!(
+            clf.classify_severity(&ev_minor),
+            PqSeverity::Minor,
+            "rms_impact=0.1 for InstantaneousSag should be Minor"
+        );
+
+        // Part 2: MomentarySag with rms_impact=0.6 → Critical (> 0.5)
+        let ev_critical = PqEvent {
+            start_sample: 0,
+            end_sample: 200,
+            event_class: PqEventClass::VoltageSag(VoltageEventType::MomentarySag),
+            severity: PqSeverity::Minor,
+            rms_impact: 0.6,
+            frequency_impact: 0.0,
+        };
+        assert_eq!(
+            clf.classify_severity(&ev_critical),
+            PqSeverity::Critical,
+            "rms_impact=0.6 for MomentarySag should be Critical"
+        );
+    }
+
+    #[test]
+    fn test_transient_severity_critical() {
+        let fs = 10_000.0_f64;
+        let f0 = 50.0_f64;
+        // 3 cycles of pure sine background
+        let n = (3.0 * fs / f0) as usize; // 600 samples
+        let mut wave: Vec<f64> = (0..n)
+            .map(|i| (2.0 * PI * f0 * i as f64 / fs).sin())
+            .collect();
+        // Inject a 2.5 pu spike at index 500 (within the 600-sample waveform)
+        wave[500] = 2.5;
+
+        let clf = PqEventClassifier::new(fs, f0);
+        let events = clf.classify_events(&wave);
+        let has_critical_transient = events.iter().any(|e| {
+            e.event_class == PqEventClass::Transient && e.severity == PqSeverity::Critical
+        });
+        assert!(
+            has_critical_transient,
+            "Expected a Critical Transient for 2.5 pu spike, got: {:?}",
+            events
+        );
+    }
+
+    #[test]
+    fn test_classify_severity_swell_moderate() {
+        let clf = PqEventClassifier::new(10_000.0, 50.0);
+        // rms_impact=0.25 → Moderate (> 0.2, ≤ 0.5)
+        let ev = PqEvent {
+            start_sample: 0,
+            end_sample: 100,
+            event_class: PqEventClass::VoltageSwell(VoltageEventType::InstantaneousSwell),
+            severity: PqSeverity::Minor,
+            rms_impact: 0.25,
+            frequency_impact: 0.0,
+        };
+        assert_eq!(
+            clf.classify_severity(&ev),
+            PqSeverity::Moderate,
+            "rms_impact=0.25 for VoltageSwell should be Moderate"
+        );
+    }
 }

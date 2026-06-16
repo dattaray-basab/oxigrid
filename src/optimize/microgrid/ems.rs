@@ -302,4 +302,88 @@ mod tests {
         // No unmet load (diesel covers any gap)
         assert_eq!(plan.total_load_shed_kwh, 0.0);
     }
+
+    #[test]
+    fn test_battery_max_charge_respects_soc_max() {
+        let mut batt = EmsBattery::lifepo4_100kwh();
+        batt.soc = 0.89; // nearly full — tiny room left below soc_max=0.90
+        let available = batt.max_charge_kw(1.0);
+        assert!(
+            available < batt.p_max_kw,
+            "max_charge_kw should be below p_max_kw when SoC is near soc_max, got {available}"
+        );
+    }
+
+    #[test]
+    fn test_battery_max_discharge_respects_soc_min() {
+        let mut batt = EmsBattery::lifepo4_100kwh();
+        batt.soc = 0.11; // nearly empty — tiny margin above soc_min=0.10
+        let available = batt.max_discharge_kw(1.0);
+        assert!(
+            available < batt.p_max_kw,
+            "max_discharge_kw should be below p_max_kw when SoC is near soc_min, got {available}"
+        );
+    }
+
+    #[test]
+    fn test_diesel_cost_zero_when_off() {
+        let gen = DieselGen::diesel_100kw();
+        let cost = gen.cost(0.0, 1.0);
+        assert!(
+            cost == 0.0,
+            "cost should be exactly 0.0 when diesel output is 0, got {cost}"
+        );
+    }
+
+    #[test]
+    fn test_diesel_cost_positive_when_on() {
+        let gen = DieselGen::diesel_100kw();
+        let cost = gen.cost(50.0, 1.0);
+        assert!(
+            cost > 0.0,
+            "cost should be positive when diesel output is 50 kW, got {cost}"
+        );
+    }
+
+    #[test]
+    fn test_battery_apply_charge_increases_soc() {
+        let mut batt = EmsBattery::lifepo4_100kwh();
+        batt.soc = 0.5;
+        let soc_before = batt.soc;
+        batt.apply(20.0, 1.0);
+        assert!(
+            batt.soc > soc_before,
+            "SoC should increase after charging, before={soc_before} after={}",
+            batt.soc
+        );
+    }
+
+    #[test]
+    fn test_battery_apply_discharge_decreases_soc() {
+        let mut batt = EmsBattery::lifepo4_100kwh();
+        batt.soc = 0.5;
+        let soc_before = batt.soc;
+        batt.apply(-20.0, 1.0);
+        assert!(
+            batt.soc < soc_before,
+            "SoC should decrease after discharging, before={soc_before} after={}",
+            batt.soc
+        );
+    }
+
+    #[test]
+    fn test_wind_generation_reduces_diesel() {
+        let mut ems_wind = make_ems();
+        let plan_wind = ems_wind.dispatch(&[50.0], &[0.0], &[60.0], 1.0);
+
+        let mut ems_no_wind = make_ems();
+        let plan_no_wind = ems_no_wind.dispatch(&[50.0], &[0.0], &[0.0], 1.0);
+
+        assert!(
+            plan_wind.intervals[0].diesel_kw < plan_no_wind.intervals[0].diesel_kw,
+            "diesel_kw with wind ({}) should be less than without wind ({})",
+            plan_wind.intervals[0].diesel_kw,
+            plan_no_wind.intervals[0].diesel_kw
+        );
+    }
 }

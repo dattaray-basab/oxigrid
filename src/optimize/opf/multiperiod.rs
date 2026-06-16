@@ -747,4 +747,167 @@ mod tests {
         };
         assert!(su.validate().is_err(), "zero e_max_mwh should be invalid");
     }
+
+    #[test]
+    fn test_storage_unit_validate_negative_p_max() {
+        let su = StorageUnit {
+            bus: 0,
+            e_max_mwh: 100.0,
+            p_max_mw: -10.0, // invalid: must be positive
+            eta_charge: 0.95,
+            eta_discharge: 0.93,
+            soc_init: 0.5,
+            soc_final: f64::NAN,
+            cost_cycle: 0.5,
+        };
+        assert!(su.validate().is_err(), "negative p_max_mw must be rejected");
+    }
+
+    #[test]
+    fn test_storage_unit_validate_bad_efficiency() {
+        let su = StorageUnit {
+            bus: 0,
+            e_max_mwh: 100.0,
+            p_max_mw: 50.0,
+            eta_charge: 1.5, // invalid: > 1.0
+            eta_discharge: 0.93,
+            soc_init: 0.5,
+            soc_final: f64::NAN,
+            cost_cycle: 0.5,
+        };
+        assert!(su.validate().is_err(), "eta_charge > 1.0 must be rejected");
+    }
+
+    #[test]
+    fn test_storage_unit_validate_bad_soc_init() {
+        let su = StorageUnit {
+            bus: 0,
+            e_max_mwh: 100.0,
+            p_max_mw: 50.0,
+            eta_charge: 0.95,
+            eta_discharge: 0.93,
+            soc_init: -0.1, // invalid: < 0
+            soc_final: f64::NAN,
+            cost_cycle: 0.5,
+        };
+        assert!(su.validate().is_err(), "soc_init < 0 must be rejected");
+    }
+
+    #[test]
+    fn test_config_validate_zero_periods() {
+        let net = make_test_network();
+        let n_gen = net.generators.len();
+        let n_bus = net.buses.len();
+        let config = MultiPeriodOpfConfig {
+            n_periods: 0, // invalid
+            dt_hours: 1.0,
+            ramp_up: vec![100.0; n_gen],
+            ramp_down: vec![100.0; n_gen],
+            storage_units: Vec::new(),
+            cost_coefficients: vec![20.0; n_gen],
+            cost_quadratic: vec![0.1; n_gen],
+            generation_limits: vec![(0.0, 200.0); n_gen],
+            load_profiles: Vec::new(),
+            renewable_profiles: Vec::new(),
+        };
+        assert!(
+            config.validate(n_gen, n_bus).is_err(),
+            "n_periods == 0 must be rejected"
+        );
+    }
+
+    #[test]
+    fn test_config_validate_bad_dt() {
+        let net = make_test_network();
+        let n_gen = net.generators.len();
+        let n_bus = net.buses.len();
+        let load_profiles = vec![vec![20.0 / n_bus as f64; n_bus]; 1];
+        let config = MultiPeriodOpfConfig {
+            n_periods: 1,
+            dt_hours: 0.0, // invalid: must be positive
+            ramp_up: vec![100.0; n_gen],
+            ramp_down: vec![100.0; n_gen],
+            storage_units: Vec::new(),
+            cost_coefficients: vec![20.0; n_gen],
+            cost_quadratic: vec![0.1; n_gen],
+            generation_limits: vec![(0.0, 200.0); n_gen],
+            load_profiles,
+            renewable_profiles: Vec::new(),
+        };
+        assert!(
+            config.validate(n_gen, n_bus).is_err(),
+            "dt_hours == 0.0 must be rejected"
+        );
+    }
+
+    #[test]
+    fn test_mp_opf_renewable_profiles_reduce_dispatch() {
+        let net = make_test_network();
+        let n_gen = net.generators.len();
+        let n_bus = net.buses.len();
+        // period 0: large renewable (75 MW split across generators), period 1: no renewable
+        let renewable_profiles = vec![vec![75.0 / n_gen as f64; n_gen], vec![f64::INFINITY; n_gen]];
+        let load_profiles = vec![
+            vec![50.0 / n_bus as f64; n_bus],
+            vec![50.0 / n_bus as f64; n_bus],
+        ];
+        let config = MultiPeriodOpfConfig {
+            n_periods: 2,
+            dt_hours: 1.0,
+            ramp_up: vec![100.0; n_gen],
+            ramp_down: vec![100.0; n_gen],
+            storage_units: Vec::new(),
+            cost_coefficients: vec![20.0; n_gen],
+            cost_quadratic: vec![0.1; n_gen],
+            generation_limits: vec![(0.0, 200.0); n_gen],
+            load_profiles,
+            renewable_profiles,
+        };
+        let solver = MultiPeriodOpf::new(config);
+        let result = solver.solve(&net);
+        assert!(
+            result.is_ok(),
+            "MP-OPF with renewable profiles should succeed: {:?}",
+            result
+        );
+        let res = result.expect("solve succeeded");
+        assert_eq!(res.dispatch.len(), 2, "should have 2 periods");
+    }
+
+    /// Tiny ramp limit ensures `p_max_ramp << p_max_base` from period 1 onward,
+    /// so the binding-ramp detection code path always fires.  Load is kept
+    /// well below the ramp envelope at each period so the solve succeeds.
+    #[test]
+    fn test_mp_opf_binding_ramps_detected() {
+        let net = make_test_network();
+        let n_gen = net.generators.len();
+        let n_bus = net.buses.len();
+        // Ramp = 1 MW/h.  Generators start at pmin = 0 → prev_dispatch = [0, 0].
+        // Period 0: p_max_ramp = min(200, 0+1) = 1 per gen = 2 MW total.
+        //           Load = 0.5/bus = 1 MW total (within ramp budget).
+        // Period 1+: p_max_ramp = min(200, ~0.5+1) ≈ 1.5 per gen.
+        //           Since p_max_ramp << p_max_base (200), binding flag fires.
+        let ramp_mwh = 1.0_f64;
+        let load_per_bus = 0.5_f64 / n_bus as f64;
+        let load_profiles = vec![vec![load_per_bus; n_bus]; 3];
+        let config = MultiPeriodOpfConfig {
+            n_periods: 3,
+            dt_hours: 1.0,
+            ramp_up: vec![ramp_mwh; n_gen],
+            ramp_down: vec![ramp_mwh; n_gen],
+            storage_units: Vec::new(),
+            cost_coefficients: vec![20.0; n_gen],
+            cost_quadratic: vec![0.1; n_gen],
+            generation_limits: vec![(0.0, 200.0); n_gen],
+            load_profiles,
+            renewable_profiles: Vec::new(),
+        };
+        let solver = MultiPeriodOpf::new(config);
+        let result = solver.solve(&net).expect("solve should succeed");
+        assert!(
+            !result.binding_ramps.is_empty(),
+            "tiny ramp limit must produce binding ramp constraints; got {:?}",
+            result.binding_ramps
+        );
+    }
 }

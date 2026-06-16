@@ -199,7 +199,9 @@ fn undifference(diff_forecasts: &[f64], last_orig: &[f64], d: usize) -> Vec<f64>
     }
     // Cumulative sum starting from last observed value
     let mut result = Vec::with_capacity(diff_forecasts.len());
-    let mut prev = *last_orig.last().unwrap();
+    let mut prev = *last_orig
+        .last()
+        .expect("invariant: last_orig non-empty checked by caller");
     for &dy in diff_forecasts {
         prev += dy;
         result.push(prev);

@@ -699,15 +699,157 @@ mod tests {
     #[test]
     fn test_safety_margin_derating() {
         let forecaster = acsr_forecaster();
-        let mut config = DlrConfig::default();
-        let full = forecaster.compute_rating(&config).unwrap();
-        config.safety_margin = 0.9;
-        let derated = forecaster.compute_rating(&config).unwrap();
+        let config_full = DlrConfig::default();
+        let full = forecaster.compute_rating(&config_full).unwrap();
+        let config_derated = DlrConfig {
+            safety_margin: 0.9,
+            ..DlrConfig::default()
+        };
+        let derated = forecaster.compute_rating(&config_derated).unwrap();
         assert!(
             derated.dynamic_rating_a < full.dynamic_rating_a,
             "Derated ({:.1} A) must be lower than full ({:.1} A)",
             derated.dynamic_rating_a,
             full.dynamic_rating_a
         );
+    }
+
+    /// validate_config rejects non-positive conductor diameter.
+    #[test]
+    fn test_validate_config_bad_diameter() {
+        let forecaster = acsr_forecaster();
+        let config = DlrConfig {
+            conductor: ConductorSpec {
+                diameter_m: 0.0,
+                ..ConductorSpec::acsr_drake()
+            },
+            ..DlrConfig::default()
+        };
+        let err = forecaster
+            .compute_rating(&config)
+            .expect_err("zero diameter should be rejected");
+        assert!(
+            matches!(err, DlrError::InvalidParameter(_)),
+            "Expected InvalidParameter, got: {err}"
+        );
+    }
+
+    /// validate_config rejects non-positive conductor resistance.
+    #[test]
+    fn test_validate_config_bad_resistance() {
+        let forecaster = acsr_forecaster();
+        let config = DlrConfig {
+            conductor: ConductorSpec {
+                resistance_ohm_per_km: -1.0,
+                ..ConductorSpec::acsr_drake()
+            },
+            ..DlrConfig::default()
+        };
+        let err = forecaster
+            .compute_rating(&config)
+            .expect_err("negative resistance should be rejected");
+        assert!(
+            matches!(err, DlrError::InvalidParameter(_)),
+            "Expected InvalidParameter, got: {err}"
+        );
+    }
+
+    /// validate_config rejects emissivity outside (0, 1].
+    #[test]
+    fn test_validate_config_bad_emissivity() {
+        let forecaster = acsr_forecaster();
+        let config = DlrConfig {
+            conductor: ConductorSpec {
+                emissivity: 1.5,
+                ..ConductorSpec::acsr_drake()
+            },
+            ..DlrConfig::default()
+        };
+        let err = forecaster
+            .compute_rating(&config)
+            .expect_err("emissivity > 1 should be rejected");
+        assert!(
+            matches!(err, DlrError::InvalidParameter(_)),
+            "Expected InvalidParameter, got: {err}"
+        );
+    }
+
+    /// validate_config rejects invalid safety_margin > 1.0.
+    #[test]
+    fn test_validate_config_bad_safety_margin() {
+        let forecaster = acsr_forecaster();
+        let config = DlrConfig {
+            safety_margin: 1.5,
+            ..DlrConfig::default()
+        };
+        let err = forecaster
+            .compute_rating(&config)
+            .expect_err("safety_margin > 1 should be rejected");
+        assert!(
+            matches!(err, DlrError::InvalidParameter(_)),
+            "Expected InvalidParameter, got: {err}"
+        );
+    }
+
+    /// compute_rating returns error when ambient temp >= max operating temp.
+    #[test]
+    fn test_ambient_above_max_temp_error() {
+        let forecaster = acsr_forecaster();
+        // Set ambient to exceed max operating temperature (max_operating_temp_c = 75 by default)
+        let config = DlrConfig {
+            weather: WeatherConditions {
+                ambient_temp_c: 80.0,
+                ..WeatherConditions::default()
+            },
+            ..DlrConfig::default()
+        };
+        let err = forecaster
+            .compute_rating(&config)
+            .expect_err("ambient >= max_operating_temp should fail");
+        assert!(
+            matches!(err, DlrError::InvalidParameter(_)),
+            "Expected InvalidParameter, got: {err}"
+        );
+    }
+
+    /// bottleneck_rating returns NoSegments error for empty slice.
+    #[test]
+    fn test_bottleneck_empty_segments() {
+        let forecaster = acsr_forecaster();
+        let err = forecaster
+            .bottleneck_rating(&[])
+            .expect_err("empty segment list should return NoSegments");
+        assert!(
+            matches!(err, DlrError::NoSegments),
+            "Expected NoSegments, got: {err}"
+        );
+    }
+
+    /// resistance_at_temp increases with temperature for positive temp coefficient.
+    #[test]
+    fn test_resistance_at_temp_increases_with_heat() {
+        let cond = ConductorSpec::acsr_drake();
+        let r_cold = cond.resistance_at_temp(20.0);
+        let r_hot = cond.resistance_at_temp(75.0);
+        assert!(
+            r_hot > r_cold,
+            "Resistance at 75°C ({r_hot:.6} Ω/m) must exceed resistance at 20°C ({r_cold:.6} Ω/m)"
+        );
+        // At reference temp the formula collapses: R(T_ref) = R_ref
+        let r_ref = cond.resistance_at_temp(cond.reference_temp_c);
+        let expected_ref = cond.resistance_ohm_per_km / 1000.0;
+        assert!(
+            (r_ref - expected_ref).abs() < 1e-12,
+            "resistance_at_temp(T_ref) should equal R_ref, got {r_ref}"
+        );
+    }
+
+    /// DlrForecaster::new clamps n_segments=0 to 1.
+    #[test]
+    fn test_forecaster_new_clamps_segments() {
+        let f = DlrForecaster::new(50.0, 110.0, 0);
+        assert_eq!(f.n_segments, 1, "n_segments=0 must be clamped to 1");
+        assert!((f.line_length_km - 50.0).abs() < 1e-10);
+        assert!((f.nominal_voltage_kv - 110.0).abs() < 1e-10);
     }
 }

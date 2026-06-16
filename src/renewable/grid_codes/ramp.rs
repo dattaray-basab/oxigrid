@@ -201,4 +201,155 @@ mod tests {
             ramp
         );
     }
+
+    // ---- 7 additional unit tests ----
+
+    /// Gap 1: empty trajectory returns empty Vec from both methods.
+    #[test]
+    fn test_empty_trajectory_returns_empty_vecs() {
+        let req = RampRateRequirement::standard();
+        let empty: Vec<f64> = Vec::new();
+        let checked = req.check_trajectory(&empty, 60.0);
+        assert!(
+            checked.is_empty(),
+            "check_trajectory on empty slice must return empty Vec"
+        );
+        let enforced = req.enforce_ramp_limits(&empty, 60.0);
+        assert!(
+            enforced.is_empty(),
+            "enforce_ramp_limits on empty slice must return empty Vec"
+        );
+    }
+
+    /// Gap 2: single-element trajectory is always [true] / [p[0]].
+    #[test]
+    fn test_single_element_trajectory() {
+        let req = RampRateRequirement::standard();
+        let single = vec![0.42_f64];
+
+        let checked = req.check_trajectory(&single, 60.0);
+        assert_eq!(checked.len(), 1, "check result length must be 1");
+        assert!(checked[0], "single-element check must always be true");
+
+        let enforced = req.enforce_ramp_limits(&single, 60.0);
+        assert_eq!(enforced.len(), 1, "enforce result length must be 1");
+        assert!(
+            (enforced[0] - 0.42).abs() < 1e-12,
+            "single element must be returned unchanged: got {:.9}",
+            enforced[0]
+        );
+    }
+
+    /// Gap 3: strict() preset fields are correctly initialised.
+    #[test]
+    fn test_strict_preset_fields() {
+        let req = RampRateRequirement::strict();
+        assert!(
+            (req.max_ramp_up_pct_per_min - 3.0).abs() < 1e-12,
+            "strict() up rate must be 3.0 %/min, got {}",
+            req.max_ramp_up_pct_per_min
+        );
+        assert!(
+            (req.max_ramp_down_pct_per_min - 3.0).abs() < 1e-12,
+            "strict() down rate must be 3.0 %/min, got {}",
+            req.max_ramp_down_pct_per_min
+        );
+        assert!(
+            (req.emergency_ramp_pct_per_min - 10.0).abs() < 1e-12,
+            "strict() emergency rate must be 10.0 %/min, got {}",
+            req.emergency_ramp_pct_per_min
+        );
+        assert!(
+            req.gradient_protection,
+            "strict() must have gradient_protection = true"
+        );
+    }
+
+    /// Gap 4: ramp-down violation detected by check_trajectory (strict, 3 %/min).
+    ///
+    /// strict() allows at most 0.03 pu per 60 s step downward.
+    /// A drop of 0.10 pu in 60 s must be flagged.
+    #[test]
+    fn test_ramp_down_violation_detected_strict() {
+        let req = RampRateRequirement::strict();
+        let traj = vec![0.50_f64, 0.40]; // −0.10 pu in 60 s
+        let ok = req.check_trajectory(&traj, 60.0);
+        assert_eq!(ok.len(), 2, "result length must match trajectory length");
+        assert!(ok[0], "first element is always true");
+        assert!(
+            !ok[1],
+            "−0.10 pu drop in 60 s must violate the 3 %/min down limit"
+        );
+    }
+
+    /// Gap 5: enforce_ramp_limits output is monotone when enforcing a step-up sequence.
+    ///
+    /// Each enforced value must be >= the previous one (non-decreasing) and
+    /// the step between consecutive values must not exceed 0.10 pu (10 %/min, dt=60 s).
+    #[test]
+    fn test_enforce_ramp_up_monotone() {
+        let req = RampRateRequirement::standard(); // 10 %/min, max step = 0.10 pu @ dt=60 s
+        let desired = vec![0.0_f64, 0.5, 1.0, 1.5, 2.0];
+        let enforced = req.enforce_ramp_limits(&desired, 60.0);
+        assert_eq!(enforced.len(), desired.len(), "length must be preserved");
+        for i in 1..enforced.len() {
+            let step = enforced[i] - enforced[i - 1];
+            assert!(
+                step >= -1e-12,
+                "enforced trajectory must be non-decreasing at index {}: step={:.9}",
+                i,
+                step
+            );
+            assert!(
+                step <= 0.10 + 1e-9,
+                "enforced step must not exceed 0.10 pu at index {}: step={:.9}",
+                i,
+                step
+            );
+        }
+    }
+
+    /// Gap 6: asymmetric limits — downward step within the up-limit but beyond the down-limit
+    /// is correctly flagged as a violation.
+    ///
+    /// Custom: 5 %/min up / 2 %/min down. Allowed down-step at dt=60 s: 0.02 pu.
+    /// A decrease of 0.04 pu passes the up-limit (5 % = 0.05 pu) but fails the down-limit.
+    #[test]
+    fn test_asymmetric_limits_downward_violation() {
+        let req = RampRateRequirement {
+            max_ramp_up_pct_per_min: 5.0,
+            max_ramp_down_pct_per_min: 2.0,
+            emergency_ramp_pct_per_min: 15.0,
+            gradient_protection: true,
+        };
+        let traj = vec![0.50_f64, 0.46]; // −0.04 pu in 60 s
+        let ok = req.check_trajectory(&traj, 60.0);
+        assert_eq!(ok.len(), 2, "result length must match trajectory length");
+        assert!(ok[0], "first element is always true");
+        assert!(
+            !ok[1],
+            "−0.04 pu step in 60 s must violate the 2 %/min down limit (limit is 0.02 pu)"
+        );
+    }
+
+    /// Gap 7: an enforced trajectory re-verified with check_trajectory passes all steps.
+    #[test]
+    fn test_enforced_trajectory_passes_check() {
+        let req = RampRateRequirement::standard(); // 10 %/min, dt = 60 s
+        let desired = vec![0.0_f64, 1.0, 0.0, 1.0, 0.5];
+        let enforced = req.enforce_ramp_limits(&desired, 60.0);
+        let ok = req.check_trajectory(&enforced, 60.0);
+        assert_eq!(
+            ok.len(),
+            enforced.len(),
+            "check result length must match enforced length"
+        );
+        for (i, &pass) in ok.iter().enumerate() {
+            assert!(
+                pass,
+                "enforced trajectory must pass check at index {}: value={:.9}",
+                i, enforced[i]
+            );
+        }
+    }
 }

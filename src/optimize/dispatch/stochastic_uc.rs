@@ -888,4 +888,136 @@ mod tests {
             "Scenarios should differ"
         );
     }
+
+    #[test]
+    fn test_config_validate_no_units() {
+        let config = SucConfig {
+            n_hours: 4,
+            n_scenarios: 2,
+            scenario_weights: vec![0.5, 0.5],
+            n_thermal: 0,
+            n_wind: 1,
+            voll: 1000.0,
+            reserve_requirement_pct: 10.0,
+        };
+        assert_eq!(config.validate(), Err(SucError::NoUnits));
+    }
+
+    #[test]
+    fn test_config_validate_bad_weights_sum() {
+        let config = SucConfig {
+            n_hours: 4,
+            n_scenarios: 2,
+            scenario_weights: vec![0.6, 0.6],
+            n_thermal: 1,
+            n_wind: 0,
+            voll: 1000.0,
+            reserve_requirement_pct: 10.0,
+        };
+        match config.validate() {
+            Err(SucError::InvalidScenarioWeights { sum }) => {
+                assert!((sum - 1.2).abs() < 1e-9, "expected sum ≈ 1.2, got {}", sum);
+            }
+            other => panic!("expected InvalidScenarioWeights, got {:?}", other),
+        }
+    }
+
+    #[test]
+    fn test_config_validate_scenario_mismatch() {
+        let config = SucConfig {
+            n_hours: 4,
+            n_scenarios: 3,
+            scenario_weights: vec![0.5, 0.5],
+            n_thermal: 1,
+            n_wind: 0,
+            voll: 1000.0,
+            reserve_requirement_pct: 10.0,
+        };
+        match config.validate() {
+            Err(SucError::ScenarioMismatch { expected, got }) => {
+                assert_eq!(expected, 3, "expected mismatch expected=3");
+                assert_eq!(got, 2, "expected mismatch got=2");
+            }
+            other => panic!("expected ScenarioMismatch, got {:?}", other),
+        }
+    }
+
+    #[test]
+    fn test_evpi_non_negative() {
+        let config = simple_config(3);
+        let units = two_units();
+        let scenarios = make_scenarios(3, 70.0, 15.0);
+        let suc = StochasticUnitCommitment::new(config, units);
+        let result = suc.solve(&scenarios).expect("SUC solve should succeed");
+        assert!(
+            result.evpi >= 0.0,
+            "EVPI must be non-negative, got {:.6}",
+            result.evpi
+        );
+    }
+
+    #[test]
+    fn test_full_load_avg_cost() {
+        let unit = ThermalUnit {
+            id: 0,
+            p_min_mw: 0.0,
+            p_max_mw: 200.0,
+            cost_fixed_per_h: 100.0,
+            cost_startup: 0.0,
+            cost_variable_per_mwh: 40.0,
+            min_up_hours: 1,
+            min_down_hours: 1,
+            ramp_up_mw_per_h: 200.0,
+            ramp_down_mw_per_h: 200.0,
+            initial_status: false,
+            initial_hours_in_state: 0,
+        };
+        let flac = unit.full_load_avg_cost();
+        let expected = 40.0 + 100.0 / 200.0;
+        assert!(
+            (flac - expected).abs() < 1e-9,
+            "full_load_avg_cost should be {:.4}, got {:.4}",
+            expected,
+            flac
+        );
+    }
+
+    #[test]
+    fn test_solve_scenario_count_mismatch() {
+        let config = simple_config(3);
+        let units = two_units();
+        // Only supply 1 scenario but config expects 3
+        let scenarios = make_scenarios(1, 70.0, 15.0);
+        let suc = StochasticUnitCommitment::new(config, units);
+        match suc.solve(&scenarios) {
+            Err(SucError::ScenarioMismatch { expected, got }) => {
+                assert_eq!(expected, 3, "mismatch expected should be 3");
+                assert_eq!(got, 1, "mismatch got should be 1");
+            }
+            other => panic!("expected ScenarioMismatch, got {:?}", other),
+        }
+    }
+
+    #[test]
+    fn test_dispatch_non_negative_for_all_scenarios() {
+        let config = simple_config(3);
+        let units = two_units();
+        let scenarios = make_scenarios(3, 70.0, 15.0);
+        let suc = StochasticUnitCommitment::new(config, units);
+        let result = suc.solve(&scenarios).expect("SUC solve should succeed");
+        for (s, scenario_dispatch) in result.dispatch.iter().enumerate() {
+            for (h, hour_dispatch) in scenario_dispatch.iter().enumerate() {
+                for (g, &p) in hour_dispatch.iter().enumerate() {
+                    assert!(
+                        p >= 0.0,
+                        "dispatch[{}][{}][{}] = {:.4} is negative",
+                        s,
+                        h,
+                        g,
+                        p
+                    );
+                }
+            }
+        }
+    }
 }

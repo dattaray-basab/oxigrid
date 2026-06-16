@@ -221,4 +221,59 @@ mod tests {
         let refined = IterativeRefinement::new(SprsLu, 2, 1e-10);
         assert_eq!(refined.name(), "sprs-lu-refined");
     }
+
+    #[test]
+    fn test_solve_2x2_non_trivial_system() {
+        let backend = NalgebraDenseLu;
+        let a = DMatrix::from_row_slice(2, 2, &[2.0, 1.0, 1.0, 3.0]);
+        let b = vec![5.0, 10.0];
+        let x = backend.solve_dense(&a, &b).expect("solve failed");
+        assert!((x[0] - 1.0).abs() < 1e-10);
+        assert!((x[1] - 3.0).abs() < 1e-10);
+    }
+
+    #[test]
+    fn test_residual_norm_after_solve() {
+        let backend = NalgebraDenseLu;
+        let a = DMatrix::from_row_slice(3, 3, &[4.0, 1.0, 0.0, 1.0, 3.0, 1.0, 0.0, 1.0, 2.0]);
+        let b = vec![1.0, 2.0, 3.0];
+        let x = backend.solve_dense(&a, &b).expect("solve failed");
+        let r0 = 4.0 * x[0] + 1.0 * x[1] + 0.0 * x[2] - b[0];
+        let r1 = 1.0 * x[0] + 3.0 * x[1] + 1.0 * x[2] - b[1];
+        let r2 = 0.0 * x[0] + 1.0 * x[1] + 2.0 * x[2] - b[2];
+        assert!(r0.abs() < 1e-9);
+        assert!(r1.abs() < 1e-9);
+        assert!(r2.abs() < 1e-9);
+    }
+
+    #[test]
+    fn test_dot_product_empty_slices() {
+        let backend = NalgebraDenseLu;
+        let result = backend.dot(&[], &[]);
+        assert_eq!(result, 0.0);
+    }
+
+    #[test]
+    fn test_axpy_with_alpha_zero_is_noop() {
+        let backend = NalgebraDenseLu;
+        let x = vec![1.0, 2.0, 3.0];
+        let mut y = vec![4.0, 5.0, 6.0];
+        backend.axpy(0.0, &x, &mut y);
+        assert!((y[0] - 4.0).abs() < 1e-12);
+        assert!((y[1] - 5.0).abs() < 1e-12);
+        assert!((y[2] - 6.0).abs() < 1e-12);
+    }
+
+    #[test]
+    fn test_matvec_csr_diagonal_matrix() {
+        let backend = NalgebraDenseLu;
+        let triplets = vec![(0, 0, 2.0), (1, 1, 3.0), (2, 2, 5.0)];
+        let m = CrsMatrix::from_triplets(3, 3, &triplets);
+        let x = vec![1.0, 2.0, 3.0];
+        let mut y = vec![0.0; 3];
+        backend.matvec_csr(&m, &x, &mut y);
+        assert!((y[0] - 2.0).abs() < 1e-12);
+        assert!((y[1] - 6.0).abs() < 1e-12);
+        assert!((y[2] - 15.0).abs() < 1e-12);
+    }
 }

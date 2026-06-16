@@ -178,6 +178,16 @@ pub fn iv_curve(params: &SingleDiodeParams, g: f64, temp_k: f64, n_points: usize
     let dt = temp_k - 298.15;
     let v_oc = (v_oc_stc + params.beta_voc * dt).max(0.1);
 
+    // With only one point there is no interval to divide, so return V=0 (I_sc).
+    if n_points == 1 {
+        let i = diode_current(params, 0.0, g, temp_k);
+        return vec![IVPoint {
+            voltage: 0.0,
+            current: i,
+            power: 0.0,
+        }];
+    }
+
     (0..n_points)
         .map(|k| {
             let v = v_oc * k as f64 / (n_points - 1) as f64;
@@ -249,5 +259,176 @@ mod tests {
         for i in 1..curve.len() {
             assert!(curve[i].voltage >= curve[i - 1].voltage);
         }
+    }
+
+    // ---- new tests ----
+
+    /// Thermal voltage v_t must be proportional to temperature and n_cells.
+    /// At STC (298.15 K), V_T = n * k_B * T / q * N_cells.
+    #[test]
+    fn test_thermal_voltage_stc() {
+        let params = SingleDiodeParams::crystalline_si_250w();
+        let vt = params.v_t(298.15);
+        // Expected: 1.1 * 1.380649e-23 * 298.15 / 1.602176634e-19 * 60 ≈ 1.6665 V
+        let expected = 1.1 * 1.380649e-23 * 298.15 / 1.602176634e-19 * 60.0;
+        assert!(
+            (vt - expected).abs() < 1e-6,
+            "v_t={:.6} expected={:.6}",
+            vt,
+            expected
+        );
+    }
+
+    /// v_t scales linearly with absolute temperature.
+    #[test]
+    fn test_thermal_voltage_temperature_scaling() {
+        let params = SingleDiodeParams::crystalline_si_250w();
+        let t1 = 298.15;
+        let t2 = 348.15; // +50 K
+        let vt1 = params.v_t(t1);
+        let vt2 = params.v_t(t2);
+        let ratio = vt2 / vt1;
+        let expected_ratio = t2 / t1;
+        assert!(
+            (ratio - expected_ratio).abs() < 1e-9,
+            "ratio={:.9} expected={:.9}",
+            ratio,
+            expected_ratio
+        );
+    }
+
+    /// Thin-film CdTe module MPP at STC: ~70–100 W for an 85 Wp rated module.
+    #[test]
+    fn test_thin_film_mpp_at_stc() {
+        let params = SingleDiodeParams::thin_film_cdte_85w();
+        let mpp = find_mpp(&params, 1000.0, 298.15);
+        assert!(
+            mpp.power > 60.0 && mpp.power < 130.0,
+            "CdTe Pmpp={:.2} W",
+            mpp.power
+        );
+        assert!(mpp.voltage > 0.0, "Vmpp must be positive");
+        assert!(mpp.current > 0.0, "Impp must be positive");
+    }
+
+    /// diode_current at V=0 approximates I_sc (≈ I_ph at STC, g=1000).
+    #[test]
+    fn test_diode_current_at_zero_voltage() {
+        let params = SingleDiodeParams::crystalline_si_250w();
+        let i_sc = diode_current(&params, 0.0, 1000.0, 298.15);
+        // Short-circuit current should be close to i_ph_stc (8.76 A) within 5 %
+        let expected = params.i_ph_stc;
+        let rel_err = (i_sc - expected).abs() / expected;
+        assert!(
+            rel_err < 0.05,
+            "I_sc={:.4} A expected≈{:.4} A (rel_err={:.4})",
+            i_sc,
+            expected,
+            rel_err
+        );
+    }
+
+    /// diode_current returns 0 for non-positive (negative) irradiance,
+    /// treating it the same as zero irradiance.
+    #[test]
+    fn test_diode_current_negative_irradiance_is_zero() {
+        let params = SingleDiodeParams::crystalline_si_250w();
+        let i = diode_current(&params, 10.0, -50.0, 298.15);
+        assert_eq!(i, 0.0, "negative irradiance must yield zero current");
+    }
+
+    /// iv_curve with n_points=0 returns an empty vector (no panic).
+    #[test]
+    fn test_iv_curve_empty_for_zero_points() {
+        let params = SingleDiodeParams::crystalline_si_250w();
+        let curve = iv_curve(&params, 800.0, 298.15, 0);
+        assert!(curve.is_empty(), "expected empty curve for n_points=0");
+    }
+
+    /// iv_curve with n_points=1 returns exactly one point (V=0 singularity guard).
+    #[test]
+    fn test_iv_curve_single_point() {
+        let params = SingleDiodeParams::crystalline_si_250w();
+        let curve = iv_curve(&params, 1000.0, 298.15, 1);
+        assert_eq!(curve.len(), 1, "expected exactly 1 point");
+        // The lone point is at V=0 (k=0, numerator=0)
+        assert!(
+            curve[0].voltage.abs() < 1e-9,
+            "single-point voltage should be 0, got {}",
+            curve[0].voltage
+        );
+    }
+
+    /// iv_curve: current is non-increasing along the curve (physical property).
+    #[test]
+    fn test_iv_curve_current_non_increasing() {
+        let params = SingleDiodeParams::crystalline_si_250w();
+        let curve = iv_curve(&params, 1000.0, 298.15, 50);
+        for i in 1..curve.len() {
+            assert!(
+                curve[i].current <= curve[i - 1].current + 1e-9,
+                "current increased at index {}: {:.6} > {:.6}",
+                i,
+                curve[i].current,
+                curve[i - 1].current
+            );
+        }
+    }
+
+    /// The IVPoint::power field must equal voltage * current for every sampled point.
+    #[test]
+    fn test_iv_curve_power_field_consistency() {
+        let params = SingleDiodeParams::crystalline_si_250w();
+        let curve = iv_curve(&params, 900.0, 308.15, 30);
+        for (idx, pt) in curve.iter().enumerate() {
+            let computed = pt.voltage * pt.current;
+            assert!(
+                (pt.power - computed).abs() < 1e-12,
+                "power mismatch at index {}: stored={:.6} computed={:.6}",
+                idx,
+                pt.power,
+                computed
+            );
+        }
+    }
+
+    /// find_mpp must return a power not less than the peak power seen in the
+    /// sampled I-V curve (coarse scan should not exceed the golden-section result).
+    #[test]
+    fn test_find_mpp_exceeds_sampled_curve_peak() {
+        let params = SingleDiodeParams::crystalline_si_250w();
+        let g = 700.0;
+        let temp_k = 308.15;
+        let mpp = find_mpp(&params, g, temp_k);
+        let curve = iv_curve(&params, g, temp_k, 100);
+        let sampled_peak = curve.iter().map(|pt| pt.power).fold(0.0_f64, f64::max);
+        // MPP from golden-section must be at least as good as the coarse scan
+        assert!(
+            mpp.power >= sampled_peak - 0.5,
+            "MPP={:.3} W < sampled peak={:.3} W",
+            mpp.power,
+            sampled_peak
+        );
+    }
+
+    /// find_mpp with negative irradiance must yield zero power (same as zero irradiance).
+    #[test]
+    fn test_find_mpp_negative_irradiance_zero_power() {
+        let params = SingleDiodeParams::crystalline_si_250w();
+        let mpp = find_mpp(&params, -100.0, 298.15);
+        assert_eq!(
+            mpp.power, 0.0,
+            "negative irradiance must yield zero MPP power"
+        );
+        assert_eq!(mpp.voltage, 0.0);
+        assert_eq!(mpp.current, 0.0);
+    }
+
+    /// iv_curve returns empty for zero irradiance (guard path).
+    #[test]
+    fn test_iv_curve_empty_for_zero_irradiance() {
+        let params = SingleDiodeParams::thin_film_cdte_85w();
+        let curve = iv_curve(&params, 0.0, 298.15, 20);
+        assert!(curve.is_empty(), "expected empty curve for zero irradiance");
     }
 }

@@ -945,3 +945,166 @@ pub struct AssetDigitalTwin {
     /// 0–1: how well the digital twin matches the physical asset.
     pub digital_twin_accuracy: f64,
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn asset_class_characteristic_life_bounds() {
+        let xfmr = AssetClass::PowerTransformer {
+            mva_rating: 100.0,
+            voltage_kv: 110.0,
+            vector_group: "Dyn11".to_string(),
+        };
+        let batt = AssetClass::BatteryBank {
+            capacity_kwh: 500.0,
+            chemistry: "VRLA".to_string(),
+            cells_in_series: 24,
+        };
+        assert!((xfmr.characteristic_life_years() - 40.0).abs() < f64::EPSILON);
+        assert!((batt.characteristic_life_years() - 15.0).abs() < f64::EPSILON);
+    }
+
+    #[test]
+    fn asset_class_replacement_cost_ordering() {
+        let xfmr = AssetClass::PowerTransformer {
+            mva_rating: 100.0,
+            voltage_kv: 110.0,
+            vector_group: "Dyn11".to_string(),
+        };
+        let batt = AssetClass::BatteryBank {
+            capacity_kwh: 500.0,
+            chemistry: "VRLA".to_string(),
+            cells_in_series: 24,
+        };
+        let cb = AssetClass::CircuitBreaker {
+            rated_kv: 145.0,
+            rated_ka: 2.0,
+            interrupting_capacity_ka: 40.0,
+        };
+        assert!(xfmr.replacement_cost_usd() > batt.replacement_cost_usd());
+        assert!(batt.replacement_cost_usd() > cb.replacement_cost_usd());
+    }
+
+    #[test]
+    fn asset_class_maintenance_cost_nonnegative() {
+        let variants: Vec<AssetClass> = vec![
+            AssetClass::PowerTransformer {
+                mva_rating: 50.0,
+                voltage_kv: 110.0,
+                vector_group: "Dyn11".to_string(),
+            },
+            AssetClass::CircuitBreaker {
+                rated_kv: 145.0,
+                rated_ka: 2.0,
+                interrupting_capacity_ka: 40.0,
+            },
+            AssetClass::TransmissionLine {
+                voltage_kv: 110.0,
+                length_km: 50.0,
+                conductor_type: "ACSR".to_string(),
+            },
+            AssetClass::OverheadLineStructure {
+                structure_type: "Lattice".to_string(),
+                height_m: 30.0,
+            },
+            AssetClass::MeasuringTransformer {
+                pt_or_ct: "PT".to_string(),
+                rated_kv: 110.0,
+            },
+            AssetClass::ProtectionRelay {
+                make: "SEL".to_string(),
+                model: "421".to_string(),
+                protocol: "IEC 61850".to_string(),
+            },
+            AssetClass::BatteryBank {
+                capacity_kwh: 200.0,
+                chemistry: "Li-NMC".to_string(),
+                cells_in_series: 48,
+            },
+        ];
+        for v in &variants {
+            assert!(
+                v.maintenance_cost_usd() >= 0.0,
+                "maintenance cost must be non-negative"
+            );
+        }
+    }
+
+    #[test]
+    fn risk_level_enum_equality() {
+        assert_eq!(RiskLevel::High, RiskLevel::High);
+        assert_eq!(RiskLevel::Low, RiskLevel::Low);
+        assert_ne!(RiskLevel::Low, RiskLevel::Critical);
+        assert_ne!(RiskLevel::Medium, RiskLevel::High);
+    }
+
+    #[test]
+    fn telemetry_fields_direct_access() {
+        let t = AssetTelemetry {
+            timestamp: 1_710_000_000.0,
+            current_ka: 1.2,
+            voltage_kv: 110.5,
+            power_mw: 132.0,
+            temperature_c: 75.0,
+            vibration_mm_per_s: 2.5,
+            partial_discharge_pc: 15.0,
+            oil_temperature_c: 68.0,
+            dissolved_gas_h2_ppm: 25.0,
+            sf6_pressure_bar: 5.8,
+        };
+        assert!((t.timestamp - 1_710_000_000.0).abs() < f64::EPSILON);
+        assert!((t.current_ka - 1.2).abs() < 1e-10);
+        assert!((t.voltage_kv - 110.5).abs() < 1e-10);
+        assert!((t.power_mw - 132.0).abs() < 1e-10);
+        assert!((t.temperature_c - 75.0).abs() < 1e-10);
+        assert!((t.vibration_mm_per_s - 2.5).abs() < 1e-10);
+        assert!((t.partial_discharge_pc - 15.0).abs() < 1e-10);
+        assert!((t.oil_temperature_c - 68.0).abs() < 1e-10);
+        assert!((t.dissolved_gas_h2_ppm - 25.0).abs() < 1e-10);
+        assert!((t.sf6_pressure_bar - 5.8).abs() < 1e-10);
+    }
+
+    #[test]
+    fn maintenance_type_variants_eq() {
+        assert_eq!(MaintenanceType::Predictive, MaintenanceType::Predictive);
+        assert_eq!(MaintenanceType::Corrective, MaintenanceType::Corrective);
+        assert_ne!(MaintenanceType::Preventive, MaintenanceType::Emergency);
+        assert_ne!(MaintenanceType::Overhaul, MaintenanceType::Predictive);
+    }
+
+    #[test]
+    fn cbm_assessor_vibration_critical() {
+        let t = AssetTelemetry {
+            timestamp: 0.0,
+            current_ka: 1.0,
+            voltage_kv: 110.0,
+            power_mw: 100.0,
+            temperature_c: 60.0,
+            vibration_mm_per_s: 8.0,
+            partial_discharge_pc: 5.0,
+            oil_temperature_c: 55.0,
+            dissolved_gas_h2_ppm: 10.0,
+            sf6_pressure_bar: 6.0,
+        };
+        assert_eq!(CbmAssessor::assess_from_telemetry(&t), RiskLevel::Critical);
+    }
+
+    #[test]
+    fn cbm_assessor_normal_telemetry_low() {
+        let t = AssetTelemetry {
+            timestamp: 0.0,
+            current_ka: 0.5,
+            voltage_kv: 110.0,
+            power_mw: 50.0,
+            temperature_c: 50.0,
+            vibration_mm_per_s: 1.0,
+            partial_discharge_pc: 5.0,
+            oil_temperature_c: 45.0,
+            dissolved_gas_h2_ppm: 5.0,
+            sf6_pressure_bar: 6.0,
+        };
+        assert_eq!(CbmAssessor::assess_from_telemetry(&t), RiskLevel::Low);
+    }
+}

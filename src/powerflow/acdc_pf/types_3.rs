@@ -600,3 +600,133 @@ pub struct AcDcSequentialConfig {
     /// System base apparent power \[MVA\].
     pub base_mva: f64,
 }
+
+#[cfg(test)]
+mod tests {
+    use super::super::types::{DcBranch, DcBus, DcBusType, VscDcBus};
+    use super::*;
+
+    #[test]
+    fn solver_new_base_mva() {
+        let config = AcDcSequentialConfig {
+            n_ac_buses: 0,
+            n_dc_buses: 0,
+            tolerance: 1e-6,
+            max_iterations: 50,
+            base_mva: 100.0,
+        };
+        let solver = AcDcPfSolver::new(config);
+        let result = solver.solve().expect("empty network should converge");
+        assert!(result.converged, "empty network must converge");
+        assert!(result.iterations <= 50);
+    }
+
+    #[test]
+    fn solve_empty_network_converged_true() {
+        let config = AcDcSequentialConfig {
+            n_ac_buses: 0,
+            n_dc_buses: 0,
+            tolerance: 1e-4,
+            max_iterations: 10,
+            base_mva: 1.0,
+        };
+        let solver = AcDcPfSolver::new(config);
+        let result = solver.solve().expect("should converge");
+        assert!(result.converged);
+        assert_eq!(result.ac_voltages.len(), 0);
+        assert_eq!(result.dc_voltages.len(), 0);
+    }
+
+    #[test]
+    fn solve_multi_dc_no_branches_returns_invalid_config() {
+        let config = AcDcSequentialConfig {
+            n_ac_buses: 0,
+            n_dc_buses: 2,
+            tolerance: 1e-6,
+            max_iterations: 50,
+            base_mva: 100.0,
+        };
+        let mut solver = AcDcPfSolver::new(config);
+        solver.add_dc_bus(VscDcBus {
+            id: 0,
+            v_dc_pu: 1.0,
+            p_load_mw: 0.0,
+        });
+        solver.add_dc_bus(VscDcBus {
+            id: 1,
+            v_dc_pu: 1.0,
+            p_load_mw: 0.0,
+        });
+        match solver.solve() {
+            Err(AcDcError::InvalidConfig(_)) => {}
+            other => panic!("expected InvalidConfig, got {:?}", other),
+        }
+    }
+
+    #[test]
+    fn ac_dc_network_new_ac_g_size_mismatch() {
+        let config = AcDcSequentialConfig {
+            n_ac_buses: 5,
+            n_dc_buses: 3,
+            tolerance: 1e-7,
+            max_iterations: 200,
+            base_mva: 50.0,
+        };
+        assert_eq!(config.n_ac_buses, 5);
+        assert_eq!(config.n_dc_buses, 3);
+    }
+
+    #[test]
+    fn sequential_config_field_access_n_dc_buses() {
+        let config = AcDcSequentialConfig {
+            n_ac_buses: 3,
+            n_dc_buses: 2,
+            tolerance: 1e-5,
+            max_iterations: 100,
+            base_mva: 200.0,
+        };
+        assert_eq!(config.n_dc_buses, 2);
+        assert_eq!(config.max_iterations, 100);
+    }
+
+    #[test]
+    fn dc_bus_creation_slack_type() {
+        let bus = DcBus::new(0, DcBusType::Slack, 320.0);
+        assert_eq!(bus.id, 0);
+        assert!(
+            (bus.v_dc_nom_kv - 320.0).abs() < 1e-9,
+            "nominal voltage mismatch"
+        );
+    }
+
+    #[test]
+    fn dc_branch_creation_basic() {
+        let branch = DcBranch::new(0, 1, 1.0, 100.0);
+        assert_eq!(branch.from, 0);
+        assert_eq!(branch.to, 1);
+        assert!(
+            (branch.resistance_ohm - 1.0).abs() < 1e-9,
+            "resistance mismatch"
+        );
+        assert!((branch.length_km - 100.0).abs() < 1e-9, "length mismatch");
+    }
+
+    #[test]
+    fn sequential_config_default_construction() {
+        let config = AcDcSequentialConfig {
+            n_ac_buses: 3,
+            n_dc_buses: 2,
+            tolerance: 1e-5,
+            max_iterations: 100,
+            base_mva: 200.0,
+        };
+        assert_eq!(config.n_ac_buses, 3);
+        assert_eq!(config.n_dc_buses, 2);
+        assert!(
+            (config.tolerance - 1e-5).abs() < 1e-15,
+            "tolerance mismatch"
+        );
+        assert_eq!(config.max_iterations, 100);
+        assert!((config.base_mva - 200.0).abs() < 1e-9, "base_mva mismatch");
+    }
+}

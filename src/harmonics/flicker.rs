@@ -106,7 +106,7 @@ pub fn compute_pst(flicker_sensation: &[f64]) -> PstResult {
     let n = flicker_sensation.len();
     // Squared sensation (power)
     let mut squared: Vec<f64> = flicker_sensation.iter().map(|&s| s * s).collect();
-    squared.sort_by(|a, b| a.partial_cmp(b).unwrap());
+    squared.sort_by(|a, b| a.partial_cmp(b).unwrap_or(std::cmp::Ordering::Equal));
 
     // Percentile extraction
     let percentile = |p: f64| -> f64 {
@@ -407,7 +407,7 @@ fn percentile_95(data: &[f64]) -> f64 {
         return 0.0;
     }
     let mut sorted = data.to_vec();
-    sorted.sort_by(|a, b| a.partial_cmp(b).unwrap());
+    sorted.sort_by(|a, b| a.partial_cmp(b).unwrap_or(std::cmp::Ordering::Equal));
     let idx = ((0.95 * sorted.len() as f64) as usize).min(sorted.len() - 1);
     sorted[idx]
 }

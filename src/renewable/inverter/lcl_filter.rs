@@ -409,6 +409,118 @@ mod tests {
         );
     }
 
+    #[test]
+    fn test_lcl_state_zero() {
+        let s = LclState::zero();
+        assert_eq!(s.i1_d, 0.0);
+        assert_eq!(s.i1_q, 0.0);
+        assert_eq!(s.i2_d, 0.0);
+        assert_eq!(s.i2_q, 0.0);
+        assert_eq!(s.vc_d, 0.0);
+        assert_eq!(s.vc_q, 0.0);
+    }
+
+    #[test]
+    fn test_typical_500kva_resonant_freq() {
+        let lcl = LclFilter::typical_500kva();
+        let f = lcl.resonant_frequency_hz();
+        assert!(
+            f > 500.0 && f < 20_000.0,
+            "resonant_frequency_hz() = {f} not in (500, 20000) Hz"
+        );
+    }
+
+    #[test]
+    fn test_step_zero_input_no_drift() {
+        let lcl = LclFilter::typical_10kva();
+        let mut state = LclState::zero();
+        let omega = 2.0 * PI * 50.0;
+        let dt = 1e-6_f64;
+        for _ in 0..10_000 {
+            lcl.step(&mut state, (0.0, 0.0), (0.0, 0.0), omega, dt);
+        }
+        assert!(state.i1_d.abs() < 1e-12, "i1_d drifted: {}", state.i1_d);
+        assert!(state.i1_q.abs() < 1e-12, "i1_q drifted: {}", state.i1_q);
+        assert!(state.i2_d.abs() < 1e-12, "i2_d drifted: {}", state.i2_d);
+        assert!(state.i2_q.abs() < 1e-12, "i2_q drifted: {}", state.i2_q);
+        assert!(state.vc_d.abs() < 1e-12, "vc_d drifted: {}", state.vc_d);
+        assert!(state.vc_q.abs() < 1e-12, "vc_q drifted: {}", state.vc_q);
+    }
+
+    #[test]
+    fn test_b_matrix_input_coupling() {
+        let lcl = LclFilter::typical_10kva();
+        let omega = 2.0 * PI * 50.0;
+        let (_, b) = lcl.state_space_matrices(omega);
+        let l1 = 2.0e-3_f64;
+        let l2 = 0.5e-3_f64;
+        assert!(
+            (b[0][0] - 1.0 / l1).abs() < 1e-9,
+            "b[0][0] = {}, expected {}",
+            b[0][0],
+            1.0 / l1
+        );
+        assert!(
+            (b[1][1] - 1.0 / l1).abs() < 1e-9,
+            "b[1][1] = {}, expected {}",
+            b[1][1],
+            1.0 / l1
+        );
+        assert!(
+            (b[2][2] - (-1.0 / l2)).abs() < 1e-9,
+            "b[2][2] = {}, expected {}",
+            b[2][2],
+            -1.0 / l2
+        );
+        assert!(
+            (b[3][3] - (-1.0 / l2)).abs() < 1e-9,
+            "b[3][3] = {}, expected {}",
+            b[3][3],
+            -1.0 / l2
+        );
+    }
+
+    #[test]
+    fn test_a_matrix_diagonal_negative() {
+        let lcl = LclFilter::typical_10kva();
+        let omega = 2.0 * PI * 50.0;
+        let (a, _) = lcl.state_space_matrices(omega);
+        assert!(a[0][0] < 0.0, "a[0][0] = {} should be negative", a[0][0]);
+        assert!(a[1][1] < 0.0, "a[1][1] = {} should be negative", a[1][1]);
+        assert!(a[2][2] < 0.0, "a[2][2] = {} should be negative", a[2][2]);
+        assert!(a[3][3] < 0.0, "a[3][3] = {} should be negative", a[3][3]);
+    }
+
+    #[test]
+    fn test_step_inverter_voltage_drives_current() {
+        let lcl = LclFilter::typical_10kva();
+        let omega = 2.0 * PI * 50.0;
+        let dt = 1e-6_f64;
+        let mut state = LclState::zero();
+        for _ in 0..1000 {
+            lcl.step(&mut state, (100.0, 0.0), (0.0, 0.0), omega, dt);
+        }
+        assert!(
+            state.i1_d > 0.0,
+            "i1_d = {} should be positive after inverter voltage excitation",
+            state.i1_d
+        );
+    }
+
+    #[test]
+    fn test_resonant_frequency_formula() {
+        let lcl = LclFilter::typical_10kva();
+        let l1 = 2.0e-3_f64;
+        let l2 = 0.5e-3_f64;
+        let c = 10.0e-6_f64;
+        let f_expected = ((l1 + l2) / (l1 * l2 * c)).sqrt() / (2.0 * PI);
+        let f_actual = lcl.resonant_frequency_hz();
+        assert!(
+            (f_expected - f_actual).abs() < 0.1,
+            "resonant freq mismatch: expected {f_expected:.4} Hz, got {f_actual:.4} Hz"
+        );
+    }
+
     // ── Goertzel DFT helper ───────────────────────────────────────────────────
 
     /// Goertzel algorithm to estimate amplitude at a given frequency in a sample array.

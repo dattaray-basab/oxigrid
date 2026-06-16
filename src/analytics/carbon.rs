@@ -670,4 +670,157 @@ mod tests {
             "Expected EmptyDispatch error"
         );
     }
+
+    /// OperatingMarginal selects the highest emission factor unit.
+    #[test]
+    fn test_operating_marginal_selects_highest_ef_unit() {
+        let dp = DispatchPoint {
+            hour: 0,
+            generation_mw: vec![150.0, 50.0],
+            generator_types: vec![GeneratorType::Wind, GeneratorType::Coal],
+            emissions_factors: vec![0.0, 0.95],
+            total_load_mw: 200.0,
+        };
+        let accountant = CarbonAccountant::new(config(MarginalEmissionMethod::OperatingMarginal));
+        let result = accountant.analyze(&[dp]).expect("analysis should succeed");
+        assert!(
+            (result.hourly[0].marginal_emissions_factor - 0.95).abs() < 1e-9,
+            "OperatingMarginal must pick coal (0.95 t/MWh), got {:.6}",
+            result.hourly[0].marginal_emissions_factor
+        );
+    }
+
+    /// BuildMarginal returns new-build factor when generation is short of load.
+    #[test]
+    fn test_build_marginal_uses_new_build_factor_when_short() {
+        let dp = DispatchPoint {
+            hour: 0,
+            generation_mw: vec![80.0],
+            generator_types: vec![GeneratorType::NaturalGasCc],
+            emissions_factors: vec![0.40],
+            total_load_mw: 100.0,
+        };
+        let accountant = CarbonAccountant::new(config(MarginalEmissionMethod::BuildMarginal));
+        let result = accountant.analyze(&[dp]).expect("analysis should succeed");
+        assert!(
+            (result.hourly[0].marginal_emissions_factor - 0.40).abs() < 1e-9,
+            "BuildMarginal when short must return 0.40 (new-build CC), got {:.6}",
+            result.hourly[0].marginal_emissions_factor
+        );
+    }
+
+    /// BuildMarginal returns the running unit's factor when generation meets load.
+    #[test]
+    fn test_build_marginal_uses_marginal_unit_when_sufficient() {
+        let dp = DispatchPoint {
+            hour: 0,
+            generation_mw: vec![100.0],
+            generator_types: vec![GeneratorType::Coal],
+            emissions_factors: vec![0.95],
+            total_load_mw: 100.0,
+        };
+        let accountant = CarbonAccountant::new(config(MarginalEmissionMethod::BuildMarginal));
+        let result = accountant.analyze(&[dp]).expect("analysis should succeed");
+        assert!(
+            (result.hourly[0].marginal_emissions_factor - 0.95).abs() < 1e-9,
+            "BuildMarginal when sufficient must return coal factor (0.95), got {:.6}",
+            result.hourly[0].marginal_emissions_factor
+        );
+    }
+
+    /// Mismatched generation and generator-type vector lengths yield LengthMismatch.
+    #[test]
+    fn test_length_mismatch_error() {
+        let dp = DispatchPoint {
+            hour: 0,
+            generation_mw: vec![100.0], // length = 1
+            generator_types: vec![GeneratorType::Coal, GeneratorType::Wind], // length = 2
+            emissions_factors: vec![0.95, 0.0],
+            total_load_mw: 100.0,
+        };
+        let accountant = CarbonAccountant::new(config(MarginalEmissionMethod::SimpleAverageFactor));
+        let result = accountant.analyze(&[dp]);
+        assert!(
+            matches!(result, Err(CarbonError::LengthMismatch { .. })),
+            "Expected LengthMismatch error, got {:?}",
+            result.map(|_| ())
+        );
+    }
+
+    /// Negative load value returns NegativeLoad error.
+    #[test]
+    fn test_negative_load_error() {
+        let dp = DispatchPoint {
+            hour: 0,
+            generation_mw: vec![100.0],
+            generator_types: vec![GeneratorType::Coal],
+            emissions_factors: vec![0.95],
+            total_load_mw: -10.0,
+        };
+        let accountant = CarbonAccountant::new(config(MarginalEmissionMethod::SimpleAverageFactor));
+        let result = accountant.analyze(&[dp]);
+        assert!(
+            matches!(result, Err(CarbonError::NegativeLoad(..))),
+            "Expected NegativeLoad error, got {:?}",
+            result.map(|_| ())
+        );
+    }
+
+    /// GeneratorType::is_clean() and default_factor() return expected values.
+    #[test]
+    fn test_generator_type_is_clean_and_default_factor() {
+        assert!(GeneratorType::Wind.is_clean(), "Wind must be clean");
+        assert!(GeneratorType::Solar.is_clean(), "Solar must be clean");
+        assert!(!GeneratorType::Coal.is_clean(), "Coal must not be clean");
+        assert!(
+            !GeneratorType::NaturalGasCc.is_clean(),
+            "NaturalGasCc must not be clean"
+        );
+        assert!(
+            (GeneratorType::Coal.default_factor() - 0.95).abs() < 1e-12,
+            "Coal default factor must be 0.95, got {:.14}",
+            GeneratorType::Coal.default_factor()
+        );
+        assert!(
+            (GeneratorType::Wind.default_factor() - 0.011).abs() < 1e-12,
+            "Wind default factor must be 0.011, got {:.14}",
+            GeneratorType::Wind.default_factor()
+        );
+    }
+
+    /// carbon_intensity_g_per_kwh, avoided_emissions_t, and clean_energy_pct
+    /// are computed correctly for a pure-coal dispatch.
+    #[test]
+    fn test_carbon_intensity_g_per_kwh_and_avoided_emissions() {
+        let dp = DispatchPoint {
+            hour: 0,
+            generation_mw: vec![100.0],
+            generator_types: vec![GeneratorType::Coal],
+            emissions_factors: vec![0.95],
+            total_load_mw: 100.0,
+        };
+        let accountant = CarbonAccountant::new(CarbonAccountingConfig {
+            marginal_emission_method: MarginalEmissionMethod::SimpleAverageFactor,
+            time_resolution_hours: 1.0,
+            ..Default::default()
+        });
+        let result = accountant.analyze(&[dp]).expect("analysis should succeed");
+        let m = &result.hourly[0];
+        assert!(
+            (m.carbon_intensity_g_per_kwh - 950.0).abs() < 1e-9,
+            "Carbon intensity must be 950 g/kWh, got {:.6}",
+            m.carbon_intensity_g_per_kwh
+        );
+        // Coal dispatched == coal baseline → zero avoided emissions.
+        assert!(
+            m.avoided_emissions_t.abs() < 1e-9,
+            "Avoided emissions must be 0.0 for all-coal dispatch, got {:.6}",
+            m.avoided_emissions_t
+        );
+        assert!(
+            m.clean_energy_pct.abs() < 1e-9,
+            "Clean energy pct must be 0.0, got {:.6}",
+            m.clean_energy_pct
+        );
+    }
 }

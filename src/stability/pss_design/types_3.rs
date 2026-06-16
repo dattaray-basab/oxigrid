@@ -471,3 +471,177 @@ impl Eigenvalue {
         self.damping_ratio < 0.05 && self.is_stable()
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::stability::pss_design::types::{
+        GeneratorModal, PssBandParams, PssInput, PssModel, PssState, PssType,
+    };
+
+    // ---------------------------------------------------------------------------
+    // Eigenvalue classification
+    // ---------------------------------------------------------------------------
+
+    #[test]
+    fn eigenvalue_stable_left_half_plane() {
+        let ev = Eigenvalue::new(-1.0, 2.0 * PI);
+        assert!(ev.is_stable(), "negative real part should be stable");
+    }
+
+    #[test]
+    fn eigenvalue_unstable_right_half_plane() {
+        let ev = Eigenvalue::new(0.5, 2.0 * PI);
+        assert!(!ev.is_stable(), "positive real part should be unstable");
+    }
+
+    #[test]
+    fn eigenvalue_poorly_damped_detection() {
+        // ζ = -real / |eig|; with real=-0.02, imag=6.28 → ζ ≈ 0.003 < 0.05
+        let ev = Eigenvalue::new(-0.02, 2.0 * PI);
+        assert!(ev.is_poorly_damped(), "should be poorly damped (ζ < 5%)");
+    }
+
+    #[test]
+    fn eigenvalue_well_damped_not_poorly_damped() {
+        // ζ = 5 / sqrt(25+100) ≈ 0.447 >> 0.05
+        let ev = Eigenvalue::new(-5.0, 10.0);
+        assert!(
+            !ev.is_poorly_damped(),
+            "well-damped eigenvalue should not flag as poorly damped"
+        );
+    }
+
+    // ---------------------------------------------------------------------------
+    // PssDesigner residue-method design
+    // ---------------------------------------------------------------------------
+
+    #[test]
+    fn pss_designer_missing_generator_returns_err() {
+        let config = PssTuningConfig {
+            target_damping: 0.05,
+            target_gain_db: 20.0,
+            freq_min_hz: 0.1,
+            freq_max_hz: 10.0,
+            n_freq_points: 50,
+            pss_type: PssType::Pss1A,
+        };
+        let designer = PssDesigner::new(config);
+        let result = designer.design_pss(99);
+        assert!(
+            result.is_err(),
+            "should return Err when generator 99 has no modal data"
+        );
+    }
+
+    #[test]
+    fn pss_designer_designs_pss1a_successfully() {
+        let config = PssTuningConfig {
+            target_damping: 0.05,
+            target_gain_db: 20.0,
+            freq_min_hz: 0.1,
+            freq_max_hz: 10.0,
+            n_freq_points: 50,
+            pss_type: PssType::Pss1A,
+        };
+        let mut designer = PssDesigner::new(config);
+        designer.add_generator_modal(GeneratorModal {
+            gen_id: 0,
+            mode_freq_hz: 1.0,
+            damping_ratio: 0.02,
+            residue_magnitude: 0.5,
+            residue_angle_deg: 60.0,
+            inertia_h: 5.0,
+        });
+        let result = designer
+            .design_pss(0)
+            .expect("design_pss should succeed for gen 0");
+        assert_eq!(result.generator_id, 0);
+        assert!(
+            result.phase_compensation_deg.abs() > 0.1 || result.design_converged,
+            "design should produce meaningful compensation or converge"
+        );
+    }
+
+    // ---------------------------------------------------------------------------
+    // simulate_pss_step output clamping
+    // ---------------------------------------------------------------------------
+
+    #[test]
+    fn simulate_pss_step_output_within_limiter_bounds() {
+        let model = PssModel::Pss1A {
+            input: PssInput::RotorSpeed,
+            tw: 10.0,
+            lead_lag_1: (0.2, 0.05),
+            lead_lag_2: (0.2, 0.05),
+            k_s: 10.0,
+            v_st_min: -0.1,
+            v_st_max: 0.1,
+        };
+        let mut state = PssState::zero(3);
+        let output = PssDesigner::simulate_pss_step(&model, &mut state, 100.0, 0.01);
+        assert!(
+            (-0.1_f64..=0.1_f64).contains(&output),
+            "PSS output must be within [-0.1, 0.1] limiter bounds, got {output}"
+        );
+    }
+
+    // ---------------------------------------------------------------------------
+    // PSS2B dual-input structure
+    // ---------------------------------------------------------------------------
+
+    #[test]
+    fn pss2b_dual_input_structure() {
+        let model = PssModel::Pss2B {
+            k_s1: 5.0,
+            k_s2: 2.5,
+            t_w1: 10.0,
+            t_w2: 10.0,
+            t_w3: 10.0,
+            t_w4: 10.0,
+            t1: 0.2,
+            t2: 0.05,
+            t3: 0.2,
+            t4: 0.05,
+            t10: 0.2,
+            t11: 0.05,
+            v_st_min: -0.1,
+            v_st_max: 0.1,
+        };
+        if let PssModel::Pss2B {
+            k_s1, k_s2, t_w1, ..
+        } = model
+        {
+            assert!(k_s1 > 0.0, "k_s1 must be positive");
+            assert!(k_s2 > 0.0, "k_s2 must be positive");
+            assert!(t_w1 > 0.0, "t_w1 must be positive");
+        } else {
+            panic!("expected Pss2B variant");
+        }
+    }
+
+    // ---------------------------------------------------------------------------
+    // PSS4B multi-band limiter bounds
+    // ---------------------------------------------------------------------------
+
+    #[test]
+    fn pss4b_band_limiter_bounds_are_symmetric() {
+        let band = PssBandParams {
+            k_l: 3.0,
+            t_l1: 1.0,
+            t_l2: 0.5,
+            t_l3: 1.0,
+            t_l4: 0.5,
+            v_lmax: 0.05,
+            v_lmin: -0.05,
+        };
+        assert!(
+            band.v_lmax > 0.0 && band.v_lmin < 0.0,
+            "band limiters should be symmetric around zero"
+        );
+        assert!(
+            (band.v_lmax + band.v_lmin).abs() < 1e-9,
+            "symmetric limiter sum should be zero"
+        );
+    }
+}

@@ -13,6 +13,7 @@
 
 use serde::{Deserialize, Serialize};
 use std::fmt;
+use std::time::{SystemTime, UNIX_EPOCH};
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Error
@@ -212,6 +213,54 @@ pub struct MarketplaceOffer {
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
+// Civil date helpers
+// ─────────────────────────────────────────────────────────────────────────────
+
+/// Convert a count of days since 1970-01-01 (Unix epoch) to a proleptic
+/// Gregorian civil date `(year, month, day)`.
+///
+/// Uses Howard Hinnant's integer-only algorithm which is correct for all
+/// positive day offsets and handles the pre-epoch case via signed arithmetic.
+fn days_to_civil(days: i64) -> (usize, usize, usize) {
+    // Shift epoch from 1970-01-01 to the civil calendar's internal era anchor.
+    let z: i64 = days + 719_468;
+    // Era: 400-year Gregorian cycle index.
+    let era: i64 = if z >= 0 { z } else { z - 146_096 } / 146_097;
+    // Day-of-era [0, 146 096].
+    let doe: u32 = (z - era * 146_097) as u32;
+    // Year-of-era [0, 399].
+    let yoe: u32 = (doe - doe / 1_460 + doe / 36_524 - doe / 146_096) / 365;
+    // Calendar year (may be off by 1 for Jan/Feb — corrected below).
+    let mut y: i64 = yoe as i64 + era * 400;
+    // Day-of-year within the era-year [0, 365].
+    let doy: u32 = doe - (365 * yoe + yoe / 4 - yoe / 100);
+    // Month prime [0, 11] (March = 0 in Hinnant's internal calendar).
+    let mp: u32 = (5 * doy + 2) / 153;
+    // Day [1, 31].
+    let d: u32 = doy - (153 * mp + 2) / 5 + 1;
+    // Month [1, 12] mapped back to January-start.
+    let m: u32 = if mp < 10 { mp + 3 } else { mp - 9 };
+    // Adjust year: Jan/Feb belong to the next civil year in Hinnant's system.
+    if m <= 2 {
+        y += 1;
+    }
+    (y as usize, m as usize, d as usize)
+}
+
+/// Return today's date as `(year, month, day)` using the system clock.
+///
+/// Falls back to the Unix epoch `(1970, 1, 1)` if the system clock is
+/// unavailable or returns a time before the epoch.
+fn current_civil_date() -> (usize, usize, usize) {
+    let secs: i64 = SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .unwrap_or_default()
+        .as_secs() as i64;
+    let days = secs / 86_400;
+    days_to_civil(days)
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
 // Marketplace
 // ─────────────────────────────────────────────────────────────────────────────
 
@@ -327,7 +376,7 @@ impl BatteryMarketplace {
 
         // Log a sale lifecycle event
         asset.history.push(BatteryLifecycleEvent {
-            timestamp: (2026, 1, 1), // placeholder date
+            timestamp: current_civil_date(),
             event_type: LifecycleEventType::Sold,
             value_usd: offer.asking_price_usd,
         });
@@ -606,5 +655,33 @@ mod tests {
             (avg - 75.0).abs() < 1e-6,
             "average SoH should be 75%, got {avg:.4}"
         );
+    }
+
+    // ── Test 9: days_to_civil — Unix epoch (day 0 = 1970-01-01) ─────────────
+
+    #[test]
+    fn civil_from_days_epoch() {
+        // Day 0 must map exactly to 1970-01-01.
+        let (y, m, d) = days_to_civil(0);
+        assert_eq!((y, m, d), (1970, 1, 1), "epoch day 0 should be 1970-01-01");
+    }
+
+    // ── Test 10: days_to_civil — known offset ────────────────────────────────
+
+    #[test]
+    fn civil_from_days_known_offset() {
+        // 2024-01-01 is 19723 days after 1970-01-01.
+        let (y, m, d) = days_to_civil(19723);
+        assert_eq!((y, m, d), (2024, 1, 1), "day 19723 should be 2024-01-01");
+    }
+
+    // ── Test 11: current_civil_date — sanity bounds ───────────────────────────
+
+    #[test]
+    fn current_civil_date_sane() {
+        let (y, m, d) = current_civil_date();
+        assert!(y >= 1970, "year must be >= 1970, got {y}");
+        assert!((1..=12).contains(&m), "month must be 1-12, got {m}");
+        assert!((1..=31).contains(&d), "day must be 1-31, got {d}");
     }
 }

@@ -383,6 +383,7 @@ mod tests {
     use crate::network::branch::Branch;
     use crate::network::bus::Bus;
     use crate::network::topology::Generator;
+    use crate::units::{Power, ReactivePower};
 
     fn make_2bus_net() -> PowerNetwork {
         let mut net = PowerNetwork::new(100.0);
@@ -536,5 +537,442 @@ mod tests {
                 "Q[{i}] should be identical below SIMD threshold"
             );
         }
+    }
+
+    #[test]
+    fn test_2bus_voltage_angle_slack_zero() {
+        let net = make_2bus_net();
+        let config = PowerFlowConfig {
+            method: crate::powerflow::PowerFlowMethod::NewtonRaphson,
+            max_iter: 50,
+            tolerance: 1e-8,
+            enforce_q_limits: false,
+        };
+        let result = NewtonRaphsonSolver
+            .solve(&net, &config)
+            .expect("NR solve failed for slack angle test");
+        assert!(
+            result.converged,
+            "NR did not converge: iterations={}, max_mismatch={:.2e}",
+            result.iterations, result.max_mismatch
+        );
+        assert!(
+            result.voltage_angle[0].abs() < 1e-6,
+            "Slack bus voltage angle should be ~0.0 rad, got {:.2e}",
+            result.voltage_angle[0]
+        );
+    }
+
+    #[test]
+    fn test_2bus_max_mismatch_below_tolerance() {
+        let net = make_2bus_net();
+        let tolerance = 1e-8_f64;
+        let config = PowerFlowConfig {
+            method: crate::powerflow::PowerFlowMethod::NewtonRaphson,
+            max_iter: 100,
+            tolerance,
+            enforce_q_limits: false,
+        };
+        let result = NewtonRaphsonSolver
+            .solve(&net, &config)
+            .expect("NR solve failed for mismatch tolerance test");
+        assert!(
+            result.converged,
+            "NR did not converge: iterations={}, max_mismatch={:.2e}",
+            result.iterations, result.max_mismatch
+        );
+        assert!(
+            result.max_mismatch < tolerance,
+            "max_mismatch {:.2e} must be < tolerance {:.2e}",
+            result.max_mismatch,
+            tolerance
+        );
+    }
+
+    #[test]
+    fn test_2bus_iteration_count_reasonable() {
+        let net = make_2bus_net();
+        let config = PowerFlowConfig {
+            method: crate::powerflow::PowerFlowMethod::NewtonRaphson,
+            max_iter: 50,
+            tolerance: 1e-8,
+            enforce_q_limits: false,
+        };
+        let result = NewtonRaphsonSolver
+            .solve(&net, &config)
+            .expect("NR solve failed for iteration count test");
+        assert!(
+            result.converged,
+            "NR did not converge: iterations={}, max_mismatch={:.2e}",
+            result.iterations, result.max_mismatch
+        );
+        assert!(
+            result.iterations > 0,
+            "iteration count must be > 0, got {}",
+            result.iterations
+        );
+        assert!(
+            result.iterations <= 50,
+            "iteration count {} exceeds max_iter=50",
+            result.iterations
+        );
+    }
+
+    #[test]
+    fn test_2bus_p_injected_nonzero() {
+        let net = make_2bus_net();
+        let config = PowerFlowConfig {
+            method: crate::powerflow::PowerFlowMethod::NewtonRaphson,
+            max_iter: 50,
+            tolerance: 1e-8,
+            enforce_q_limits: false,
+        };
+        let result = NewtonRaphsonSolver
+            .solve(&net, &config)
+            .expect("NR solve failed for p_injected nonzero test");
+        assert!(
+            result.converged,
+            "NR did not converge: iterations={}, max_mismatch={:.2e}",
+            result.iterations, result.max_mismatch
+        );
+        let any_nonzero = result.p_injected.iter().any(|&p| p.abs() > 0.1);
+        assert!(
+            any_nonzero,
+            "expected at least one p_injected with magnitude > 0.1, got {:?}",
+            result.p_injected
+        );
+    }
+
+    #[test]
+    fn test_2bus_total_loss_finite() {
+        let net = make_2bus_net();
+        let config = PowerFlowConfig {
+            method: crate::powerflow::PowerFlowMethod::NewtonRaphson,
+            max_iter: 50,
+            tolerance: 1e-8,
+            enforce_q_limits: false,
+        };
+        let result = NewtonRaphsonSolver
+            .solve(&net, &config)
+            .expect("NR solve failed for total loss test");
+        assert!(
+            result.converged,
+            "NR did not converge: iterations={}, max_mismatch={:.2e}",
+            result.iterations, result.max_mismatch
+        );
+        assert!(
+            result.total_p_loss_mw.is_finite(),
+            "total_p_loss_mw must be finite, got {}",
+            result.total_p_loss_mw
+        );
+        assert!(
+            result.total_q_loss_mvar.is_finite(),
+            "total_q_loss_mvar must be finite, got {}",
+            result.total_q_loss_mvar
+        );
+    }
+
+    #[test]
+    fn test_calculate_power_flat_start() {
+        let net = make_2bus_net();
+        let n = net.bus_count();
+        let ybus = net
+            .admittance_matrix()
+            .expect("ybus failed for flat start test");
+        let v_mag = vec![1.0_f64; n];
+        let v_ang = vec![0.0_f64; n];
+
+        let (p, q) = calculate_power(&ybus, &v_mag, &v_ang, n);
+
+        assert_eq!(p.len(), 2, "p vector must have length 2, got {}", p.len());
+        assert_eq!(q.len(), 2, "q vector must have length 2, got {}", q.len());
+        for i in 0..n {
+            assert!(
+                p[i].is_finite(),
+                "p[{i}] must be finite at flat start, got {}",
+                p[i]
+            );
+            assert!(
+                q[i].is_finite(),
+                "q[{i}] must be finite at flat start, got {}",
+                q[i]
+            );
+        }
+    }
+
+    #[test]
+    fn test_heavy_load_converges() {
+        let mut net = PowerNetwork::new(100.0);
+        net.buses.push({
+            let mut b = Bus::new(1, BusType::Slack);
+            b.vm = 1.0;
+            b
+        });
+        net.buses.push({
+            let mut b = Bus::new(2, BusType::PQ);
+            b.vm = 1.0;
+            b.pd = crate::units::Power(80.0);
+            b.qd = crate::units::ReactivePower(40.0);
+            b
+        });
+        net.branches.push(Branch {
+            from_bus: 1,
+            to_bus: 2,
+            r: 0.01,
+            x: 0.1,
+            b: 0.02,
+            rate_a: 100.0,
+            rate_b: 100.0,
+            rate_c: 100.0,
+            tap: 0.0,
+            shift: 0.0,
+            status: true,
+        });
+        net.generators.push(Generator {
+            bus_id: 1,
+            pg: 0.0,
+            qg: 0.0,
+            qmax: 999.0,
+            qmin: -999.0,
+            vg: 1.0,
+            mbase: 100.0,
+            status: true,
+            pmax: 999.0,
+            pmin: 0.0,
+        });
+
+        let config = PowerFlowConfig {
+            method: crate::powerflow::PowerFlowMethod::NewtonRaphson,
+            max_iter: 100,
+            tolerance: 1e-6,
+            enforce_q_limits: false,
+        };
+        let result = NewtonRaphsonSolver
+            .solve(&net, &config)
+            .expect("NR solve failed for heavy load test");
+        assert!(
+            result.converged,
+            "NR did not converge for heavy load (pd=80MW, qd=40Mvar): \
+             iterations={}, max_mismatch={:.2e}",
+            result.iterations, result.max_mismatch
+        );
+    }
+
+    #[test]
+    fn test_3bus_network_converges() {
+        let mut net = PowerNetwork::new(100.0);
+        net.buses.push({
+            let mut b = Bus::new(1, BusType::Slack);
+            b.vm = 1.0;
+            b.va = 0.0;
+            b.pd = Power(0.0);
+            b.qd = ReactivePower(0.0);
+            b
+        });
+        net.buses.push({
+            let mut b = Bus::new(2, BusType::PQ);
+            b.vm = 1.0;
+            b.va = 0.0;
+            b.pd = Power(30.0);
+            b.qd = ReactivePower(10.0);
+            b
+        });
+        net.buses.push({
+            let mut b = Bus::new(3, BusType::PQ);
+            b.vm = 1.0;
+            b.va = 0.0;
+            b.pd = Power(20.0);
+            b.qd = ReactivePower(8.0);
+            b
+        });
+        net.branches.push(Branch {
+            from_bus: 1,
+            to_bus: 2,
+            r: 0.01,
+            x: 0.1,
+            b: 0.02,
+            rate_a: 100.0,
+            rate_b: 100.0,
+            rate_c: 100.0,
+            tap: 0.0,
+            shift: 0.0,
+            status: true,
+        });
+        net.branches.push(Branch {
+            from_bus: 2,
+            to_bus: 3,
+            r: 0.02,
+            x: 0.15,
+            b: 0.01,
+            rate_a: 100.0,
+            rate_b: 100.0,
+            rate_c: 100.0,
+            tap: 0.0,
+            shift: 0.0,
+            status: true,
+        });
+        net.branches.push(Branch {
+            from_bus: 1,
+            to_bus: 3,
+            r: 0.015,
+            x: 0.12,
+            b: 0.015,
+            rate_a: 100.0,
+            rate_b: 100.0,
+            rate_c: 100.0,
+            tap: 0.0,
+            shift: 0.0,
+            status: true,
+        });
+        net.generators.push(Generator {
+            bus_id: 1,
+            pg: 0.0,
+            qg: 0.0,
+            qmax: 999.0,
+            qmin: -999.0,
+            vg: 1.0,
+            mbase: 100.0,
+            status: true,
+            pmax: 999.0,
+            pmin: 0.0,
+        });
+        let config = PowerFlowConfig {
+            method: crate::powerflow::PowerFlowMethod::NewtonRaphson,
+            max_iter: 50,
+            tolerance: 1e-8,
+            enforce_q_limits: false,
+        };
+        let result = NewtonRaphsonSolver
+            .solve(&net, &config)
+            .expect("3-bus solve failed");
+        assert!(result.converged, "3-bus network did not converge");
+        assert_eq!(
+            result.voltage_magnitude.len(),
+            3,
+            "voltage_magnitude must have 3 entries for a 3-bus network"
+        );
+        for (idx, &vm) in result.voltage_magnitude.iter().enumerate() {
+            assert!(
+                (0.85..=1.05).contains(&vm),
+                "bus {} voltage magnitude {:.4} is out of range [0.85, 1.05]",
+                idx,
+                vm
+            );
+        }
+    }
+
+    #[test]
+    fn test_tight_tolerance_converges() {
+        let net = make_2bus_net();
+        let config = PowerFlowConfig {
+            method: crate::powerflow::PowerFlowMethod::NewtonRaphson,
+            max_iter: 100,
+            tolerance: 1e-12,
+            enforce_q_limits: false,
+        };
+        let result = NewtonRaphsonSolver
+            .solve(&net, &config)
+            .expect("solve with tolerance 1e-12 failed");
+        assert!(result.converged, "did not converge with tolerance 1e-12");
+        assert!(
+            result.max_mismatch < 1e-12,
+            "max_mismatch should be below tolerance: got {:.4e}",
+            result.max_mismatch
+        );
+    }
+
+    #[test]
+    fn test_max_iter_one_does_not_converge() {
+        let net = make_2bus_net();
+        let config = PowerFlowConfig {
+            method: crate::powerflow::PowerFlowMethod::NewtonRaphson,
+            max_iter: 1,
+            tolerance: 1e-8,
+            enforce_q_limits: false,
+        };
+        let result = NewtonRaphsonSolver
+            .solve(&net, &config)
+            .expect("solve should return Ok even when not converged");
+        assert!(
+            !result.converged,
+            "should not converge in a single iteration on this network"
+        );
+        assert!(
+            result.iterations <= 1,
+            "iterations should be at most max_iter, got {}",
+            result.iterations
+        );
+    }
+
+    #[test]
+    fn test_enforce_q_limits_no_panic() {
+        let net = make_2bus_net();
+        let config = PowerFlowConfig {
+            method: crate::powerflow::PowerFlowMethod::NewtonRaphson,
+            max_iter: 50,
+            tolerance: 1e-8,
+            enforce_q_limits: true,
+        };
+        let result = NewtonRaphsonSolver
+            .solve(&net, &config)
+            .expect("solve with enforce_q_limits=true panicked or errored");
+        assert_eq!(
+            result.voltage_magnitude.len(),
+            net.bus_count(),
+            "voltage_magnitude length must equal bus count"
+        );
+    }
+
+    #[test]
+    fn test_voltage_angle_length_equals_bus_count() {
+        let net = make_2bus_net();
+        let config = PowerFlowConfig::default();
+        let result = NewtonRaphsonSolver
+            .solve(&net, &config)
+            .expect("default config solve failed");
+        assert_eq!(
+            result.voltage_angle.len(),
+            net.bus_count(),
+            "voltage_angle length must equal bus_count()"
+        );
+    }
+
+    #[test]
+    fn test_branch_loading_pct_reasonable() {
+        let net = make_2bus_net();
+        let config = PowerFlowConfig::default();
+        let result = NewtonRaphsonSolver
+            .solve(&net, &config)
+            .expect("default config solve failed");
+        let flow = &result.branch_flows[0];
+        assert!(
+            flow.loading_pct >= 0.0,
+            "loading_pct must be non-negative, got {}",
+            flow.loading_pct
+        );
+        assert!(
+            flow.loading_pct <= 100.0,
+            "loading_pct must not exceed 100% for a lightly loaded network, got {}",
+            flow.loading_pct
+        );
+    }
+
+    #[test]
+    fn test_default_config_produces_valid_result() {
+        let net = make_2bus_net();
+        let config = PowerFlowConfig::default();
+        let result = NewtonRaphsonSolver
+            .solve(&net, &config)
+            .expect("default config solve failed");
+        assert!(
+            result.converged,
+            "default config must converge on the 2-bus network"
+        );
+        assert_eq!(
+            result.voltage_magnitude.len(),
+            2,
+            "must have 2 voltage entries"
+        );
+        assert_eq!(result.branch_flows.len(), 1, "must have 1 branch flow");
     }
 }

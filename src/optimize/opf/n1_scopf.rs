@@ -930,4 +930,155 @@ mod tests {
             result.security_margin_pct
         );
     }
+
+    #[test]
+    fn bus_data_has_generator_false_for_load_only() {
+        let bus = BusData {
+            bus_id: 2,
+            p_load_mw: 150.0,
+            p_gen_min_mw: 0.0,
+            p_gen_max_mw: 0.0,
+            gen_cost_a: 0.0,
+            gen_cost_b: 0.0,
+            gen_cost_c: 0.0,
+            is_slack: false,
+        };
+        assert!(
+            !bus.has_generator(),
+            "load-only bus (p_gen_max_mw=0) should not have a generator"
+        );
+    }
+
+    #[test]
+    fn bus_data_has_generator_true_when_capacity_positive() {
+        let bus = BusData {
+            bus_id: 0,
+            p_load_mw: 0.0,
+            p_gen_min_mw: 0.0,
+            p_gen_max_mw: 100.0,
+            gen_cost_a: 0.01,
+            gen_cost_b: 20.0,
+            gen_cost_c: 0.0,
+            is_slack: true,
+        };
+        assert!(
+            bus.has_generator(),
+            "bus with p_gen_max_mw=100 should have a generator"
+        );
+    }
+
+    #[test]
+    fn bus_data_cost_at_zero_load() {
+        let bus = BusData {
+            bus_id: 0,
+            p_load_mw: 0.0,
+            p_gen_min_mw: 0.0,
+            p_gen_max_mw: 150.0,
+            gen_cost_a: 0.01,
+            gen_cost_b: 20.0,
+            gen_cost_c: 5.0,
+            is_slack: true,
+        };
+        let cost = bus.cost_at(0.0);
+        assert!(
+            cost >= 0.0,
+            "cost at zero load must be non-negative, got {cost}"
+        );
+        assert!(cost.is_finite(), "cost must be finite, got {cost}");
+        // cost_at(0) = gen_cost_c = 5.0
+        assert!(
+            (cost - 5.0).abs() < 1e-10,
+            "cost_at(0) should equal gen_cost_c=5.0, got {cost}"
+        );
+    }
+
+    #[test]
+    fn bus_data_marginal_cost_is_non_negative() {
+        let bus = BusData {
+            bus_id: 0,
+            p_load_mw: 0.0,
+            p_gen_min_mw: 0.0,
+            p_gen_max_mw: 150.0,
+            gen_cost_a: 0.01,
+            gen_cost_b: 20.0,
+            gen_cost_c: 0.0,
+            is_slack: true,
+        };
+        // marginal_cost at p=50 MW: b + 2*a*p = 20 + 2*0.01*50 = 21.0
+        let mc = bus.marginal_cost(50.0);
+        assert!(
+            mc >= 0.0 && mc.is_finite(),
+            "marginal cost must be non-negative and finite, got {mc}"
+        );
+        assert!(
+            (mc - 21.0).abs() < 1e-10,
+            "marginal_cost(50) should be 21.0, got {mc}"
+        );
+    }
+
+    #[test]
+    fn scopf_with_contingency_still_solves() {
+        let mut solver = three_bus_system();
+        // Add single contingency on branch 0
+        solver.add_contingency(ContingencyCase {
+            id: 10,
+            outaged_branch: 0,
+            probability: 1.0,
+        });
+        let result = solver
+            .solve()
+            .expect("SCOPF with single contingency should succeed");
+        assert!(
+            result.n_benders_iterations >= 1,
+            "should perform at least one iteration"
+        );
+        assert!(
+            result.base_case_cost_usd_per_h > 0.0,
+            "total generation cost must be positive"
+        );
+        // Generation balance: sum of generation ≈ total load (150 MW)
+        let total_gen: f64 = result.generation_mw.iter().sum();
+        assert!(
+            (total_gen - 150.0).abs() < 15.0,
+            "total generation {total_gen:.2} should be close to 150 MW load"
+        );
+        // Contingency results should include our contingency
+        assert_eq!(
+            result.contingency_results.len(),
+            1,
+            "one contingency result expected"
+        );
+        assert_eq!(result.contingency_results[0].contingency_id, 10);
+    }
+
+    #[test]
+    fn compute_branch_flows_basic() {
+        // 3-bus, 3-branch ring: bus 0=slack (θ=0), bus 1 (θ=−0.1 rad), bus 2 (θ=−0.05 rad)
+        // Branch 0: 0→1, x=0.1  → F = (0 − (−0.1)) / 0.1 = 1.0 pu
+        // Branch 1: 1→2, x=0.15 → F = (−0.1 − (−0.05)) / 0.15 = −0.333... pu
+        // Branch 2: 0→2, x=0.2  → F = (0 − (−0.05)) / 0.2 = 0.25 pu
+        let branch_from = vec![0usize, 1, 0];
+        let branch_to = vec![1usize, 2, 2];
+        let branch_x = vec![0.1_f64, 0.15, 0.2];
+        let angles = vec![0.0_f64, -0.1, -0.05];
+
+        let flows = compute_branch_flows(&branch_from, &branch_to, &branch_x, &angles);
+
+        assert_eq!(flows.len(), 3, "should return one flow per branch");
+        assert!(
+            (flows[0] - 1.0).abs() < 1e-10,
+            "branch 0 flow should be 1.0 pu, got {}",
+            flows[0]
+        );
+        assert!(
+            (flows[1] - (-1.0 / 3.0)).abs() < 1e-10,
+            "branch 1 flow should be -1/3 pu, got {}",
+            flows[1]
+        );
+        assert!(
+            (flows[2] - 0.25).abs() < 1e-10,
+            "branch 2 flow should be 0.25 pu, got {}",
+            flows[2]
+        );
+    }
 }

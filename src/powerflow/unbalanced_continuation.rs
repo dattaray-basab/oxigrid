@@ -1693,4 +1693,238 @@ mod tests {
             "loading_margin helper should match result field"
         );
     }
+
+    // 25. Unbalanced loading: voltage decreases as lambda increases (upper branch)
+    #[test]
+    fn test_unbalanced_voltage_decreases_with_lambda() {
+        let cfg = UnbalancedCpfConfig {
+            lambda_max: 3.0,
+            lambda_step: 0.1,
+            load_model: LoadScalingModel::PhaseADominant { ratio: 0.6 },
+            ..UnbalancedCpfConfig::default()
+        };
+        let mut cpf = UnbalancedCpf::new(cfg);
+        cpf.add_bus(ThreePhaseBus {
+            bus_id: 0,
+            bus_type: CpfBusType::Slack,
+            p_load_mw: [0.0; 3],
+            q_load_mvar: [0.0; 3],
+            p_gen_mw: [0.0; 3],
+        });
+        cpf.add_bus(ThreePhaseBus {
+            bus_id: 1,
+            bus_type: CpfBusType::PQ,
+            p_load_mw: [0.2, 0.1, 0.1],
+            q_load_mvar: [0.1, 0.05, 0.05],
+            p_gen_mw: [0.0; 3],
+        });
+        cpf.add_branch(ThreePhaseBranch {
+            from_bus: 0,
+            to_bus: 1,
+            r_pu: [0.1; 3],
+            x_pu: [0.2; 3],
+            r_mutual_pu: 0.0,
+            x_mutual_pu: 0.0,
+        });
+        let result = cpf.solve().expect("solve should succeed for moderate load");
+        let curve = &result.pv_curve;
+        assert!(
+            curve.len() >= 2,
+            "PV curve should have at least 2 points, got {}",
+            curve.len()
+        );
+        let v_first = (curve[0].v_a + curve[0].v_b + curve[0].v_c) / 3.0;
+        let last_pt = curve.last().expect("pv_curve is non-empty");
+        let v_last = (last_pt.v_a + last_pt.v_b + last_pt.v_c) / 3.0;
+        assert!(
+            v_last <= v_first + 0.05,
+            "Average voltage should not significantly increase as lambda grows: v_first={:.4} v_last={:.4}",
+            v_first,
+            v_last
+        );
+    }
+
+    // 26. Predictor step: lambda in pv_curve is non-decreasing (initial steps)
+    #[test]
+    fn test_pv_curve_lambda_increments_positive() {
+        let cpf = make_2bus(0.15, 0.07);
+        let result = cpf.solve().expect("solve should succeed");
+        let curve = &result.pv_curve;
+        // Check the first several steps: lambda must be non-decreasing
+        let early: Vec<_> = curve.iter().take(5).collect();
+        for w in early.windows(2) {
+            assert!(
+                w[1].lambda >= w[0].lambda,
+                "Lambda must be non-decreasing in early steps: {:.4} -> {:.4}",
+                w[0].lambda,
+                w[1].lambda
+            );
+        }
+    }
+
+    // 27. Nose-point detection: lambda at nose does not exceed max lambda in pv_curve
+    #[test]
+    fn test_nose_lambda_is_maximum_in_curve() {
+        let cfg = UnbalancedCpfConfig {
+            lambda_max: 6.0,
+            lambda_step: 0.05,
+            collapse_voltage_pu: 0.55,
+            ..UnbalancedCpfConfig::default()
+        };
+        let mut cpf = UnbalancedCpf::new(cfg);
+        cpf.add_bus(ThreePhaseBus {
+            bus_id: 0,
+            bus_type: CpfBusType::Slack,
+            p_load_mw: [0.0; 3],
+            q_load_mvar: [0.0; 3],
+            p_gen_mw: [0.0; 3],
+        });
+        cpf.add_bus(ThreePhaseBus {
+            bus_id: 1,
+            bus_type: CpfBusType::PQ,
+            p_load_mw: [0.7; 3],
+            q_load_mvar: [0.35; 3],
+            p_gen_mw: [0.0; 3],
+        });
+        cpf.add_branch(ThreePhaseBranch {
+            from_bus: 0,
+            to_bus: 1,
+            r_pu: [0.3; 3],
+            x_pu: [0.45; 3],
+            r_mutual_pu: 0.0,
+            x_mutual_pu: 0.0,
+        });
+        let result = cpf.solve().expect("solve failed");
+        if result.converged_to_nose && !result.collapse_points.is_empty() {
+            let max_lambda_in_curve = result
+                .pv_curve
+                .iter()
+                .map(|p| p.lambda)
+                .fold(f64::NEG_INFINITY, f64::max);
+            for cp in &result.collapse_points {
+                assert!(
+                    cp.lambda_nose <= max_lambda_in_curve + 1e-6,
+                    "Nose lambda ({:.4}) must not exceed max lambda in curve ({:.4})",
+                    cp.lambda_nose,
+                    max_lambda_in_curve
+                );
+            }
+        }
+    }
+
+    // 28. Maximum loading factor reached by solver is positive
+    #[test]
+    fn test_maximum_loading_factor_positive() {
+        let cpf = make_2bus(0.2, 0.1);
+        let result = cpf.solve().expect("solve should succeed");
+        let max_lambda = result
+            .pv_curve
+            .iter()
+            .map(|p| p.lambda)
+            .fold(f64::NEG_INFINITY, f64::max);
+        assert!(
+            max_lambda > 0.0,
+            "Maximum lambda reached should be positive, got {:.4}",
+            max_lambda
+        );
+    }
+
+    // 29. Phase voltage differences are nonzero under PhaseADominant with unequal base loads
+    #[test]
+    fn test_phase_voltage_differences_nonzero_unbalanced() {
+        let cfg = UnbalancedCpfConfig {
+            lambda_max: 2.0,
+            lambda_step: 0.1,
+            load_model: LoadScalingModel::PhaseADominant { ratio: 0.2 },
+            ..UnbalancedCpfConfig::default()
+        };
+        let mut cpf = UnbalancedCpf::new(cfg);
+        cpf.add_bus(ThreePhaseBus {
+            bus_id: 0,
+            bus_type: CpfBusType::Slack,
+            p_load_mw: [0.0; 3],
+            q_load_mvar: [0.0; 3],
+            p_gen_mw: [0.0; 3],
+        });
+        cpf.add_bus(ThreePhaseBus {
+            bus_id: 1,
+            bus_type: CpfBusType::PQ,
+            p_load_mw: [0.4, 0.1, 0.1],
+            q_load_mvar: [0.2, 0.05, 0.05],
+            p_gen_mw: [0.0; 3],
+        });
+        cpf.add_branch(ThreePhaseBranch {
+            from_bus: 0,
+            to_bus: 1,
+            r_pu: [0.1; 3],
+            x_pu: [0.2; 3],
+            r_mutual_pu: 0.0,
+            x_mutual_pu: 0.0,
+        });
+        let result = cpf.solve().expect("solve failed for unbalanced system");
+        // At higher lambda values phases should differ due to different base loads
+        let high_lambda_points: Vec<_> =
+            result.pv_curve.iter().filter(|p| p.lambda > 1.5).collect();
+        if !high_lambda_points.is_empty() {
+            let last = high_lambda_points.last().expect("filtered non-empty");
+            let diff_ab = (last.v_a - last.v_b).abs();
+            let diff_ac = (last.v_a - last.v_c).abs();
+            assert!(
+                diff_ab > 1e-6 || diff_ac > 1e-6,
+                "Phase voltages should differ under strongly unbalanced loading: v_a={:.4} v_b={:.4} v_c={:.4}",
+                last.v_a,
+                last.v_b,
+                last.v_c
+            );
+        }
+    }
+
+    // 30. Active power at each PV point is non-negative
+    #[test]
+    fn test_pv_curve_active_power_nonneg() {
+        let cpf = make_3bus_radial();
+        let result = cpf.solve().expect("3-bus solve ok");
+        for pt in &result.pv_curve {
+            assert!(
+                pt.active_power_total_mw >= 0.0,
+                "active_power_total_mw must be non-negative at lambda={:.3}, got {:.6}",
+                pt.lambda,
+                pt.active_power_total_mw
+            );
+        }
+    }
+
+    // 31. Loading margin is non-negative
+    #[test]
+    fn test_loading_margin_nonneg() {
+        let cpf = make_2bus(0.05, 0.02);
+        let result = cpf.solve().expect("solve ok");
+        assert!(
+            result.loading_margin >= 0.0,
+            "loading_margin must be >= 0, got {:.4}",
+            result.loading_margin
+        );
+    }
+
+    // 32. VSI per-bus count matches bus count and all values in [0, 1]
+    #[test]
+    fn test_vsi_length_matches_bus_count() {
+        let cpf = make_3bus_radial();
+        let result = cpf.solve().expect("3-bus solve ok");
+        assert_eq!(
+            result.vsi.len(),
+            cpf.buses.len(),
+            "VSI vector length ({}) must equal bus count ({})",
+            result.vsi.len(),
+            cpf.buses.len()
+        );
+        for (bus_idx, vsi_phases) in result.vsi.iter().enumerate() {
+            for (phase, &v) in vsi_phases.iter().enumerate() {
+                assert!(
+                    (0.0..=1.0).contains(&v),
+                    "VSI[bus={bus_idx}][phase={phase}] = {v:.6} is outside [0, 1]"
+                );
+            }
+        }
+    }
 }

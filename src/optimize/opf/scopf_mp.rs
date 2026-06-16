@@ -337,7 +337,9 @@ fn apply_ramp_constraints(
     if !enforce || prev_dispatch.is_none() {
         return (costs.to_vec(), false);
     }
-    let prev = prev_dispatch.as_ref().unwrap();
+    let prev = prev_dispatch
+        .as_ref()
+        .expect("invariant: prev_dispatch is_some checked before call");
     let mut clipped = false;
 
     let effective: Vec<GenCost> = costs

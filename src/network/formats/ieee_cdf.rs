@@ -290,7 +290,7 @@ mod tests {
 BUS DATA FOLLOWS                            G  B
    1 Bus 1     HV  1  1  3 1.060  0.000  0.000  0.000  232.4  -16.9   132.0  1  1.060    0.000    0.000    0.000
    2 Bus 2     HV  1  1  2 1.045 -4.986  21.70   12.70  40.0   42.4   132.0  1  1.045    0.000  300.000 -300.000
-   3 Bus 3     HV  1  1  0 1.010-12.725  94.20   19.00   0.0    0.0   132.0  1  0.000    0.000    0.000    0.000
+   3 Bus 3     HV  1  1  0 1.010 -12.725  94.20   19.00   0.0    0.0   132.0  1  0.000    0.000    0.000    0.000
 -999
 BRANCH DATA FOLLOWS                         R          X          B    CONT  NAME  RATE1  RATE2  RATE3
    1   2  1  1 1  1 .01938    .05917     .05280
@@ -339,5 +339,83 @@ END OF DATA
         let title = " 08/19/93 UW ARCHIVE           100.0  1962";
         let mva = parse_base_mva_cdf(title).unwrap();
         assert!((mva - 100.0).abs() < 1e-6);
+    }
+
+    #[test]
+    fn test_empty_input_returns_error() {
+        let result = parse_ieee_cdf_string("");
+        assert!(result.is_err(), "empty input should return Err");
+    }
+
+    #[test]
+    fn test_no_bus_section_returns_error() {
+        let input =
+            " 08/19/93 UW ARCHIVE           100.0  1962 W IEEE 14 Bus Test Case\nEND OF DATA\n";
+        let result = parse_ieee_cdf_string(input);
+        assert!(
+            result.is_err(),
+            "input without BUS DATA FOLLOWS section should return Err"
+        );
+    }
+
+    #[test]
+    fn test_bus_vm_values() {
+        let net = parse_ieee_cdf_string(SAMPLE_CDF).expect("SAMPLE_CDF should parse successfully");
+        let b1 = &net.buses[0];
+        let b2 = &net.buses[1];
+        let b3 = &net.buses[2];
+        assert!(
+            (b1.vm - 1.060).abs() < 1e-3,
+            "Bus 1 vm should be ≈1.060, got {}",
+            b1.vm
+        );
+        assert!(
+            (b2.vm - 1.045).abs() < 1e-3,
+            "Bus 2 vm should be ≈1.045, got {}",
+            b2.vm
+        );
+        assert!(
+            (b3.vm - 1.010).abs() < 1e-3,
+            "Bus 3 vm should be ≈1.010, got {}",
+            b3.vm
+        );
+    }
+
+    #[test]
+    fn test_bus_va_angle_bus2() {
+        let net = parse_ieee_cdf_string(SAMPLE_CDF).expect("SAMPLE_CDF should parse successfully");
+        let b2 = &net.buses[1];
+        assert!(
+            b2.va < 0.0,
+            "Bus 2 va should be negative (was -4.986°), got {} rad",
+            b2.va
+        );
+    }
+
+    #[test]
+    fn test_bus_3_load_pd() {
+        let net = parse_ieee_cdf_string(SAMPLE_CDF).expect("SAMPLE_CDF should parse successfully");
+        let b3 = &net.buses[2];
+        assert!(
+            (b3.pd.0 - 94.2).abs() < 1e-3,
+            "Bus 3 pd should be ≈94.2 MW, got {}",
+            b3.pd.0
+        );
+    }
+
+    #[test]
+    fn test_generators_created_for_pv_and_slack() {
+        let net = parse_ieee_cdf_string(SAMPLE_CDF).expect("SAMPLE_CDF should parse successfully");
+        assert!(
+            net.generators.len() >= 2,
+            "expected at least 2 generators (PV + Slack), got {}",
+            net.generators.len()
+        );
+    }
+
+    #[test]
+    fn test_parse_f64_col_whitespace_returns_none() {
+        let result = parse_f64_col("     ", 0, 5);
+        assert!(result.is_none(), "all-whitespace slice should return None");
     }
 }

@@ -739,8 +739,10 @@ impl InterAreaAnalyzer {
             return Err("Total synchronising power must be positive".to_string());
         }
 
-        let f = (1.0 / (2.0 * std::f64::consts::PI))
-            * (OMEGA_0 * p_sync * (m1 + m2) / (m1 * m2)).sqrt();
+        // Two-area inter-area mode (Kundur): ω_n = √(P_sync·(M1+M2)/(M1·M2)),
+        // where M = 2H/ω₀ already carries the ω₀ scaling — so there is no extra
+        // ω₀ factor here. f = ω_n / 2π.
+        let f = (1.0 / (2.0 * std::f64::consts::PI)) * (p_sync * (m1 + m2) / (m1 * m2)).sqrt();
         Ok(f)
     }
 
@@ -1342,16 +1344,20 @@ mod tests {
 
     #[test]
     fn test_two_machine_mode_frequency() {
-        // H=6s each, P_sync=0.5 pu → known formula result
+        // H=6s each, P_sync=0.5 pu → known formula result.
         let ia = two_machine_system(6.0, 0.5, 0.05);
         let f = ia.two_area_mode_frequency().expect("should compute");
-        // M1 = M2 = 2*6/ω₀; f = (1/2π)√(ω₀*0.5*(M1+M2)/(M1*M2))
-        // With M1=M2: f = (1/2π)√(ω₀*0.5*2/M1) = (1/2π)√(ω₀/M1)
-        // M1 = 12/ω₀ → ω₀/M1 = ω₀²/12 → f = ω₀/(2π*√12)
+        // M = 2H/ω₀ already carries ω₀, so (Kundur) f = (1/2π)√(P_sync·(M1+M2)/(M1·M2)).
+        // With M1=M2: f = (1/2π)√(2·P_sync/M1); M1 = 12/ω₀ → 2·0.5/M1 = ω₀/12,
+        // giving f = (1/2π)√(ω₀/12).
         let m1 = 2.0 * 6.0 / OMEGA_0;
-        let expected =
-            (1.0 / (2.0 * std::f64::consts::PI)) * (OMEGA_0 * 0.5 * 2.0 * m1 / (m1 * m1)).sqrt();
+        let expected = (1.0 / (2.0 * std::f64::consts::PI)) * (0.5 * 2.0 * m1 / (m1 * m1)).sqrt();
         assert!((f - expected).abs() < 1e-6, "f={f} expected={expected}");
+        // Sanity: a real two-area inter-area mode lives in the 0.1–1 Hz band.
+        assert!(
+            (0.1..=1.0).contains(&f),
+            "two-area mode {f} Hz should be a realistic inter-area frequency"
+        );
     }
 
     #[test]
@@ -1736,5 +1742,258 @@ mod tests {
         let rd = ia.simulate_ringdown(100.0, 10.0, 0.1).expect("ringdown");
         assert_eq!(rd.tie_line_flows.len(), 1, "should have 1 tie-line");
         assert_eq!(rd.tie_line_flows[0].len(), rd.time_s.len());
+    }
+
+    #[test]
+    fn test_mode_freq_in_inter_area_range() {
+        let ia = two_machine_system(6.0, 0.5, 0.05);
+        let modes = ia.compute_modes().expect("compute_modes should succeed");
+        assert!(!modes.is_empty(), "should have at least one mode");
+        for m in &modes {
+            assert!(
+                m.freq_hz > 0.0 && m.freq_hz <= 2.0,
+                "freq_hz={} should be in (0.0, 2.0]",
+                m.freq_hz
+            );
+        }
+    }
+
+    #[test]
+    fn test_damping_ratio_positive_for_stable_system() {
+        let ia = two_machine_system(6.0, 0.5, 0.05);
+        let modes = ia.compute_modes().expect("compute_modes should succeed");
+        assert!(!modes.is_empty(), "should have at least one mode");
+        for m in &modes {
+            if m.omega_rad_per_s > 0.1 {
+                assert!(
+                    m.damping_ratio > 0.0,
+                    "damping_ratio={} should be positive for stable oscillatory mode at freq={}",
+                    m.damping_ratio,
+                    m.freq_hz
+                );
+            }
+        }
+    }
+
+    #[test]
+    fn test_participating_areas_two_areas_both_present() {
+        let ia = two_machine_system(6.0, 0.5, 0.05);
+        let modes = ia.compute_modes().expect("compute_modes should succeed");
+        assert!(!modes.is_empty(), "should have at least one mode");
+        // Find the inter-area mode (lowest frequency oscillatory mode)
+        let inter_mode = modes
+            .iter()
+            .find(|m| m.is_inter_area)
+            .expect("should have an inter-area mode");
+        let area_ids: Vec<usize> = inter_mode
+            .participating_areas
+            .iter()
+            .map(|(id, _)| *id)
+            .collect();
+        assert!(
+            area_ids.contains(&0),
+            "area 0 should be present in participating_areas"
+        );
+        assert!(
+            area_ids.contains(&1),
+            "area 1 should be present in participating_areas"
+        );
+    }
+
+    #[test]
+    fn test_mode_shape_normalized_max_abs_one() {
+        let ia = two_machine_system(6.0, 0.5, 0.05);
+        let modes = ia.compute_modes().expect("compute_modes should succeed");
+        assert!(!modes.is_empty(), "should have at least one mode");
+        for m in &modes {
+            let max_abs = m
+                .mode_shape
+                .iter()
+                .map(|(_, v)| v.abs())
+                .fold(0.0_f64, f64::max);
+            assert!(
+                (max_abs - 1.0).abs() < 1e-9,
+                "max abs of mode_shape={} should be 1.0 for mode at freq={}",
+                max_abs,
+                m.freq_hz
+            );
+        }
+    }
+
+    #[test]
+    fn test_critical_mode_is_lowest_damping() {
+        let ia = two_machine_system(6.0, 0.5, 0.05);
+        let modes = ia.compute_modes().expect("compute_modes should succeed");
+        assert!(!modes.is_empty(), "should have at least one mode");
+        let min_damping = modes
+            .iter()
+            .min_by(|a, b| {
+                a.damping_ratio
+                    .partial_cmp(&b.damping_ratio)
+                    .unwrap_or(std::cmp::Ordering::Equal)
+            })
+            .map(|m| m.damping_ratio)
+            .expect("should find minimum damping mode");
+        for m in &modes {
+            assert!(
+                m.damping_ratio >= min_damping,
+                "mode at freq={} has damping_ratio={} below minimum={}",
+                m.freq_hz,
+                m.damping_ratio,
+                min_damping
+            );
+        }
+    }
+
+    #[test]
+    fn test_wadc_lead_lag_t1_positive() {
+        let ia = two_machine_system(6.0, 0.5, 0.05);
+        let modes = ia.compute_modes().expect("compute_modes should succeed");
+        assert!(!modes.is_empty(), "should have at least one mode");
+        let wadc = ia
+            .design_wadc(&modes[0])
+            .expect("design_wadc should succeed");
+        assert!(
+            wadc.lead_lag_1.0 > 0.0,
+            "lead_lag_1.T1={} should be positive",
+            wadc.lead_lag_1.0
+        );
+        assert!(
+            wadc.lead_lag_1.1 > 0.0,
+            "lead_lag_1.T2={} should be positive",
+            wadc.lead_lag_1.1
+        );
+        assert!(
+            wadc.lead_lag_2.0 > 0.0,
+            "lead_lag_2.T1={} should be positive",
+            wadc.lead_lag_2.0
+        );
+        assert!(
+            wadc.lead_lag_2.1 > 0.0,
+            "lead_lag_2.T2={} should be positive",
+            wadc.lead_lag_2.1
+        );
+    }
+
+    #[test]
+    fn test_four_generator_two_area_mode_separation() {
+        let mut ia = InterAreaAnalyzer::new(100.0);
+        // Area 0: two generators
+        ia.add_generator(IaGenerator {
+            gen_id: 0,
+            area_id: 0,
+            bus_id: 1,
+            inertia_h: 6.0,
+            damping_d: 0.05,
+            sync_torque_ks: 0.5,
+            rated_mva: 900.0,
+        });
+        ia.add_generator(IaGenerator {
+            gen_id: 1,
+            area_id: 0,
+            bus_id: 2,
+            inertia_h: 6.0,
+            damping_d: 0.05,
+            sync_torque_ks: 0.5,
+            rated_mva: 900.0,
+        });
+        // Area 1: two generators
+        ia.add_generator(IaGenerator {
+            gen_id: 2,
+            area_id: 1,
+            bus_id: 5,
+            inertia_h: 6.0,
+            damping_d: 0.05,
+            sync_torque_ks: 0.5,
+            rated_mva: 900.0,
+        });
+        ia.add_generator(IaGenerator {
+            gen_id: 3,
+            area_id: 1,
+            bus_id: 6,
+            inertia_h: 6.0,
+            damping_d: 0.05,
+            sync_torque_ks: 0.5,
+            rated_mva: 900.0,
+        });
+        ia.add_area(SystemArea {
+            area_id: 0,
+            name: "Area0".into(),
+            total_inertia_mws: 2.0 * 6.0 * 900.0,
+            generator_ids: vec![0, 1],
+        });
+        ia.add_area(SystemArea {
+            area_id: 1,
+            name: "Area1".into(),
+            total_inertia_mws: 2.0 * 6.0 * 900.0,
+            generator_ids: vec![2, 3],
+        });
+        ia.add_tie_line(TieLine {
+            from_area: 0,
+            to_area: 1,
+            synchronizing_power: 0.5,
+            from_bus: 3,
+            to_bus: 101,
+        });
+        let modes = ia
+            .compute_modes()
+            .expect("4-generator compute_modes should succeed");
+        assert!(
+            !modes.is_empty(),
+            "4-generator system should have at least one mode"
+        );
+        for m in &modes {
+            assert!(
+                m.freq_hz > 0.0,
+                "all modes should have positive frequency, got freq={}",
+                m.freq_hz
+            );
+        }
+    }
+
+    #[test]
+    fn test_two_area_formula_vs_compute_modes_consistent() {
+        // Both methods should agree qualitatively: stronger tie-line → higher frequency.
+        // We verify monotonicity rather than absolute agreement, since the two methods
+        // use different internal models (simplified 2-area formula vs full eigenvalue).
+        let ia_weak = two_machine_system(6.0, 0.3, 0.05);
+        let ia_strong = two_machine_system(6.0, 1.5, 0.05);
+
+        let formula_freq_weak = ia_weak
+            .two_area_mode_frequency()
+            .expect("two_area_mode_frequency (weak) should succeed");
+        let formula_freq_strong = ia_strong
+            .two_area_mode_frequency()
+            .expect("two_area_mode_frequency (strong) should succeed");
+
+        let modes_weak = ia_weak
+            .compute_modes()
+            .expect("compute_modes (weak) should succeed");
+        let modes_strong = ia_strong
+            .compute_modes()
+            .expect("compute_modes (strong) should succeed");
+
+        assert!(
+            !modes_weak.is_empty(),
+            "weak system should have at least one mode"
+        );
+        assert!(
+            !modes_strong.is_empty(),
+            "strong system should have at least one mode"
+        );
+
+        // Both methods must agree: stronger tie → higher frequency
+        assert!(
+            formula_freq_strong > formula_freq_weak,
+            "formula: stronger tie should give higher freq ({} vs {})",
+            formula_freq_strong,
+            formula_freq_weak
+        );
+        assert!(
+            modes_strong[0].freq_hz > modes_weak[0].freq_hz,
+            "compute_modes: stronger tie should give higher freq ({} vs {})",
+            modes_strong[0].freq_hz,
+            modes_weak[0].freq_hz
+        );
     }
 }

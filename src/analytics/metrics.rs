@@ -713,4 +713,267 @@ mod tests {
             "100% renewable should give 100% carbon reduction"
         );
     }
+
+    #[test]
+    fn test_saidi_and_saifi_formula() {
+        let input = KpiInput {
+            total_customers: 1000,
+            interrupted_customer_hours: vec![(200, 2.0), (100, 3.0)],
+            momentary_interruptions: 0,
+            ens_mwh: 0.0,
+            voltage_samples: vec![1.0, 1.0],
+            voltage_harmonics: vec![1.0],
+            current_harmonics: vec![100.0],
+            real_power_mw: 100.0,
+            reactive_power_mvar: 0.0,
+            apparent_power_mva: 100.0,
+            generation_dispatch: vec![(100.0, 0.0, 1_000_000.0, 0.0)],
+            capital_investment_usd: 1_000_000.0,
+            annual_revenue_usd: 200_000.0,
+            discount_rate: 0.05,
+            project_life_years: 20,
+            renewable_mw: 100.0,
+            total_gen_mw: 100.0,
+            baseline_co2_t_per_mwh: 0.85,
+        };
+        let result = GridKpiDashboard::compute(&input).expect("KPI computation should succeed");
+        let sp = &result.system_performance;
+
+        // SAIFI = (200 + 100) / 1000 = 0.3
+        assert!(
+            (sp.saifi - 0.3).abs() < 1e-9,
+            "SAIFI should be 0.3, got {:.6}",
+            sp.saifi
+        );
+        // SAIDI = (200*2.0 + 100*3.0) * 60 / 1000 = 700 * 60 / 1000 = 42.0 minutes
+        let expected_saidi = (200.0_f64 * 2.0 + 100.0_f64 * 3.0) * 60.0 / 1000.0;
+        assert!(
+            (sp.saidi_minutes - expected_saidi).abs() < 1e-9,
+            "SAIDI should be {:.2} minutes, got {:.6}",
+            expected_saidi,
+            sp.saidi_minutes
+        );
+    }
+
+    #[test]
+    fn test_maifi_formula() {
+        let input = KpiInput {
+            total_customers: 500,
+            interrupted_customer_hours: vec![],
+            momentary_interruptions: 10,
+            ens_mwh: 0.0,
+            voltage_samples: vec![1.0, 1.0],
+            voltage_harmonics: vec![1.0],
+            current_harmonics: vec![100.0],
+            real_power_mw: 100.0,
+            reactive_power_mvar: 0.0,
+            apparent_power_mva: 100.0,
+            generation_dispatch: vec![(100.0, 0.0, 1_000_000.0, 0.0)],
+            capital_investment_usd: 1_000_000.0,
+            annual_revenue_usd: 200_000.0,
+            discount_rate: 0.05,
+            project_life_years: 20,
+            renewable_mw: 100.0,
+            total_gen_mw: 100.0,
+            baseline_co2_t_per_mwh: 0.85,
+        };
+        let result = GridKpiDashboard::compute(&input).expect("KPI computation should succeed");
+        let sp = &result.system_performance;
+
+        // MAIFI = 10 / 500 = 0.02
+        let expected_maifi = 10.0_f64 / 500.0_f64;
+        assert!(
+            (sp.maifi - expected_maifi).abs() < 1e-9,
+            "MAIFI should be {:.4}, got {:.6}",
+            expected_maifi,
+            sp.maifi
+        );
+    }
+
+    #[test]
+    fn test_perfect_reliability_asai_near_100() {
+        let input = KpiInput {
+            total_customers: 1000,
+            interrupted_customer_hours: vec![],
+            momentary_interruptions: 0,
+            ens_mwh: 0.0,
+            voltage_samples: vec![1.0, 1.0],
+            voltage_harmonics: vec![1.0],
+            current_harmonics: vec![100.0],
+            real_power_mw: 100.0,
+            reactive_power_mvar: 0.0,
+            apparent_power_mva: 100.0,
+            generation_dispatch: vec![(100.0, 0.0, 1_000_000.0, 0.0)],
+            capital_investment_usd: 1_000_000.0,
+            annual_revenue_usd: 200_000.0,
+            discount_rate: 0.05,
+            project_life_years: 20,
+            renewable_mw: 100.0,
+            total_gen_mw: 100.0,
+            baseline_co2_t_per_mwh: 0.85,
+        };
+        let result = GridKpiDashboard::compute(&input).expect("KPI computation should succeed");
+        let sp = &result.system_performance;
+
+        assert!(
+            (sp.asai_pct - 100.0).abs() < 1e-9,
+            "ASAI should be 100.0% with no outages, got {:.6}",
+            sp.asai_pct
+        );
+        assert!(
+            sp.saifi.abs() < 1e-9,
+            "SAIFI should be 0.0 with no outages, got {:.6}",
+            sp.saifi
+        );
+        assert!(
+            sp.saidi_minutes.abs() < 1e-9,
+            "SAIDI should be 0.0 minutes with no outages, got {:.6}",
+            sp.saidi_minutes
+        );
+    }
+
+    #[test]
+    fn test_displacement_power_factor() {
+        let input = KpiInput {
+            total_customers: 1000,
+            interrupted_customer_hours: vec![],
+            momentary_interruptions: 0,
+            ens_mwh: 0.0,
+            voltage_samples: vec![1.0, 1.0],
+            voltage_harmonics: vec![1.0],
+            current_harmonics: vec![100.0],
+            real_power_mw: 80.0,
+            reactive_power_mvar: 60.0,
+            apparent_power_mva: 100.0,
+            generation_dispatch: vec![(100.0, 0.0, 1_000_000.0, 0.0)],
+            capital_investment_usd: 1_000_000.0,
+            annual_revenue_usd: 200_000.0,
+            discount_rate: 0.05,
+            project_life_years: 20,
+            renewable_mw: 100.0,
+            total_gen_mw: 100.0,
+            baseline_co2_t_per_mwh: 0.85,
+        };
+        let result = GridKpiDashboard::compute(&input).expect("KPI computation should succeed");
+        let pq = &result.power_quality;
+
+        // displacement_pf = P / S = 80.0 / 100.0 = 0.8
+        let expected_dpf = 80.0_f64 / 100.0_f64;
+        assert!(
+            (pq.displacement_power_factor - expected_dpf).abs() < 1e-6,
+            "Displacement PF should be {:.4}, got {:.6}",
+            expected_dpf,
+            pq.displacement_power_factor
+        );
+    }
+
+    #[test]
+    fn test_true_power_factor_reduced_by_thd() {
+        // current_harmonics = [100.0, 50.0] => THD_I = 50/100 = 50% = 0.5
+        // real_power_mw = 100.0, apparent_power_mva = 100.0 => displacement_pf = 1.0
+        // true_pf = 1.0 / sqrt(1 + 0.5^2) = 1.0 / sqrt(1.25)
+        let input = KpiInput {
+            total_customers: 1000,
+            interrupted_customer_hours: vec![],
+            momentary_interruptions: 0,
+            ens_mwh: 0.0,
+            voltage_samples: vec![1.0, 1.0],
+            voltage_harmonics: vec![1.0],
+            current_harmonics: vec![100.0, 50.0],
+            real_power_mw: 100.0,
+            reactive_power_mvar: 0.0,
+            apparent_power_mva: 100.0,
+            generation_dispatch: vec![(100.0, 0.0, 1_000_000.0, 0.0)],
+            capital_investment_usd: 1_000_000.0,
+            annual_revenue_usd: 200_000.0,
+            discount_rate: 0.05,
+            project_life_years: 20,
+            renewable_mw: 100.0,
+            total_gen_mw: 100.0,
+            baseline_co2_t_per_mwh: 0.85,
+        };
+        let result = GridKpiDashboard::compute(&input).expect("KPI computation should succeed");
+        let pq = &result.power_quality;
+
+        let thd_i = 50.0_f64 / 100.0_f64; // 0.5
+        let expected_true_pf = 1.0_f64 / (1.0_f64 + thd_i * thd_i).sqrt();
+        assert!(
+            (pq.true_power_factor - expected_true_pf).abs() < 1e-4,
+            "True PF should be {:.6}, got {:.6}",
+            expected_true_pf,
+            pq.true_power_factor
+        );
+    }
+
+    #[test]
+    fn test_capacity_factor_full_dispatch() {
+        // Single unit at 100 MW — all energy is actual generation
+        // capacity_factor_pct = actual_energy / (nameplate * 8760) * 100 = 100%
+        let input = KpiInput {
+            total_customers: 1000,
+            interrupted_customer_hours: vec![],
+            momentary_interruptions: 0,
+            ens_mwh: 0.0,
+            voltage_samples: vec![1.0, 1.0],
+            voltage_harmonics: vec![1.0],
+            current_harmonics: vec![100.0],
+            real_power_mw: 100.0,
+            reactive_power_mvar: 0.0,
+            apparent_power_mva: 100.0,
+            generation_dispatch: vec![(100.0, 0.0, 0.0, 0.0)],
+            capital_investment_usd: 1_000_000.0,
+            annual_revenue_usd: 200_000.0,
+            discount_rate: 0.05,
+            project_life_years: 20,
+            renewable_mw: 100.0,
+            total_gen_mw: 100.0,
+            baseline_co2_t_per_mwh: 0.85,
+        };
+        let result = GridKpiDashboard::compute(&input).expect("KPI computation should succeed");
+        let eco = &result.economic;
+
+        assert!(
+            (eco.capacity_factor_pct - 100.0).abs() < 1e-6,
+            "Capacity factor should be 100.0%, got {:.6}",
+            eco.capacity_factor_pct
+        );
+    }
+
+    #[test]
+    fn test_so2_nox_zero_for_pure_renewable() {
+        // renewable_mw = total_gen_mw => fossil_fraction = 0 => SO2 = NOx = 0
+        let input = KpiInput {
+            total_customers: 1000,
+            interrupted_customer_hours: vec![],
+            momentary_interruptions: 0,
+            ens_mwh: 0.0,
+            voltage_samples: vec![1.0, 1.0],
+            voltage_harmonics: vec![1.0],
+            current_harmonics: vec![100.0],
+            real_power_mw: 100.0,
+            reactive_power_mvar: 0.0,
+            apparent_power_mva: 100.0,
+            generation_dispatch: vec![(100.0, 0.0, 0.0, 0.0)],
+            capital_investment_usd: 1_000_000.0,
+            annual_revenue_usd: 200_000.0,
+            discount_rate: 0.05,
+            project_life_years: 20,
+            renewable_mw: 100.0,
+            total_gen_mw: 100.0,
+            baseline_co2_t_per_mwh: 0.85,
+        };
+        let result = GridKpiDashboard::compute(&input).expect("KPI computation should succeed");
+        let env = &result.environmental;
+
+        assert!(
+            env.so2_emissions_tonne.abs() < 1e-9,
+            "SO2 should be ~0 for pure renewable, got {:.9}",
+            env.so2_emissions_tonne
+        );
+        assert!(
+            env.nox_emissions_tonne.abs() < 1e-9,
+            "NOx should be ~0 for pure renewable, got {:.9}",
+            env.nox_emissions_tonne
+        );
+    }
 }

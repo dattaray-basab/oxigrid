@@ -639,4 +639,193 @@ mod tests {
              the strongest single signal ({max_single:.3})"
         );
     }
+
+    #[test]
+    fn test_insufficient_samples_error() {
+        let cfg = make_config();
+        let det = HifDetector::new(cfg);
+        // 100 samples < 400 minimum
+        let samples = pure_sine(100.0, 100);
+        let err = det
+            .detect(&samples)
+            .expect_err("should fail with insufficient samples");
+        match err {
+            HifError::InsufficientSamples { need, got } => {
+                assert_eq!(need, 400, "need should be 400");
+                assert_eq!(got, 100, "got should be 100");
+            }
+            other => panic!("expected InsufficientSamples, got {:?}", other),
+        }
+    }
+
+    #[test]
+    fn test_zero_current_no_hif() {
+        let cfg = make_config();
+        let det = HifDetector::new(cfg.clone());
+        let dt = 1.0 / cfg.sampling_rate_hz;
+        let samples: Vec<CurrentSample> = (0..cfg.min_samples())
+            .map(|i| CurrentSample {
+                time_s: i as f64 * dt,
+                current_a: 0.0,
+                phase: Phase::A,
+            })
+            .collect();
+        let result = det.detect(&samples).expect("detect should succeed");
+        assert!(!result.hif_detected, "zero current should not trigger HIF");
+        assert!(
+            result.confidence < 0.5,
+            "confidence should be low for zero current, got {}",
+            result.confidence
+        );
+    }
+
+    #[test]
+    fn test_zero_sequence_current_from_neutral() {
+        let cfg = make_config();
+        let det = HifDetector::new(cfg.clone());
+        let dt = 1.0 / cfg.sampling_rate_hz;
+        let n = cfg.min_samples();
+        // Phase A pure sine
+        let mut samples = pure_sine(100.0, n);
+        // Add Phase N samples with large current
+        for i in 0..n {
+            samples.push(CurrentSample {
+                time_s: i as f64 * dt,
+                current_a: 10.0,
+                phase: Phase::N,
+            });
+        }
+        let features = det
+            .extract_features(&samples)
+            .expect("extract_features should succeed");
+        assert!(
+            features.zero_sequence_current_a > 1.0,
+            "neutral current should produce zero_sequence_current_a > 1.0, got {}",
+            features.zero_sequence_current_a
+        );
+        let expected_ngv = features.zero_sequence_current_a * 1.0;
+        assert!(
+            (features.neutral_ground_voltage - expected_ngv).abs() < 1e-9,
+            "neutral_ground_voltage should equal zero_sequence_current_a * 1.0"
+        );
+    }
+
+    #[test]
+    fn test_combine_evidence_all_zero() {
+        // combine_evidence is private; test indirectly via pure-sine detect()
+        let cfg = make_config();
+        let det = HifDetector::new(cfg.clone());
+        let samples = pure_sine(100.0, cfg.min_samples());
+        let result = det.detect(&samples).expect("detect should succeed");
+        // Pure sine provides zero evidence → combined confidence should be below threshold
+        assert!(
+            result.confidence < 0.48,
+            "pure-sine combined confidence should be below threshold 0.48, got {}",
+            result.confidence
+        );
+    }
+
+    #[test]
+    fn test_4th_harmonic_triggers_hif() {
+        let cfg = make_config();
+        let det = HifDetector::new(cfg.clone());
+        let dt = 1.0 / cfg.sampling_rate_hz;
+        let n = cfg.min_samples() + 10;
+        let samples: Vec<CurrentSample> = (0..n)
+            .map(|i| {
+                let t = i as f64 * dt;
+                let current_a =
+                    50.0 * (2.0 * PI * 60.0 * t).sin() + 15.0 * (2.0 * PI * 240.0 * t).sin(); // 30% 4th harmonic
+                CurrentSample {
+                    time_s: t,
+                    current_a,
+                    phase: Phase::A,
+                }
+            })
+            .collect();
+        let features = det
+            .extract_features(&samples)
+            .expect("extract_features should succeed");
+        assert!(
+            features.even_harmonic_ratio > 0.25,
+            "30% 4th harmonic → even_harmonic_ratio should be >0.25, got {}",
+            features.even_harmonic_ratio
+        );
+        let result = det.detect(&samples).expect("detect should succeed");
+        assert!(
+            result.hif_detected,
+            "strong 4th harmonic should trigger HIF detection"
+        );
+    }
+
+    #[test]
+    fn test_detection_time_matches_last_sample() {
+        let cfg = make_config();
+        let det = HifDetector::new(cfg.clone());
+        let n = cfg.min_samples() + 5;
+        let samples = pure_sine(100.0, n);
+        let last_time = samples.last().expect("samples must be non-empty").time_s;
+        let result = det.detect(&samples).expect("detect should succeed");
+        assert!(
+            (result.detection_time_s - last_time).abs() < 1e-12,
+            "detection_time_s should equal last sample time {}, got {}",
+            last_time,
+            result.detection_time_s
+        );
+    }
+
+    #[test]
+    fn test_fault_phase_dominant_phase_b() {
+        let cfg = make_config();
+        let det = HifDetector::new(cfg.clone());
+        let n = cfg.min_samples() + 10;
+        // arc_waveform is on Phase::A; remap to Phase::B
+        let samples: Vec<CurrentSample> = arc_waveform(n)
+            .into_iter()
+            .map(|s| CurrentSample {
+                phase: Phase::B,
+                ..s
+            })
+            .collect();
+        let result = det.detect(&samples).expect("detect should succeed");
+        match result.fault_phase {
+            Some(Phase::B) => {}
+            other => panic!("expected fault_phase Some(Phase::B), got {:?}", other),
+        }
+    }
+
+    #[test]
+    fn test_higher_far_lowers_threshold() {
+        let n = {
+            let cfg = make_config();
+            cfg.min_samples() + 10
+        };
+        let samples = arc_waveform(n);
+
+        // Low FAR detector (threshold = 0.48)
+        let cfg_low = make_config(); // false_alarm_rate = 0.01
+        let det_low = HifDetector::new(cfg_low);
+        let result_low = det_low
+            .detect(&samples)
+            .expect("low-FAR detect should succeed");
+
+        // High FAR detector (threshold = clamp(0.5 - 0.20*2, 0.3, 0.7) = 0.3)
+        let cfg_high = HifConfig {
+            false_alarm_rate: 0.20,
+            ..make_config()
+        };
+        let det_high = HifDetector::new(cfg_high);
+        let result_high = det_high
+            .detect(&samples)
+            .expect("high-FAR detect should succeed");
+
+        assert!(
+            result_low.hif_detected,
+            "low-FAR detector should detect arc waveform"
+        );
+        assert!(
+            result_high.hif_detected,
+            "high-FAR detector should detect arc waveform"
+        );
+    }
 }

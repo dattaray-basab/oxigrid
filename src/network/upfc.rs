@@ -552,4 +552,270 @@ mod tests {
             q_target
         );
     }
+
+    /// Test 6: Bus index out of range returns BusOutOfRange error.
+    #[test]
+    fn test_bus_out_of_range() {
+        let ybus = two_bus_ybus(0.01, 0.1);
+        let voltages = voltages_2bus();
+        let mut net = UpfcNetwork::new(2);
+        let cfg = UpfcConfig {
+            series_bus_from: 5,
+            series_bus_to: 1,
+            shunt_bus: 0,
+            v_series_max_pu: 0.3,
+            i_series_max_pu: 1.0,
+            q_shunt_range: (-50.0, 50.0),
+            loss_factor: 0.02,
+        };
+        let sp = UpfcSetpoints {
+            p_target_mw: 30.0,
+            q_target_mvar: 0.0,
+            v_bus_target_pu: 1.0,
+        };
+        net.add_upfc(cfg, sp);
+        let result = net.solve_power_flow(&voltages, &ybus);
+        match result {
+            Err(UpfcError::BusOutOfRange(idx, n)) => {
+                assert_eq!(idx, 5, "out-of-range bus index should be 5, got {}", idx);
+                assert_eq!(n, 2, "network size should be 2, got {}", n);
+            }
+            other => panic!("expected BusOutOfRange(5, 2), got {:?}", other),
+        }
+    }
+
+    /// Test 7: Voltage vector shorter than n_bus yields InvalidConfig error.
+    #[test]
+    fn test_voltages_shorter_than_n_bus() {
+        let ybus = two_bus_ybus(0.01, 0.1);
+        let voltages = voltages_2bus(); // only 2 entries for a 3-bus network
+        let mut net = UpfcNetwork::new(3);
+        let cfg = UpfcConfig {
+            series_bus_from: 0,
+            series_bus_to: 1,
+            shunt_bus: 0,
+            v_series_max_pu: 0.3,
+            i_series_max_pu: 1.0,
+            q_shunt_range: (-50.0, 50.0),
+            loss_factor: 0.02,
+        };
+        let sp = UpfcSetpoints {
+            p_target_mw: 30.0,
+            q_target_mvar: 0.0,
+            v_bus_target_pu: 1.0,
+        };
+        net.add_upfc(cfg, sp);
+        let result = net.solve_power_flow(&voltages, &ybus);
+        assert!(
+            matches!(result, Err(UpfcError::InvalidConfig(_))),
+            "mismatched voltage vector size should yield InvalidConfig, got {:?}",
+            result
+        );
+    }
+
+    /// Test 8: Two UPFC devices in the same network both converge.
+    #[test]
+    fn test_multiple_upfc_devices() {
+        let ybus = two_bus_ybus(0.01, 0.1);
+        let voltages = voltages_2bus();
+        let mut net = UpfcNetwork::new(2);
+        let sp1 = UpfcSetpoints {
+            p_target_mw: 30.0,
+            q_target_mvar: 0.0,
+            v_bus_target_pu: 1.0,
+        };
+        let sp2 = UpfcSetpoints {
+            p_target_mw: 50.0,
+            q_target_mvar: 10.0,
+            v_bus_target_pu: 1.0,
+        };
+        net.add_upfc(default_config(), sp1);
+        net.add_upfc(default_config(), sp2);
+        let states = net
+            .solve_power_flow(&voltages, &ybus)
+            .expect("solve with two UPFC devices should not error");
+        assert_eq!(states.len(), 2, "should return one state per UPFC device");
+        assert!(states[0].converged, "first UPFC device should converge");
+        assert!(states[1].converged, "second UPFC device should converge");
+    }
+
+    /// Test 9: Series voltage is near zero when target matches the natural power flow.
+    #[test]
+    fn test_series_voltage_near_zero_at_natural_flow() {
+        let ybus = two_bus_ybus(0.01, 0.1);
+        let voltages = voltages_2bus(); // (1.0, 0°) and (0.98, -5°)
+        let mut net = UpfcNetwork::new(2);
+        let cfg = default_config();
+        // Natural P≈40.7 MW, Q≈6.8 MVAr — asking for exactly that should need no series boost.
+        let sp = UpfcSetpoints {
+            p_target_mw: 40.7,
+            q_target_mvar: 6.8,
+            v_bus_target_pu: 1.0,
+        };
+        net.add_upfc(cfg, sp);
+        let states = net
+            .solve_power_flow(&voltages, &ybus)
+            .expect("solve failed");
+        let s = &states[0];
+        assert!(s.converged, "natural-flow setpoint should converge");
+        assert!(
+            s.v_series_mag_pu < 0.05,
+            "series voltage magnitude should be near zero for natural flow, got {:.4} pu",
+            s.v_series_mag_pu
+        );
+    }
+
+    /// Test 10: Series voltage is clamped to v_series_max_pu even under large setpoints.
+    #[test]
+    fn test_series_voltage_clamped_by_v_series_max() {
+        let ybus = two_bus_ybus(0.01, 0.1);
+        let voltages = voltages_2bus();
+        let mut net = UpfcNetwork::new(2);
+        let cfg = UpfcConfig {
+            series_bus_from: 0,
+            series_bus_to: 1,
+            shunt_bus: 0,
+            v_series_max_pu: 0.05,
+            i_series_max_pu: 1.0,
+            q_shunt_range: (-50.0, 50.0),
+            loss_factor: 0.02,
+        };
+        let sp = UpfcSetpoints {
+            p_target_mw: 100.0,
+            q_target_mvar: 50.0,
+            v_bus_target_pu: 1.0,
+        };
+        net.add_upfc(cfg, sp);
+        let states = net
+            .solve_power_flow(&voltages, &ybus)
+            .expect("solve should not error even when clamped");
+        let s = &states[0];
+        assert!(
+            s.v_series_mag_pu <= 0.05 + 1e-9,
+            "series voltage magnitude must not exceed v_series_max_pu=0.05, got {:.6} pu",
+            s.v_series_mag_pu
+        );
+    }
+
+    /// Test 11: Negative Q target (capacitive) converges and Q flow matches target.
+    #[test]
+    fn test_negative_q_target() {
+        let ybus = two_bus_ybus(0.01, 0.1);
+        let voltages = voltages_2bus();
+        let mut net = UpfcNetwork::new(2);
+        let cfg = default_config();
+        let sp = UpfcSetpoints {
+            p_target_mw: 30.0,
+            q_target_mvar: -20.0,
+            v_bus_target_pu: 1.0,
+        };
+        net.add_upfc(cfg, sp);
+        let states = net
+            .solve_power_flow(&voltages, &ybus)
+            .expect("solve with negative Q target should not error");
+        let s = &states[0];
+        assert!(s.converged, "negative Q target should converge");
+        assert!(
+            (s.q_flow_mvar - (-20.0)).abs() < 5.0,
+            "Q flow {:.2} MVAr should be within 5 MVAr of -20.0 MVAr",
+            s.q_flow_mvar
+        );
+    }
+
+    /// Test 12: Shunt power balance — p_shunt offsets p_series plus losses.
+    ///
+    /// The solver computes: p_shunt = -(p_series + |p_series| * loss_factor).
+    /// So p_shunt + p_series + |p_series| * loss_factor ≈ 0.
+    #[test]
+    fn test_shunt_power_balance() {
+        let ybus = two_bus_ybus(0.01, 0.1);
+        let voltages = voltages_2bus();
+        let mut net = UpfcNetwork::new(2);
+        let loss_factor = 0.01_f64;
+        let cfg = UpfcConfig {
+            series_bus_from: 0,
+            series_bus_to: 1,
+            shunt_bus: 0,
+            v_series_max_pu: 0.3,
+            i_series_max_pu: 1.0,
+            q_shunt_range: (-50.0, 50.0),
+            loss_factor,
+        };
+        let sp = UpfcSetpoints {
+            p_target_mw: 50.0,
+            q_target_mvar: 10.0,
+            v_bus_target_pu: 1.0,
+        };
+        net.add_upfc(cfg, sp);
+        let states = net
+            .solve_power_flow(&voltages, &ybus)
+            .expect("solve for shunt balance check should not error");
+        let s = &states[0];
+        // The solver enforces: p_shunt = -(p_series + |p_series| * loss_factor)
+        // Verify this balance holds to within floating-point tolerance.
+        let expected_p_shunt = -(s.p_series_mw + s.p_series_mw.abs() * loss_factor);
+        assert!(
+            (s.p_shunt_mw - expected_p_shunt).abs() < 1e-6,
+            "shunt power balance violated: p_shunt={:.6} MW, expected {:.6} MW \
+             (p_series={:.6} MW, loss_factor={})",
+            s.p_shunt_mw,
+            expected_p_shunt,
+            s.p_series_mw,
+            loss_factor
+        );
+    }
+
+    /// Test 13: Higher loss factor causes the shunt to absorb more real power.
+    #[test]
+    fn test_higher_loss_factor_increases_shunt_absorption() {
+        let ybus = two_bus_ybus(0.01, 0.1);
+        let voltages = voltages_2bus();
+        let sp = UpfcSetpoints {
+            p_target_mw: 50.0,
+            q_target_mvar: 10.0,
+            v_bus_target_pu: 1.0,
+        };
+
+        let mut net_low = UpfcNetwork::new(2);
+        let cfg_low = UpfcConfig {
+            series_bus_from: 0,
+            series_bus_to: 1,
+            shunt_bus: 0,
+            v_series_max_pu: 0.3,
+            i_series_max_pu: 1.0,
+            q_shunt_range: (-50.0, 50.0),
+            loss_factor: 0.01,
+        };
+        net_low.add_upfc(cfg_low, sp.clone());
+        let states_low = net_low
+            .solve_power_flow(&voltages, &ybus)
+            .expect("low-loss solve should not error");
+        let state_low_loss = &states_low[0];
+
+        let mut net_high = UpfcNetwork::new(2);
+        let cfg_high = UpfcConfig {
+            series_bus_from: 0,
+            series_bus_to: 1,
+            shunt_bus: 0,
+            v_series_max_pu: 0.3,
+            i_series_max_pu: 1.0,
+            q_shunt_range: (-50.0, 50.0),
+            loss_factor: 0.05,
+        };
+        net_high.add_upfc(cfg_high, sp);
+        let states_high = net_high
+            .solve_power_flow(&voltages, &ybus)
+            .expect("high-loss solve should not error");
+        let state_high_loss = &states_high[0];
+
+        assert!(state_low_loss.converged, "low-loss solve should converge");
+        assert!(state_high_loss.converged, "high-loss solve should converge");
+        assert!(
+            state_high_loss.p_shunt_mw <= state_low_loss.p_shunt_mw + 1e-6,
+            "higher loss factor should result in more negative p_shunt_mw: \
+             high={:.4} MW, low={:.4} MW",
+            state_high_loss.p_shunt_mw,
+            state_low_loss.p_shunt_mw
+        );
+    }
 }

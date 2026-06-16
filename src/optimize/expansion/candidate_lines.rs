@@ -215,4 +215,105 @@ mod tests {
         let e = db.find_by_voltage(400.0).expect("entry");
         assert!((e.voltage_kv - 345.0).abs() < 1.0 || (e.voltage_kv - 500.0).abs() < 1.0);
     }
+
+    #[test]
+    fn find_by_voltage_115_kv() {
+        let db = CandidateLineDatabase::standard();
+        let entry = db.find_by_voltage(115.0).expect("115 kV entry must exist");
+        assert!(
+            (entry.voltage_kv - 115.0).abs() < 1.0,
+            "expected voltage_kv ≈ 115, got {}",
+            entry.voltage_kv
+        );
+        assert!(
+            (entry.capacity_mw - 150.0).abs() < 1.0,
+            "expected capacity_mw ≈ 150, got {}",
+            entry.capacity_mw
+        );
+    }
+
+    #[test]
+    fn find_by_voltage_765_kv() {
+        let db = CandidateLineDatabase::standard();
+        let entry = db.find_by_voltage(765.0).expect("765 kV entry must exist");
+        // 765 kV should be the highest voltage in the database
+        let max_voltage = db
+            .entries
+            .iter()
+            .map(|e| e.voltage_kv)
+            .fold(f64::NEG_INFINITY, f64::max);
+        assert!(
+            (entry.voltage_kv - max_voltage).abs() < 1e-9,
+            "expected highest voltage entry, got {}",
+            entry.voltage_kv
+        );
+    }
+
+    #[test]
+    fn create_candidate_115kv_50km_resistance_pu() {
+        let db = CandidateLineDatabase::standard();
+        let entry_115 = db.find_by_voltage(115.0).expect("115 kV entry");
+        let cand = db
+            .create_candidate(0, 1, 115.0, 50.0, 0)
+            .expect("create 115 kV 50 km candidate");
+        let z_base = 115.0_f64.powi(2) / 100.0;
+        let expected_r = entry_115.resistance_ohm_per_km * 50.0 / z_base;
+        assert!(
+            (cand.resistance_pu - expected_r).abs() < 1e-9,
+            "resistance_pu mismatch: got {}, expected {}",
+            cand.resistance_pu,
+            expected_r
+        );
+    }
+
+    #[test]
+    fn create_candidate_765kv_capacity() {
+        let db = CandidateLineDatabase::standard();
+        let cand = db
+            .create_candidate(0, 1, 765.0, 200.0, 0)
+            .expect("create 765 kV 200 km candidate");
+        assert!(
+            cand.capacity_mw >= 3000.0,
+            "expected capacity_mw >= 3000, got {}",
+            cand.capacity_mw
+        );
+    }
+
+    #[test]
+    fn annual_fixed_cost_is_one_percent_of_investment() {
+        let db = CandidateLineDatabase::standard();
+        let cand = db
+            .create_candidate(0, 1, 345.0, 100.0, 0)
+            .expect("create 345 kV 100 km candidate");
+        let expected = 0.01 * cand.investment_cost_m;
+        assert!(
+            (cand.annual_fixed_cost_m - expected).abs() < 1e-9,
+            "annual_fixed_cost_m {} != 1% of investment_cost_m {}",
+            cand.annual_fixed_cost_m,
+            cand.investment_cost_m
+        );
+    }
+
+    #[test]
+    fn create_candidate_id_matches() {
+        let db = CandidateLineDatabase::standard();
+        let cand = db
+            .create_candidate(0, 1, 345.0, 100.0, 42)
+            .expect("create candidate with id=42");
+        assert_eq!(cand.id, 42, "expected id=42, got {}", cand.id);
+    }
+
+    #[test]
+    fn create_candidate_bus_indices_match() {
+        let db = CandidateLineDatabase::standard();
+        let cand = db
+            .create_candidate(5, 9, 500.0, 80.0, 1)
+            .expect("create 500 kV 80 km candidate from 5 to 9");
+        assert_eq!(
+            cand.from_bus, 5,
+            "expected from_bus=5, got {}",
+            cand.from_bus
+        );
+        assert_eq!(cand.to_bus, 9, "expected to_bus=9, got {}", cand.to_bus);
+    }
 }

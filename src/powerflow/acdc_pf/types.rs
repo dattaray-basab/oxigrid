@@ -736,3 +736,88 @@ pub struct VscDcBus {
     /// DC load (non-VSC) \[MW\].
     pub p_load_mw: f64,
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn dc_branch_new_defaults() {
+        let br = DcBranch::new(0, 1, 1.0, 10.0);
+        assert!((br.inductance_mh - 0.0).abs() < 1e-9);
+        assert!(br.current_rating_ka.is_infinite());
+        assert!(br.current_rating_ka > 0.0);
+    }
+
+    #[test]
+    fn dc_branch_conductance_ok() {
+        let br = DcBranch::new(2, 3, 2.0, 5.0);
+        let g = br
+            .conductance()
+            .expect("conductance should be Ok for positive resistance");
+        assert!((g - 0.5).abs() < 1e-9);
+    }
+
+    #[test]
+    fn dc_branch_conductance_zero_err() {
+        let br = DcBranch::new(0, 1, 0.0, 1.0);
+        let result = br.conductance();
+        assert!(result.is_err(), "zero resistance should return Err");
+    }
+
+    #[test]
+    fn dc_bus_new_voltage_and_load() {
+        let bus = DcBus::new(0, DcBusType::Slack, 320.0);
+        assert!((bus.v_dc_kv - 320.0).abs() < 1e-9);
+        assert!((bus.v_dc_nom_kv - 320.0).abs() < 1e-9);
+        assert!((bus.p_load_mw - 0.0).abs() < 1e-9);
+    }
+
+    #[test]
+    fn converter_new_is_rectifier() {
+        let c_rect = AcDcConverter::new(0, 0, 0, ConverterType::PQ, 100.0, 0.0, 320.0);
+        assert!(
+            c_rect.is_rectifier,
+            "positive p_ref_mw should set is_rectifier=true"
+        );
+
+        let c_inv = AcDcConverter::new(1, 0, 0, ConverterType::PQ, -100.0, 0.0, 320.0);
+        assert!(
+            !c_inv.is_rectifier,
+            "negative p_ref_mw should set is_rectifier=false"
+        );
+    }
+
+    #[test]
+    fn converter_new_defaults() {
+        let c = AcDcConverter::new(0, 0, 0, ConverterType::VdcQ, 50.0, 10.0, 320.0);
+        assert!((c.losses_fraction - 0.02).abs() < 1e-9);
+        assert!((c.q_min_mvar - (-200.0)).abs() < 1e-9);
+        assert!((c.q_max_mvar - 200.0).abs() < 1e-9);
+    }
+
+    #[test]
+    fn acdc_pf_new_init() {
+        let n_ac = 1usize;
+        let n_dc = 1usize;
+        let ac_g = vec![vec![0.0f64; n_ac]; n_ac];
+        let ac_b = vec![vec![0.0f64; n_ac]; n_ac];
+        let dc_buses = vec![DcBus::new(0, DcBusType::Slack, 320.0)];
+        let dc_branches: Vec<DcBranch> = vec![];
+        let converters: Vec<AcDcConverter> = vec![];
+        let net = AcDcNetwork::new(n_ac, n_dc, ac_g, ac_b, converters, dc_buses, dc_branches)
+            .expect("should build AcDcNetwork");
+        let config = AcDcPfConfig {
+            max_iterations: 50,
+            tolerance_pu: 1e-6,
+            base_mva: 100.0,
+            base_kv_ac: 110.0,
+            base_kv_dc: 320.0,
+        };
+        let solver = AcDcPowerFlow::new(net, config);
+        assert_eq!(solver.v_ac.len(), 1);
+        assert!((solver.v_ac[0] - 1.0).abs() < 1e-12);
+        assert_eq!(solver.theta_ac.len(), 1);
+        assert!((solver.theta_ac[0] - 0.0).abs() < 1e-12);
+    }
+}

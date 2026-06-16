@@ -38,141 +38,8 @@ pub use legacy::{
 // Legacy module — preserve existing public API surface
 // ─────────────────────────────────────────────────────────────────────────────
 
-pub mod legacy {
-    use serde::{Deserialize, Serialize};
-
-    /// Method used to allocate free emission permits to generators.
-    #[derive(Debug, Clone, Serialize, Deserialize)]
-    pub enum AllocationMethod {
-        /// Allocate based on historical emissions (grandfathering / free allocation).
-        Grandfathering,
-        /// Allocate based on emission intensity benchmark × capacity.
-        Benchmarking,
-        /// No free allocation — all permits sold at auction.
-        Auctioning,
-        /// Partial free allocation: `pct_free` fraction via grandfathering, rest auctioned.
-        HybridAuction {
-            /// Fraction of permits allocated for free (0.0–1.0).
-            pct_free: f64,
-        },
-    }
-
-    /// Carbon emission profile and cost data for a single generator.
-    #[derive(Debug, Clone, Serialize, Deserialize)]
-    pub struct GeneratorCarbonProfile {
-        pub unit_id: String,
-        pub pmax_mw: f64,
-        pub pmin_mw: f64,
-        pub marginal_cost_per_mwh: f64,
-        pub emission_rate_t_co2_per_mwh: f64,
-        pub free_permits_t_co2: f64,
-    }
-
-    /// Configuration for the carbon budget / cap-and-trade system.
-    #[derive(Debug, Clone, Serialize, Deserialize)]
-    pub struct CarbonBudgetConfig {
-        pub total_budget_t_co2: f64,
-        pub permit_price_per_t: f64,
-        pub banking_allowed: bool,
-        pub borrowing_allowed: bool,
-        pub price_floor_per_t: f64,
-        pub price_ceiling_per_t: f64,
-        pub planning_horizon_years: usize,
-    }
-
-    impl Default for CarbonBudgetConfig {
-        fn default() -> Self {
-            Self {
-                total_budget_t_co2: 1_000_000.0,
-                permit_price_per_t: 50.0,
-                banking_allowed: true,
-                borrowing_allowed: false,
-                price_floor_per_t: 20.0,
-                price_ceiling_per_t: 200.0,
-                planning_horizon_years: 10,
-            }
-        }
-    }
-
-    /// Record of a single permit transfer between entities.
-    #[derive(Debug, Clone, Serialize, Deserialize)]
-    pub struct PermitTransaction {
-        pub buyer: String,
-        pub seller: String,
-        pub quantity_t: f64,
-        pub price_per_t: f64,
-    }
-
-    /// Permit allocation result for one generator.
-    #[derive(Debug, Clone, Serialize, Deserialize)]
-    pub struct PermitAllocation {
-        pub unit_id: String,
-        pub allocated_t_co2: f64,
-        pub method: String,
-    }
-
-    /// A bid submitted in a permit auction.
-    #[derive(Debug, Clone, Serialize, Deserialize)]
-    pub struct AuctionBid {
-        pub bidder_id: String,
-        pub quantity_t: f64,
-        pub price_per_t: f64,
-    }
-
-    /// Result of a uniform-price permit auction (legacy).
-    #[derive(Debug, Clone, Serialize, Deserialize)]
-    pub struct AuctionResult {
-        pub clearing_price_per_t: f64,
-        pub total_permits_sold: f64,
-        pub revenue_usd: f64,
-        pub unsold_permits: f64,
-    }
-
-    /// Result of carbon-constrained economic dispatch.
-    #[derive(Debug, Clone, Serialize, Deserialize)]
-    pub struct CarbonDispatchResult {
-        pub dispatch_mw: Vec<f64>,
-        pub total_cost_usd: f64,
-        pub total_emissions_t_co2: f64,
-        pub permit_cost_usd: f64,
-        pub permit_surplus_t: f64,
-    }
-
-    /// One point on the cost–emissions Pareto front.
-    #[derive(Debug, Clone, Serialize, Deserialize)]
-    pub struct ParetoPoint {
-        pub carbon_price: f64,
-        pub total_cost_usd: f64,
-        pub total_emissions_t: f64,
-    }
-
-    /// Multi-year carbon plan covering the planning horizon.
-    #[derive(Debug, Clone, Serialize, Deserialize)]
-    pub struct MultiYearCarbonPlan {
-        pub annual_dispatch: Vec<Vec<f64>>,
-        pub annual_emissions: Vec<f64>,
-        pub annual_permit_cost: Vec<f64>,
-        pub banked_permits: Vec<f64>,
-        pub total_npv_cost: f64,
-    }
-
-    /// Compliance status for a regulated entity.
-    #[derive(Debug, Clone, Serialize, Deserialize)]
-    pub struct ComplianceStatus {
-        pub net_permit_position_t: f64,
-        pub compliant: bool,
-        pub penalty_usd: f64,
-        pub recommendation: String,
-    }
-
-    /// Result of a bilateral permit trading round.
-    #[derive(Debug, Clone, Serialize, Deserialize)]
-    pub struct TradingResult {
-        pub transactions: Vec<PermitTransaction>,
-        pub total_volume_t: f64,
-        pub clearing_price: f64,
-    }
-}
+#[path = "carbon_budget_legacy.rs"]
+pub mod legacy;
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Carbon accounting period
@@ -1732,6 +1599,310 @@ mod tests {
         assert!(
             report.co2e_avoided_vs_baseline_ton > 0.0,
             "Renewables should avoid significant CO₂e vs coal baseline"
+        );
+    }
+
+    // ─── New unit tests ──────────────────────────────────────────────────────
+
+    #[test]
+    fn test_total_allocated_allowances_within_budget() {
+        // All per-generator allocations summed must not exceed the budget cap
+        let coal = EmittingGenerator {
+            id: 0,
+            name: "Coal".into(),
+            capacity_mw: 200.0,
+            emission_factor: EmissionFactor::coal(),
+            allocated_allowances_ton: 60_000.0,
+            cost_per_mwh: 35.0,
+            is_renewable: false,
+        };
+        let gas = EmittingGenerator {
+            id: 1,
+            name: "Gas".into(),
+            capacity_mw: 150.0,
+            emission_factor: EmissionFactor::natural_gas(),
+            allocated_allowances_ton: 30_000.0,
+            cost_per_mwh: 55.0,
+            is_renewable: false,
+        };
+        let budget_cap = 100_000.0_f64;
+        let tracker = CarbonBudgetTracker::new(
+            vec![coal, gas],
+            CarbonPeriod::Annual { year: 2025 },
+            budget_cap,
+        );
+        let total_allocated: f64 = tracker
+            .generators
+            .iter()
+            .map(|g| g.allocated_allowances_ton)
+            .sum();
+        assert!(
+            total_allocated <= budget_cap,
+            "Total allocated allowances {:.0} t must not exceed budget cap {:.0} t",
+            total_allocated,
+            budget_cap
+        );
+    }
+
+    #[test]
+    fn test_carbon_market_price_non_negative() {
+        let mut market = CarbonMarket::new(EmissionScheme::EuEts, 65.0, 1_500.0);
+        // Drive price down with very low emissions
+        market.update_price(0.001, 5.0);
+        assert!(
+            market.current_price_eur_per_ton >= 0.0,
+            "Carbon price must be non-negative after update, got {:.4}",
+            market.current_price_eur_per_ton
+        );
+        // Price must not fall below the scheme floor
+        assert!(
+            market.current_price_eur_per_ton >= market.price_floor_eur_per_ton,
+            "Price {:.2} must not fall below floor {:.2}",
+            market.current_price_eur_per_ton,
+            market.price_floor_eur_per_ton
+        );
+    }
+
+    #[test]
+    fn test_tight_budget_reduces_cumulative_emissions() {
+        // Under a tight budget, carbon-adjusted dispatch should prefer low-emission sources.
+        // With a high carbon price the wind generator (0 emissions, low cost) always comes first;
+        // coal should be dispatched last or not at all.
+        let coal = EmittingGenerator {
+            id: 10,
+            name: "Coal".into(),
+            capacity_mw: 200.0,
+            emission_factor: EmissionFactor::coal(),
+            allocated_allowances_ton: 0.0,
+            cost_per_mwh: 35.0,
+            is_renewable: false,
+        };
+        let wind = EmittingGenerator {
+            id: 11,
+            name: "Wind".into(),
+            capacity_mw: 100.0,
+            emission_factor: EmissionFactor::wind(),
+            allocated_allowances_ton: 0.0,
+            cost_per_mwh: 5.0,
+            is_renewable: true,
+        };
+        let tracker_loose = CarbonBudgetTracker::new(
+            vec![coal.clone(), wind.clone()],
+            CarbonPeriod::Annual { year: 2025 },
+            500_000.0,
+        );
+        let tracker_tight = CarbonBudgetTracker::new(
+            vec![coal.clone(), wind.clone()],
+            CarbonPeriod::Annual { year: 2025 },
+            1_000.0, // very tight
+        );
+        let demand = 80.0; // within wind capacity — tight budget should serve from wind only
+                           // Loose budget: low carbon price — coal may lead (lower base cost with 0 carbon price)
+        let dispatch_loose = tracker_loose.carbon_adjusted_dispatch(demand, 0.0);
+        // Tight (high carbon price): wind must come first
+        let dispatch_tight = tracker_tight.carbon_adjusted_dispatch(demand, 500.0);
+
+        // With carbon price = 500 EUR/t, coal effective cost = 35 + 500*(820/1000) ≈ 445 EUR/MWh
+        // Wind effective cost = 5 + 0 = 5 EUR/MWh → wind dispatched first
+        let tight_wind_dispatch = dispatch_tight
+            .iter()
+            .find(|(id, _)| *id == 11)
+            .map(|(_, mw)| *mw)
+            .unwrap_or(0.0);
+        assert!(
+            tight_wind_dispatch >= demand - 1e-6,
+            "Under high carbon price, wind should cover the full demand {:.0} MW, got {:.2}",
+            demand,
+            tight_wind_dispatch
+        );
+
+        // Loose (zero carbon price): order should put cheap wind first anyway (cost 5 vs 35)
+        let _ = dispatch_loose; // used only to show contrast; both should prefer wind
+    }
+
+    #[test]
+    fn test_trading_surplus_deficit_sign() {
+        // A generator with large allocation and small generation → positive surplus
+        // A generator with zero allocation and large generation → negative (deficit)
+        let gen_surplus = EmittingGenerator {
+            id: 20,
+            name: "Surplus Gen".into(),
+            capacity_mw: 100.0,
+            emission_factor: EmissionFactor::natural_gas(),
+            allocated_allowances_ton: 50_000.0,
+            cost_per_mwh: 55.0,
+            is_renewable: false,
+        };
+        let gen_deficit = EmittingGenerator {
+            id: 21,
+            name: "Deficit Gen".into(),
+            capacity_mw: 200.0,
+            emission_factor: EmissionFactor::coal(),
+            allocated_allowances_ton: 0.0,
+            cost_per_mwh: 35.0,
+            is_renewable: false,
+        };
+
+        // Surplus gen: 1 MWh gas → ~0.4 t emitted, 50000 t allocated → large surplus
+        let surplus = gen_surplus.allowance_position(1.0);
+        assert!(
+            surplus > 0.0,
+            "Generator with large allocation and tiny generation must have a positive surplus, got {:.4}",
+            surplus
+        );
+
+        // Deficit gen: 10000 MWh coal → ~8000 t emitted, 0 t allocated → deficit
+        let deficit = gen_deficit.allowance_position(10_000.0);
+        assert!(
+            deficit < 0.0,
+            "Generator with zero allocation and high generation must have a negative deficit, got {:.4}",
+            deficit
+        );
+    }
+
+    #[test]
+    fn test_carbon_shadow_price_from_budget_status() {
+        // When budget is nearly exhausted, the recommended action carries an estimated cost.
+        // Verify that PurchaseAllowances.estimated_cost_eur = ton × carbon_price.
+        let mut tracker = CarbonBudgetTracker::new(
+            vec![EmittingGenerator {
+                id: 30,
+                name: "Coal".into(),
+                capacity_mw: 500.0,
+                emission_factor: EmissionFactor::coal(),
+                allocated_allowances_ton: 1_000.0, // very low allocation
+                cost_per_mwh: 35.0,
+                is_renewable: false,
+            }],
+            CarbonPeriod::Annual { year: 2025 },
+            5_000.0, // 5 kt budget
+        );
+        // Record 2000 MWh of coal → ~1640 t emissions → just under budget at 33% elapsed
+        tracker
+            .record_generation(30, 2_000.0)
+            .expect("record_generation should succeed for known generator id 30");
+
+        let carbon_price = 80.0;
+        let status = tracker.budget_status(0.33, carbon_price);
+
+        // projected = 1640 / 0.33 ≈ 4970 t, which may be within budget here;
+        // the allowances_held is only 1000 t → projected deficit > 0
+        if let BudgetAction::PurchaseAllowances {
+            ton,
+            estimated_cost_eur,
+        } = &status.recommended_action
+        {
+            let expected_cost = ton * carbon_price;
+            assert!(
+                (estimated_cost_eur - expected_cost).abs() < 1e-6,
+                "estimated_cost_eur {:.4} should equal ton {:.4} × price {:.4} = {:.4}",
+                estimated_cost_eur,
+                ton,
+                carbon_price,
+                expected_cost
+            );
+        }
+        // The allowance surplus/deficit should be negative (deficit) given very small allocation
+        assert!(
+            status.allowance_surplus_deficit_ton < 0.0,
+            "Allowance surplus/deficit should be negative (deficit) with insufficient allocation, got {:.2}",
+            status.allowance_surplus_deficit_ton
+        );
+    }
+
+    #[test]
+    fn test_mac_coal_to_wind_is_positive() {
+        // Switching from coal (id=0, cost=35) to wind (id=2, cost=5):
+        // MAC = (wind_cost - coal_cost) / (coal_emission - wind_emission)
+        // coal cost=35, wind cost=5 → delta_cost = 5-35 = -30 EUR/MWh
+        // coal ~0.82 t/MWh, wind ~0 t/MWh → delta_emission ≈ 0.82 t/MWh
+        // MAC ≈ -30 / 0.82 ≈ -36.6 EUR/t  (negative = abatement is cheaper than coal)
+        let tracker = CarbonBudgetTracker::new(
+            vec![make_coal_gen(), make_wind_gen()],
+            CarbonPeriod::Annual { year: 2025 },
+            200_000.0,
+        );
+        let mac = tracker
+            .marginal_abatement_cost(0, 2)
+            .expect("MAC from coal (id=0) to wind (id=2) should succeed");
+        // wind is cheaper than coal → negative MAC
+        assert!(
+            mac < 0.0,
+            "MAC from coal to wind should be negative (wind is cheaper), got {:.4}",
+            mac
+        );
+        // Sanity: coal emission ~ 820 kg/MWh = 0.82 t/MWh; delta_cost = 5-35 = -30
+        let coal_intensity = EmissionFactor::coal().co2e_kg_per_mwh() / 1_000.0;
+        let wind_intensity = EmissionFactor::wind().co2e_kg_per_mwh() / 1_000.0;
+        let expected_mac = (5.0_f64 - 35.0) / (coal_intensity - wind_intensity);
+        assert!(
+            (mac - expected_mac).abs() < 1e-6,
+            "MAC {:.4} should equal expected {:.4}",
+            mac,
+            expected_mac
+        );
+    }
+
+    #[test]
+    fn test_compliance_check_emissions_within_allocation() {
+        // After recording generation within allocated allowances, allowance_position must be >= 0
+        let mut tracker = CarbonBudgetTracker::new(
+            vec![EmittingGenerator {
+                id: 40,
+                name: "Gas".into(),
+                capacity_mw: 150.0,
+                emission_factor: EmissionFactor::natural_gas(),
+                allocated_allowances_ton: 100_000.0, // generous allocation
+                cost_per_mwh: 55.0,
+                is_renewable: false,
+            }],
+            CarbonPeriod::Annual { year: 2025 },
+            200_000.0,
+        );
+        // Record only 10 MWh; gas emits ~0.4 t → well within 100 kt allocation
+        tracker
+            .record_generation(40, 10.0)
+            .expect("record_generation must succeed for id 40");
+
+        let gen = &tracker.generators[0];
+        let position = gen.allowance_position(10.0);
+        assert!(
+            position >= 0.0,
+            "Generator with 100 kt allocation and tiny generation must be compliant (position >= 0), got {:.4}",
+            position
+        );
+    }
+
+    #[test]
+    fn test_tighter_budget_increases_effective_dispatch_cost() {
+        // With a higher carbon price (simulating tighter budget pressure),
+        // the carbon-adjusted dispatch cost for a coal unit must increase.
+        let coal = EmittingGenerator {
+            id: 50,
+            name: "Coal".into(),
+            capacity_mw: 100.0,
+            emission_factor: EmissionFactor::coal(),
+            allocated_allowances_ton: 0.0,
+            cost_per_mwh: 35.0,
+            is_renewable: false,
+        };
+        // carbon_cost_eur for 1 MWh at low vs high carbon price
+        let low_price_cost = coal.carbon_cost_eur(1.0, 20.0);
+        let high_price_cost = coal.carbon_cost_eur(1.0, 100.0);
+        assert!(
+            high_price_cost > low_price_cost,
+            "Carbon cost at price 100 EUR/t ({:.4}) must exceed cost at 20 EUR/t ({:.4})",
+            high_price_cost,
+            low_price_cost
+        );
+        // Verify proportionality: cost ratio should equal price ratio
+        let price_ratio = 100.0_f64 / 20.0;
+        let cost_ratio = high_price_cost / low_price_cost;
+        assert!(
+            (cost_ratio - price_ratio).abs() < 1e-6,
+            "Carbon cost should scale linearly with price: ratio {:.6} vs expected {:.6}",
+            cost_ratio,
+            price_ratio
         );
     }
 }

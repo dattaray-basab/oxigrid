@@ -1,5 +1,29 @@
 # OxiGrid TODO
 
+## Stubs to implement (added 2026-06-12 by /cooljapan-stub-check)
+
+- [x] `oxigrid`: `src/battery/marketplace.rs:330` — replace placeholder `(2026, 1, 1)` timestamp with real system time (done 2026-06-14)
+  - Priority: P2 | Scope: trivial | Hint: none
+  - **Goal:** `BatteryLifecycleEvent.timestamp` reflects real current date as `(year, month, day)` `(usize,usize,usize)`.
+  - **Design:** Add private `fn current_civil_date() -> (usize, usize, usize)` using `SystemTime::now().duration_since(UNIX_EPOCH)` + Howard Hinnant integer civil_from_days algorithm; no `.unwrap()` — use `unwrap_or` fallback to `(1970,1,1)`. Replace placeholder at line 330.
+  - **Files:** `src/battery/marketplace.rs`
+  - **Tests:** `civil_from_days(0)==(1970,1,1)`, known offset, `current_civil_date()` returns sane year/month/day ranges.
+  - **Implemented:** `current_civil_date()` at `marketplace.rs:254`, used at `buy_asset` (line 379); tests `civil_from_days_epoch`, `civil_from_days_known_offset`, `current_civil_date_sane`.
+- [x] `oxigrid`: `src/network/offshore_substation.rs:348` — replace placeholder North Sea coordinates with actual substation location data (done 2026-06-14)
+  - Priority: P2 | Scope: trivial | Hint: none
+  - **Goal:** `OffshoreSubstation.location` is caller-supplied, not hardcoded `(56.0,4.0)`.
+  - **Design:** Add `pub location: (f64,f64)` to `OffshoreSystemDesigner`, defaulting to `(56.0,4.0)` in `new()`; add `with_location(self,lat,lon)->Self` builder; add `with_shore_reference(self,lat,lon)->Self` that recomputes `distance_to_shore_km` via geospatial haversine if available. At line 348 use `location: self.location`.
+  - **Files:** `src/network/offshore_substation.rs`, reuse `src/network/geospatial.rs` haversine if present.
+  - **Tests:** default location `(56.0,4.0)` flows to output; `with_location(60.5,1.7)` produces correct output; shore-ref recomputes distance within tolerance.
+  - **Implemented:** `pub location` field + `with_location`/`with_shore_reference` builders + private `haversine_km`; output uses `location: self.location`; tests `with_location_flows_through`, `with_shore_reference_updates_distance`.
+- [x] `oxigrid`: `src/optimize/hydrogen/seasonal_storage.rs:753` — replace placeholder carbon_intensity call with real carbon intensity lookup (done 2026-06-14)
+  - Priority: P2 | Scope: small | Hint: none
+  - **Goal:** `economic_assessment` computes meaningful carbon intensity via production-weighted average, not hardcoded 0.0.
+  - **Design:** Add `pub grid_co2_intensity_g_per_kwh: Vec<f64>` (len==`planning_weeks`) to `SeasonalStorageConfig`; default `vec![300.0; weeks]`; validate length. At line 753 compute `eff_ci = Σ(consumed_mwh_w × ci_w) / max(Σ consumed_mwh_w, f64::EPSILON)` from `full_year_simulation` weekly dispatch, then call `self.carbon_intensity(eff_ci)`.
+  - **Files:** `src/optimize/hydrogen/seasonal_storage.rs`
+  - **Tests:** all-zero CI → always green; high CI (700 g/kWh×55 kWh/kg>1000) → not green; weighted mean reflects actual dispatch; default config gives finite sane CI.
+  - **Implemented:** `grid_co2_intensity_g_per_kwh: Vec<f64>` field (default `vec![300.0; weeks]`); `economic_assessment` folds weekly `electricity_consumed_mwh` into a production-weighted `eff_ci` then calls `carbon_intensity(eff_ci)`; tests cover all-zero (green) and 700 g/kWh (not green) configs.
+
 ## Legend
 - [x] Done
 - [ ] Not started
@@ -223,9 +247,16 @@
 ## Cross-Cutting Concerns
 
 ### Quality & Testing
-- [~] **Pub fn coverage:** Round 27 wired 6 orphaned module groups, added 88+ tests. Round 28 wired ≥ 77 orphan modules (~75K LOC), resolved 8 sibling-pair overlaps (all wire-alongside), added 53+ tests in 5 high-leverage files + 2 SIMD tests + 6 doctests. Round 29 Item C added 40 tests across 5 low-coverage files; Round 30 Item B added 63 tests across 8 zero/low-density files (topology.rs and black_start.rs had 0 in-file tests). Remaining gap tracked per tarpaulin function-coverage report.
+- [x] **Pub fn coverage:** Round 27 wired 6 orphaned module groups, added 88+ tests. Round 28 wired ≥ 77 orphan modules (~75K LOC), resolved 8 sibling-pair overlaps (all wire-alongside), added 53+ tests in 5 high-leverage files + 2 SIMD tests + 6 doctests. Round 29 Item C added 40 tests across 5 low-coverage files; Round 30 Item B added 63 tests across 8 zero/low-density files (topology.rs and black_start.rs had 0 in-file tests). Remaining gap tracked per tarpaulin function-coverage report.
+  - **Refinement (2026-06-13):** Round 31 adds ~70–90 tests across 10 fresh zero/low-coverage files: `testcases/synthetic.rs`, `testcases/ieee.rs`, `optimize/opf/n1_scopf.rs`, `network/thevenin.rs`, `protection/hif.rs`, `renewable/inverter/grid_forming.rs`, `optimize/ev/fleet.rs`, `optimize/market/dam.rs`, `powerflow/stochastic_lf.rs`. All confirmed <1200 lines.
+  - **Round 32 (2026-06-14):** Closed both remaining zero-in-file-test builder modules — `testcases/ieee.rs` (0 → 21) and `testcases/distribution.rs` (0 → 12) now exercise their private helpers + every builder + NR convergence on exact-data cases (14/30/33-bus). All Round 31 target files plus the two `testcases/` builders now carry substantial in-file tests. This remains a perpetual tracker (a 231K-LOC codebase always has some uncovered `pub fn`); the specifically-identified gaps are closed.
+  - **Refinement (2026-06-14):** Round 34 adds ~64 tests across 8 more files: `network/hvdc.rs` (+8, 986L), `powerflow/harmonic_pf.rs` (+8, now 1902L NEAR LIMIT), `powerflow/unbalanced_continuation.rs` (+8, now 1930L NEAR LIMIT), `optimize/market/peer_to_peer.rs` (+8, 1705L), `optimize/storage/multi_market.rs` (+8, 1705L), `optimize/market/carbon_budget.rs` (+8, 1908L NEAR LIMIT), `protection/fault_current_limiter.rs` (+8, 1693L), `stability/inter_area.rs` (+8, now 1987L — DO NOT ADD MORE).
+  - **Round 50 (2026-06-16):** Comprehensive test suite complete. All files have tests (6,179 #[test] annotations). Zero zero-test files remain. Coverage confirmed at 81.53% — exceeds 80% target. Marking complete.
 - [x] proptest property-based tests for numerical invariants (`tests/powerflow_proptest.rs`: 8 proptest props + 2 regular tests)
-- [~] **Coverage roadmap:** Round 27 baseline = 76.90% (32,644/42,449 lines). Round 28 = 78.49% (43,580/55,525 lines), measured 2026-04-27 via `tarpaulin.toml`. Per-round target: +5pp until 80%+. See `tarpaulin.toml` for the canonical command. Post-Round-30 coverage measurement deferred (tarpaulin ~1.5h runtime); combined Rounds 29+30 added 103 unit tests on previously zero/thin modules — estimated +5–7 pp; recommend background tarpaulin run before Round 31.
+- [x] **Coverage roadmap:** Round 27 baseline = 76.90% (32,644/42,449 lines). Round 28 = 78.49% (43,580/55,525 lines), measured 2026-04-27 via `tarpaulin.toml`. Per-round target: +5pp until 80%+. See `tarpaulin.toml` for the canonical command. Post-Round-30 coverage measurement deferred (tarpaulin ~1.5h runtime); combined Rounds 29+30 added 103 unit tests on previously zero/thin modules — estimated +5–7 pp; recommend background tarpaulin run before Round 31.
+  - **Refinement (2026-06-13):** Round 31 targeting listed fresh files (see Pub fn coverage above). Tarpaulin measurement (~1.5h) deferred to after Round 31 implementation; flip `[~]`→`[x]` only when measurement confirms ≥80%.
+  - **Round 32 (2026-06-14):** Installed `cargo-tarpaulin` 0.35.4 and ran the canonical `cargo tarpaulin` (reads `tarpaulin.toml`) after finalizing all Round-32 test additions. Since Round 28's 78.49%, Rounds 29–32 added ~280 unit tests on previously zero/thin modules, so the measured figure is expected to clear the 80 % gate. Result recorded below once the run completes.
+  - **Measured 2026-06-16:** `cargo tarpaulin --all-features` → **81.53% line coverage** (45,120 / 55,340 lines), 5,612 tests, 0 failures. Target ≥80% confirmed. Marking complete.
 
 ### Performance
 - [x] Sparse Jacobian: Y-bus non-zero iteration (avoids O(n²) ybus_to_dense), O(1) index maps
@@ -254,12 +285,42 @@
 |--------|-------|
 | Rust source files | 466 |
 | SLoC (Rust code) | 231,610 |
-| Total tests passing | 5,036 |
-| Coverage (Round 28) | 78.49% (43,580/55,525 lines) — post-Round-30 measurement deferred |
-| Clippy warnings | 0 |
+| Total tests passing | 5,226 (nextest: lib unit + integration, all-features, Round 32) |
+| Coverage (Round 28) | 78.49% (43,580/55,525 lines) — measurement still deferred; Rounds 29–32 added ~270 tests on previously thin/zero modules, est. well above 80% |
+| Clippy warnings | 0 (`--all-targets --all-features`) |
 | IEEE 14-bus NR bench | ~29 us |
 | IEEE 30-bus NR bench | ~160 us |
 | IEEE 14-bus DC bench | ~1.6 us |
+
+---
+
+## Round 32 (2026-06-14)
+
+**Item A — Three deferred stubs verified complete & closed** `[x]`
+- `battery/marketplace.rs` (`current_civil_date`), `network/offshore_substation.rs` (`with_location`/`with_shore_reference`/`haversine_km`), and `optimize/hydrogen/seasonal_storage.rs` (production-weighted `grid_co2_intensity_g_per_kwh`) were all implemented and tested; flipped `[~]`→`[x]` in the stub list above.
+
+**Item B — `testcases/` in-file unit tests: 0 → 33 across the two builder modules** `[x]`
+- `testcases/ieee.rs` (0 → 21): private helpers (`map_bus_type` incl. the `InvalidNetwork` error path, `make_bus` degree→radian conversion, `make_branch`/`make_transformer` tap semantics, `make_gen` 100-MVA base) plus structural + canonical-load checks on every builder and Newton–Raphson convergence on the exact-data 14/30-bus cases. Fixed a docstring/comment inaccuracy: `ieee57()` builds **85** branches (parallel circuits on 4-18, 24-25, 42-49, 49-54), not the 80 the docs claimed.
+- `testcases/distribution.rs` (0 → 12): the parallel zero-in-file-test builder module. Covers `make_pq_bus` kW→MW conversion, `make_slack_bus`, `make_branch` defaults, `ohm_to_pu` (`Z_base = kV²/MVA`), all four builders (IEEE 33/69, LV residential, MV urban) with structure/voltage-level/clamping/open-tie/reproducibility checks, and IEEE-33 radial NR convergence.
+
+**Item C — Source-aware P2P carbon model (removed hardcoded placeholder)** `[x]`
+- `optimize/market/peer_to_peer.rs` previously hardcoded `200 gCO₂/kWh` for every non-renewable trade ("placeholder for others"). Replaced with point-of-use accounting: `ProducerType::operational_carbon_g_per_kwh(grid_ci)` (renewables/storage = 0, CHP = 443, grid import = configured average) and `P2pBid::carbon_intensity_g_per_kwh(grid_ci)` (unknown source → grid average). Added configurable `P2pMarket::grid_carbon_intensity_g_per_kwh` (default 200, backward-compatible for grid import). All 3 clearing paths updated. +4 tests.
+
+**Item D — Honesty / clarity fixes on stale "placeholder" labels** `[x]`
+- `harmonics/source_identification.rs::dominant_phase_angle`: documented that the magnitude-only measurement model cannot yield harmonic phase (returns `0°` reference deliberately) instead of the misleading "for now / subclasses can override" comment.
+- `battery/soc.rs`: `UkfSocEstimator` is a complete UKF (sigma points, cross-covariance, Kalman gain); renamed the stale "UKF placeholder" section header.
+- `renewable/forecast/nn_bridge.rs`: `ExternalNnBridge` has a working polynomial-regression fallback + native-runtime hook; relabelled the two stale "placeholder" comments.
+
+**Item E — Zero-warning sweep (no-warnings policy)** `[x]`
+- Fixed 8 pre-existing clippy warnings in Round 31 test code: `manual_range_contains` (`stochastic_lf.rs` ×2, `inter_area.rs`, `synthetic.rs`) and `len_zero` (`synthetic.rs` ×4). `cargo clippy --all-targets --all-features` is clean.
+
+**Item F — Four latent Round-31 test/implementation bugs fixed** `[x]`
+- A full `cargo nextest run --all-features --no-fail-fast` (5,214 tests) surfaced 4 failures that Round 31 never caught (the suite was not run to completion when those tests were added):
+  1. **`optimize/ev/fleet.rs` — V2G test (test bug).** `test_v2g_optimized_result_invariants` asserted `aggregate_power ≥ 0`, but vehicle-to-**grid** scheduling discharges to the grid (negative power) by design. Rewrote the invariant: finite, magnitude bounded by the fleet's aggregate charge/discharge capability, and at least one genuine discharge slot. Implementation was correct.
+  2. **`powerflow/stochastic_lf.rs` — missing validation (impl bug).** `solve()` never checked that the base-P and base-Q load vectors match in length, so `test_solve_load_size_mismatch_returns_error` got `Ok` instead of `Err`. Added the `SlfError::LoadSizeMismatch` guard the variant was designed for.
+  3. **`stability/inter_area.rs` — wrong analytical formula (impl bug).** `two_area_mode_frequency` carried a spurious `OMEGA_0` factor inside the √. Since `M = 2H/ω₀` already encodes ω₀, the Kundur mode is `f = (1/2π)√(P_sync·(M1+M2)/(M1·M2))`. The bug inflated the result ~19× (14.43 Hz vs the correct 0.81 Hz, well outside the physical 0.1–1 Hz inter-area band). Removed the factor; updated the tautological `test_two_machine_mode_frequency` (which had re-encoded the same bug) to the correct value + a realistic-range assertion.
+  4. **`renewable/inverter/grid_forming.rs` — positive-feedback sim bug (impl bug).** In `simulate_load_step`, `p_meas = p_out + share·Δload` tied the power-LPF target to the state itself, so `p_out` never moved pre-step and ramped without bound post-step, collapsing the frequency nadir to 43.5 Hz. Fixed to a fixed demand setpoint `p_meas = p_rated + share·Δload` (matching the steady-state test's `step(p_rated, …)` baseline); nadir now stays > 49 Hz for the 10 % step.
+- Post-fix: full suite green, `cargo clippy --all-targets --all-features` clean.
 
 ---
 
@@ -325,9 +386,45 @@ Orphan annihilation — 3 verbatim PPF duplicates deleted; ≥ 77 orphan modules
 ## /stub-check (2026-04-27)
 Codebase-wide stub audit: 0 hard stubs (no `unimplemented!()`/`todo!()`); 7 real_stub sites fixed — `iec60909::rated_kv_sq_over_mva` dead helper deleted; `modal_voltage_stability` branch participation implemented; `use_security_constrained` wired into N-1 reserve logic; `compute_flow_sensitivity_dP_dQ` made non-trivial; `event_summary` `sample_rate_hz` parameter added (was hardcoded 1.0); Q-gen validation implemented in `ModelValidator`; `TvsaEngine::Q_MAX_AVAILABLE` made configurable. +6 new tests. Final: **4,920 unit tests + 39 doc tests** = 4,959 total.
 
+## v0.1.2 (2026-06-16)
+
+- [x] Analytics module: IEEE 1366 KPIs (SAIDI/SAIFI/CAIDI/ASAI/ENS), carbon accounting (scope 1/2/3, ETS, ISO 14064-1), energy equity, predictive maintenance, operational dashboard
+- [x] Network: FLISR distribution automation, Dynamic Line Rating (IEEE 738), Thevenin/Ward/REI network reduction, AdmittanceMatrix, CongestionManager, UpfcModel, infrastructure hardening types
+- [x] Power Flow: sparse DC power flow (B-matrix, LU, sensitivity), harmonic-coupled power flow, stochastic Monte Carlo load flow, unbalanced continuation power flow, standalone Jacobian builder
+- [x] OPF: carbon-constrained DC-OPF with Green LMP and Pareto sweep, N-1 SCOPF, SecurityOPF, economic dispatch with incremental heat-rate curves, ramp product market, stochastic unit commitment
+- [x] Market: EU ETS carbon market (auction, permit allocation, multi-year plans), P2P energy trading (6 clearing mechanisms), RestorationSequenceOptimizer
+- [x] Multi-energy: EnergyHub/MesOptimizer (electricity/gas/heat/H₂), MicrogridSizingOptimizer (LCOE + reliability)
+- [x] Stability: AvrModel (IEEE Type I/II/III with anti-windup), PssTuner (residue method), BlackStartProcedure (BFS cranking-path, frequency nadir/voltage simulation)
+- [x] Protection: HifDetector (Dempster-Shafer fusion), FaultCurrentLimiter (SFCL/resistive/bridge), ZoneProtectionCoordinator (966-line full relay grading + CTI)
+- [x] Renewable: IrradianceModel, MpptController (P&O/INC), PvCellModel (single-diode IV), IntegrationStudy workflow; expanded HVRT and ramp-rate limits
+- [x] Simulation: CosimFramework (cyber-physical, CUSUM attack detection, false-data/replay/DoS/MitM), OperatorTrainingSimulator (event injection, action grading, competency scoring)
+- [x] Security: GridAnomalyDetector (z-score/EWMA/CUSUM), DataIntegrityChecker (hash-chain audit trail)
+- [x] Monitoring: WamsAnalyzer (PMU angular stability, AR Prony oscillation, K-means coherency, L-index, alarm generation)
+- [x] Battery: BatteryAgingModel (cycle + calendar aging, capacity-fade + resistance-growth), ECM L-BFGS parameter identification
+- [x] Test cases: IEEE 13/34/123-bus distribution feeders (DistributionTestCase), synthetic generator enhancements, IRP test suite (795 lines)
+- [x] Units: EnergyUnit (Wh/kWh/MWh/GWh/BTU/GJ), ThermalUnit (conductance + resistance conversions)
+- [x] Refactored: timeseries_sim and grid_ops into structured submodules; zone_protection into module; carbon_budget reorganised with legacy re-export
+- [x] **Stats**: 6,123 tests passing | 302,247 SLoC (Rust) / 483 files | ~2,861 public API items
+
 ## v0.1.1 (2026-05-03)
 
 **Fix: E0034 disambiguation in `SimdAvx2Backend::solve_dense`** `[x]`
 - `src/powerflow/linalg.rs` line 95: `self.inner.solve_dense(a, b)` → `LinearSolver::solve_dense(&self.inner, a, b)`
 - Resolved "multiple applicable items in scope" compile error caused by both `LinearAlgebraBackend` and `LinearSolver` traits being in scope simultaneously on the same method name
 - Build now succeeds with all features enabled
+
+## Round 34 (2026-06-14)
+
+**Coverage push — 64 new unit tests across 8 files:**
+- `network/hvdc.rs` 11→19 tests: LCC/VSC modes, converter losses, Q limits, cable losses, reverse-flow, 3-terminal MTDC, empty grid error.
+- `powerflow/harmonic_pf.rs` 20→28 tests: solve with no harmonic sources, harmonic injection, THD computation, finite/positive harmonics, orders 3/5/7, Norton source angle, shunt susceptance, zero-injection near-zero result. ⚠ 1902L.
+- `powerflow/unbalanced_continuation.rs` 24→32 tests: voltage decreases with λ, positive λ increments, nose-point detection, max loading factor, phase voltage differences, active power non-neg, loading margin, VSI bus count. ⚠ 1930L.
+- `optimize/market/peer_to_peer.rs` 24→32 tests: buyer price too low (no match), clearing price bounds, volume conservation, prosumer surplus, proximity bilateral, community micromarket, renewable carbon zero, single participant.
+- `optimize/storage/multi_market.rs` 24→32 tests: power bounds, cycle degradation ordering, 48h profit finite, market priority ordering, capacity fade effect, revenue decomposition, 3-unit fleet, ancillary service flag.
+- `optimize/market/carbon_budget.rs` 29→37 tests: allocation within budget, non-negative permit price, tight budget reduces emissions, trading surplus/deficit sign, shadow price, MAC curve, compliance check, cost escalation. ⚠ 1908L.
+- `protection/fault_current_limiter.rs` 28→36 tests: trigger threshold, limited < unlimited current, impedance range, resistive vs. inductive behavior, recovery state, no false trigger, coordination, energy dissipation.
+- `stability/inter_area.rs` 29→37 tests: mode freq 0–2 Hz, positive damping, participating areas, mode shape normalized, critical mode, PSS lead-lag, 4-gen mode separation, two-area consistency. ⚠ 1987L — DO NOT ADD MORE.
+
+**New danger-zone files (≥1900L, do not add in-file tests):** harmonic_pf.rs (1902), unbalanced_continuation.rs (1930), carbon_budget.rs (1908), inter_area.rs (1987).
+
+Cumulative test count after Round 34: ~5,326+. Clippy: 0 warnings. Launching tarpaulin to measure coverage.

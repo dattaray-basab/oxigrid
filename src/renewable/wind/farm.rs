@@ -171,4 +171,74 @@ mod tests {
             state.capacity_factor
         );
     }
+
+    #[test]
+    fn test_1x1_farm_n_turbines() {
+        let farm = WindFarm::regular_grid(WindTurbine::iec_2mw(), 1, 1, 7.0, 0.8, 0.04);
+        assert_eq!(farm.n_turbines(), 1);
+    }
+
+    #[test]
+    fn test_3x3_farm_n_turbines() {
+        let farm = WindFarm::regular_grid(WindTurbine::iec_2mw(), 3, 3, 7.0, 0.8, 0.04);
+        assert_eq!(farm.n_turbines(), 9);
+    }
+
+    #[test]
+    fn test_rated_power_1x1_farm() {
+        let farm = WindFarm::regular_grid(WindTurbine::iec_2mw(), 1, 1, 7.0, 0.8, 0.04);
+        assert_eq!(farm.rated_power_kw(), 1.0 * 2000.0);
+    }
+
+    #[test]
+    fn test_hub_speeds_len_matches_turbines() {
+        let farm = small_farm();
+        let n = farm.n_turbines();
+        let state = farm.compute(10.0, 270.0, 0.0, 15.0);
+        assert_eq!(
+            state.hub_speeds.len(),
+            n,
+            "hub_speeds.len()={} != n_turbines={}",
+            state.hub_speeds.len(),
+            n
+        );
+    }
+
+    #[test]
+    fn test_turbine_powers_len_matches_turbines() {
+        let farm = small_farm();
+        let n = farm.n_turbines();
+        let state = farm.compute(10.0, 270.0, 0.0, 15.0);
+        assert_eq!(
+            state.turbine_powers_kw.len(),
+            n,
+            "turbine_powers_kw.len()={} != n_turbines={}",
+            state.turbine_powers_kw.len(),
+            n
+        );
+    }
+
+    #[test]
+    fn test_wake_loss_at_high_wind_below_one() {
+        let farm = small_farm();
+        let state = farm.compute(12.0, 270.0, 0.0, 15.0);
+        assert!(
+            state.wake_loss_fraction < 1.0,
+            "wake_loss_fraction={:.4} should be < 1.0",
+            state.wake_loss_fraction
+        );
+    }
+
+    #[test]
+    fn test_total_power_is_sum_of_turbine_powers() {
+        let farm = small_farm();
+        let state = farm.compute(10.0, 270.0, 0.0, 15.0);
+        let sum: f64 = state.turbine_powers_kw.iter().sum();
+        assert!(
+            (state.total_power_kw - sum).abs() < 1e-9,
+            "total_power_kw={:.6} != sum_of_turbine_powers={:.6}",
+            state.total_power_kw,
+            sum
+        );
+    }
 }

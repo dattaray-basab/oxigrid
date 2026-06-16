@@ -374,4 +374,103 @@ mod tests {
             initial_loss
         );
     }
+
+    #[test]
+    fn fit_from_pulse_data_fails_on_too_few_points() {
+        let data: Vec<(f64, f64, f64)> = (0..5)
+            .map(|k| (k as f64, 10.0, 3.5 - k as f64 * 0.01))
+            .collect();
+        let result = ParameterSet::fit_from_pulse_data(&data, 75.0);
+        assert!(
+            result.is_err(),
+            "expected Err for fewer than 10 data points"
+        );
+    }
+
+    #[test]
+    fn kokam_lfp_r1_r2_positive() {
+        let p = ParameterSet::kokam_75ah_lfp();
+        assert!(p.r1 > 0.0, "r1 must be positive, got {}", p.r1);
+        assert!(p.r2 > 0.0, "r2 must be positive, got {}", p.r2);
+    }
+
+    #[test]
+    fn nmc_3ah_no_temp_coeffs() {
+        let p = ParameterSet::nmc_3ah();
+        assert!(
+            p.temp_coeffs.is_none(),
+            "nmc_3ah should have temp_coeffs == None"
+        );
+    }
+
+    #[test]
+    fn nmc_3ah_time_constants() {
+        let p = ParameterSet::nmc_3ah();
+        let tau1 = p.r1 * p.c1;
+        let tau2 = p.r2 * p.c2;
+        assert!(tau1 > 0.0, "tau1 = r1*c1 must be positive, got {}", tau1);
+        assert!(tau2 > 0.0, "tau2 = r2*c2 must be positive, got {}", tau2);
+    }
+
+    #[test]
+    fn ecm_simulate_loss_perfect_params() {
+        // 11 rest points at i=0, v=3.6 — pre-pulse OCV segment
+        let data: Vec<(f64, f64, f64)> = (0..11).map(|k| (k as f64, 0.0, 3.6_f64)).collect();
+
+        // log_params matching r0=0.01, r1=0.001, c1=1000, r2=0.001, c2=1000
+        let log_params = [
+            (0.01_f64).ln(),
+            (0.001_f64).ln(),
+            (1000.0_f64).ln(),
+            (0.001_f64).ln(),
+            (1000.0_f64).ln(),
+        ];
+
+        let loss = ecm_simulate_loss(&data, &log_params);
+        assert!(
+            loss < 1e-20,
+            "loss on zero-current flat-voltage data should be near 0, got {}",
+            loss
+        );
+    }
+
+    #[test]
+    fn estimate_r0_no_step_returns_fallback() {
+        // Constant current — no step between consecutive samples → fallback 0.02
+        let data: Vec<(f64, f64, f64)> = vec![
+            (0.0, 5.0, 3.50),
+            (1.0, 5.0, 3.49),
+            (2.0, 5.0, 3.48),
+            (3.0, 5.0, 3.47),
+            (4.0, 5.0, 3.46),
+        ];
+        let r0 = estimate_r0_from_pulse(&data);
+        assert!(
+            (r0 - 0.02).abs() < 1e-12,
+            "fallback R0 should be 0.02, got {}",
+            r0
+        );
+    }
+
+    #[test]
+    fn estimate_rc_all_positive() {
+        // 3 rest + 5 pulse + 5 rest = 13 points; satisfies rest_start+5 < 13
+        let mut data: Vec<(f64, f64, f64)> = Vec::new();
+        for k in 0..3usize {
+            data.push((k as f64, 0.0, 3.6));
+        }
+        for k in 3..8usize {
+            data.push((k as f64, 10.0, 3.5 - (k - 3) as f64 * 0.01));
+        }
+        for k in 8..13usize {
+            let decay = 1.0 - (k - 8) as f64 * 0.05;
+            data.push((k as f64, 0.0, 3.5 + decay * 0.05));
+        }
+
+        let (r1, c1, r2, c2) = estimate_rc_from_relaxation(&data);
+        assert!(r1 > 0.0, "r1 must be positive, got {}", r1);
+        assert!(c1 > 0.0, "c1 must be positive, got {}", c1);
+        assert!(r2 > 0.0, "r2 must be positive, got {}", r2);
+        assert!(c2 > 0.0, "c2 must be positive, got {}", c2);
+    }
 }

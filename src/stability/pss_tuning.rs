@@ -621,4 +621,139 @@ mod tests {
             "Washout time constant should match config"
         );
     }
+
+    #[test]
+    fn test_different_target_frequencies_yield_different_time_constants() {
+        let model = smib_model();
+        let tuner_05 = PssTuner {
+            target_mode_freq_hz: 0.5,
+            ..default_tuner()
+        };
+        let tuner_20 = PssTuner {
+            target_mode_freq_hz: 2.0,
+            ..default_tuner()
+        };
+        let result_05 = tuner_05.tune(&model).expect("PSS tuning at 0.5 Hz");
+        let result_20 = tuner_20.tune(&model).expect("PSS tuning at 2.0 Hz");
+        assert!(
+            (result_05.parameters.t1 - result_20.parameters.t1).abs() > 0.001,
+            "Different target frequencies should yield different T1 time constants"
+        );
+    }
+
+    #[test]
+    fn test_gain_margin_is_positive() {
+        let model = smib_model();
+        let tuner = default_tuner();
+        let result = tuner
+            .tune(&model)
+            .expect("PSS tuning for gain margin check");
+        assert!(
+            result.gain_margin_db > 0.0,
+            "Gain margin must be positive (got {} dB)",
+            result.gain_margin_db
+        );
+    }
+
+    #[test]
+    fn test_t3_t4_equal_t1_t2() {
+        let model = smib_model();
+        let tuner = default_tuner();
+        let result = tuner.tune(&model).expect("PSS tuning for T3/T4 check");
+        assert!(
+            (result.parameters.t3 - result.parameters.t1).abs() < 1e-9,
+            "T3 must equal T1 (diff = {})",
+            (result.parameters.t3 - result.parameters.t1).abs()
+        );
+        assert!(
+            (result.parameters.t4 - result.parameters.t2).abs() < 1e-9,
+            "T4 must equal T2 (diff = {})",
+            (result.parameters.t4 - result.parameters.t2).abs()
+        );
+    }
+
+    #[test]
+    fn test_stricter_damping_target_yields_higher_gain() {
+        let model = smib_model();
+        let tuner_loose = PssTuner {
+            target_damping_ratio: 0.02,
+            target_mode_freq_hz: 1.0,
+            gain_range: (0.1, 30.0),
+            gain_steps: 100,
+            ..default_tuner()
+        };
+        let tuner_strict = PssTuner {
+            target_damping_ratio: 0.10,
+            target_mode_freq_hz: 1.0,
+            gain_range: (0.1, 30.0),
+            gain_steps: 100,
+            ..default_tuner()
+        };
+        let result_loose = tuner_loose
+            .tune(&model)
+            .expect("PSS tuning with loose damping");
+        let result_strict = tuner_strict
+            .tune(&model)
+            .expect("PSS tuning with strict damping");
+        assert!(
+            result_strict.parameters.k_s >= result_loose.parameters.k_s,
+            "Stricter damping target should require >= gain (strict={}, loose={})",
+            result_strict.parameters.k_s,
+            result_loose.parameters.k_s
+        );
+    }
+
+    #[test]
+    fn test_lead_lag_zero_phase_yields_equal_t1_t2() {
+        let omega = 2.0 * std::f64::consts::PI * 1.0;
+        let (t1, t2, _t3, _t4) = design_lead_lag(0.0, omega);
+        assert!(
+            (t1 - t2).abs() < 1e-6,
+            "Zero phase lead should yield T1 == T2 (diff = {})",
+            (t1 - t2).abs()
+        );
+    }
+
+    #[test]
+    fn test_lead_lag_max_phase_yields_large_alpha() {
+        let omega = 2.0 * std::f64::consts::PI * 1.0;
+        let (t1, t2, _t3, _t4) = design_lead_lag(std::f64::consts::PI / 2.0 - 1e-3, omega);
+        let alpha = t1 / t2.max(1e-12);
+        assert!(
+            alpha > 10.0,
+            "Near-90-degree phase lead should yield large alpha T1/T2 (got {})",
+            alpha
+        );
+    }
+
+    #[test]
+    fn test_iterations_positive_after_tuning() {
+        let model = smib_model();
+        let tuner = default_tuner();
+        let result = tuner.tune(&model).expect("PSS tuning for iterations check");
+        assert!(
+            result.iterations > 0,
+            "Tuning must perform at least one iteration (got {})",
+            result.iterations
+        );
+    }
+
+    #[test]
+    fn test_hard_damping_target_uses_min_gain_bound() {
+        let model = smib_model();
+        let tuner = PssTuner {
+            target_damping_ratio: 0.5,
+            gain_range: (2.0, 50.0),
+            gain_steps: 50,
+            ..default_tuner()
+        };
+        let result = tuner
+            .tune(&model)
+            .expect("PSS tuning with hard damping target (best-effort)");
+        assert!(
+            result.parameters.k_s >= 2.0,
+            "Gain must not fall below the lower bound of gain_range (got {})",
+            result.parameters.k_s
+        );
+    }
 }

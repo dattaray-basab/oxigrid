@@ -516,7 +516,9 @@ mod tests {
         let mut sim = ProtocolSimulator::new();
         sim.add_link(make_link(0, 0.0));
         let msgs = make_messages(50, ProtocolType::Dnp3);
-        let result = sim.simulate(msgs, 0, 10_000.0).unwrap();
+        let result = sim
+            .simulate(msgs, 0, 10_000.0)
+            .expect("zero-loss simulate must succeed");
         assert_eq!(
             result.messages_lost, 0,
             "zero-loss link must deliver all messages"
@@ -530,7 +532,9 @@ mod tests {
         // 50 % loss
         sim.add_link(make_link(1, 0.5));
         let msgs = make_messages(1000, ProtocolType::Modbus);
-        let result = sim.simulate(msgs, 1, 100_000.0).unwrap();
+        let result = sim
+            .simulate(msgs, 1, 100_000.0)
+            .expect("high-loss simulate must succeed");
         // Expect roughly 50 % lost — allow wide tolerance for LCG variance
         let loss_pct = result.messages_lost as f64 / 1000.0 * 100.0;
         assert!(
@@ -572,7 +576,9 @@ mod tests {
         let mut sim = ProtocolSimulator::new();
         sim.add_link(make_link(2, 0.0));
         let msgs = make_messages(200, ProtocolType::Mqtt);
-        let result = sim.simulate(msgs, 2, 100_000.0).unwrap();
+        let result = sim
+            .simulate(msgs, 2, 100_000.0)
+            .expect("latency-stats simulate must succeed");
         // avg ≤ max
         assert!(
             result.avg_latency_ms <= result.max_latency_ms + 1e-9,
@@ -621,7 +627,9 @@ mod tests {
             })
             .collect();
         // Large simulation window so all messages fit
-        let result = sim.simulate(msgs, 3, 10_000.0).unwrap();
+        let result = sim
+            .simulate(msgs, 3, 10_000.0)
+            .expect("bandwidth simulate must succeed");
         // Throughput must not exceed link capacity (1 Mbps = 1000 kbps)
         assert!(
             result.throughput_kbps <= link_mbps * 1_000.0 + 1.0,
@@ -636,7 +644,9 @@ mod tests {
         let mut sim = ProtocolSimulator::new();
         sim.add_link(make_link(4, 0.0));
         let msgs = ProtocolSimulator::generate_goose_sequence(0.0, 4);
-        let result = sim.simulate(msgs, 4, 100_000.0).unwrap();
+        let result = sim
+            .simulate(msgs, 4, 100_000.0)
+            .expect("goose zero-loss simulate must succeed");
         assert!(
             (result.goose_delivery_pct - 100.0).abs() < 1e-9,
             "Zero-loss GOOSE delivery should be 100 %, got {:.2} %",
@@ -659,5 +669,146 @@ mod tests {
         let msgs = make_messages(1, ProtocolType::Dnp3);
         let err = sim.simulate(msgs, 5, -1.0).unwrap_err();
         assert!(matches!(err, SimError::InvalidInput(_)));
+    }
+
+    #[test]
+    fn test_sim_error_display_formatting() {
+        let link_err = SimError::LinkNotFound(42);
+        assert_eq!(link_err.to_string(), "link 42 not found");
+
+        let input_err = SimError::InvalidInput("bad time".to_string());
+        assert!(
+            input_err.to_string().contains("bad time"),
+            "InvalidInput display must include the message text"
+        );
+    }
+
+    #[test]
+    fn test_empty_message_list_returns_zero_stats() {
+        let mut sim = ProtocolSimulator::new();
+        sim.add_link(make_link(6, 0.0));
+        let result = sim
+            .simulate(vec![], 6, 1_000.0)
+            .expect("empty message list must succeed");
+        assert_eq!(result.messages_sent, 0);
+        assert_eq!(result.messages_received, 0);
+        assert_eq!(result.messages_lost, 0);
+        assert_eq!(result.avg_latency_ms, 0.0);
+        assert_eq!(result.max_latency_ms, 0.0);
+        assert_eq!(result.throughput_kbps, 0.0);
+        // goose_delivery_pct defaults to 100 when no GOOSE messages present
+        assert!(
+            (result.goose_delivery_pct - 100.0).abs() < 1e-9,
+            "empty run GOOSE delivery pct must be 100.0"
+        );
+    }
+
+    #[test]
+    fn test_total_loss_link_delivers_nothing() {
+        let mut sim = ProtocolSimulator::new();
+        sim.add_link(make_link(7, 1.0)); // 100 % loss
+        let msgs = make_messages(20, ProtocolType::Mqtt);
+        let result = sim
+            .simulate(msgs, 7, 100_000.0)
+            .expect("simulate with 100% loss must not error");
+        assert_eq!(
+            result.messages_received, 0,
+            "100 % loss link must receive no messages"
+        );
+        assert_eq!(result.messages_lost, 20);
+        assert_eq!(result.avg_latency_ms, 0.0);
+    }
+
+    #[test]
+    fn test_short_simulation_window_drops_late_messages() {
+        let mut sim = ProtocolSimulator::new();
+        // Very high latency so almost nothing arrives in time
+        sim.add_link(NetworkLink {
+            id: 8,
+            bandwidth_mbps: 100.0,
+            latency_ms: 5_000.0, // 5 s latency
+            packet_loss_rate: 0.0,
+            jitter_ms: 0.0,
+        });
+        let msgs = make_messages(10, ProtocolType::Dnp3);
+        // Window of only 1 ms — everything arrives late
+        let result = sim
+            .simulate(msgs, 8, 1.0)
+            .expect("short window simulate must not error");
+        assert_eq!(
+            result.messages_received, 0,
+            "5 s latency on a 1 ms window must drop all messages"
+        );
+        assert_eq!(result.messages_lost, 10);
+    }
+
+    #[test]
+    fn test_message_statistics_aggregates_across_simulate_calls() {
+        let mut sim = ProtocolSimulator::new();
+        sim.add_link(make_link(9, 0.0));
+        // Two batches
+        let batch_a = make_messages(10, ProtocolType::Dnp3);
+        let batch_b = make_messages(5, ProtocolType::Modbus);
+        sim.simulate(batch_a, 9, 100_000.0)
+            .expect("first batch must succeed");
+        sim.simulate(batch_b, 9, 100_000.0)
+            .expect("second batch must succeed");
+        let stats = sim.message_statistics();
+        assert_eq!(
+            stats.messages_sent, 15,
+            "message_statistics must aggregate both batches"
+        );
+    }
+
+    #[test]
+    fn test_goose_sequence_zero_retransmissions() {
+        let msgs = ProtocolSimulator::generate_goose_sequence(50.0, 0);
+        assert_eq!(
+            msgs.len(),
+            1,
+            "zero retransmissions must produce exactly 1 message"
+        );
+        assert_eq!(msgs[0].protocol, ProtocolType::Iec61850Goose);
+        assert_eq!(msgs[0].timestamp_us, 50_000);
+        assert_eq!(msgs[0].priority, 6, "GOOSE priority must be 6");
+    }
+
+    #[test]
+    fn test_default_constructor_behaves_like_new() {
+        let mut sim_default = ProtocolSimulator::default();
+        let mut sim_new = ProtocolSimulator::new();
+        sim_default.add_link(make_link(10, 0.0));
+        sim_new.add_link(make_link(10, 0.0));
+        let msgs_d = make_messages(5, ProtocolType::CimXml);
+        let msgs_n = make_messages(5, ProtocolType::CimXml);
+        let r_default = sim_default
+            .simulate(msgs_d, 10, 100_000.0)
+            .expect("default simulator must work");
+        let r_new = sim_new
+            .simulate(msgs_n, 10, 100_000.0)
+            .expect("new simulator must work");
+        assert_eq!(
+            r_default.messages_sent, r_new.messages_sent,
+            "default() and new() must produce identical sent counts"
+        );
+        assert_eq!(r_default.messages_received, r_new.messages_received);
+    }
+
+    #[test]
+    fn test_protocol_type_and_message_type_equality() {
+        // Verify Copy + Clone + PartialEq derived impls work correctly
+        let p1 = ProtocolType::Modbus;
+        let p2 = p1;
+        assert_eq!(p1, p2);
+
+        let p3 = ProtocolType::Mqtt;
+        assert_ne!(p1, p3);
+
+        let m1 = MessageType::Alarm;
+        let m2 = m1;
+        assert_eq!(m1, m2);
+
+        let m3 = MessageType::Heartbeat;
+        assert_ne!(m1, m3);
     }
 }

@@ -279,4 +279,145 @@ mod tests {
             base_p
         );
     }
+
+    #[test]
+    fn test_cpf_stability_margin_equals_lambda_nose() {
+        let net = load_ieee14();
+        let config = CpfConfig {
+            max_points: 50,
+            lambda_step_init: 0.1,
+            ..Default::default()
+        };
+        let result = run_cpf(&net, &config).expect("cpf run");
+        let margin = result.stability_margin();
+        assert!(
+            (margin - result.lambda_nose).abs() < 1e-12,
+            "stability_margin() should equal lambda_nose: margin={:.6} lambda_nose={:.6}",
+            margin,
+            result.lambda_nose
+        );
+    }
+
+    #[test]
+    fn test_cpf_voltages_count_matches_bus_count() {
+        let net = load_ieee14();
+        let bus_count = net.bus_count();
+        let config = CpfConfig {
+            max_points: 10,
+            lambda_step_init: 0.1,
+            ..Default::default()
+        };
+        let result = run_cpf(&net, &config).expect("cpf run");
+        for (i, point) in result.points.iter().enumerate() {
+            assert_eq!(
+                point.voltages.len(),
+                bus_count,
+                "Point {} voltages.len()={} should equal bus_count={}",
+                i,
+                point.voltages.len(),
+                bus_count
+            );
+        }
+    }
+
+    #[test]
+    fn test_cpf_angles_count_matches_bus_count() {
+        let net = load_ieee14();
+        let bus_count = net.bus_count();
+        let config = CpfConfig {
+            max_points: 10,
+            lambda_step_init: 0.1,
+            ..Default::default()
+        };
+        let result = run_cpf(&net, &config).expect("cpf run");
+        for (i, point) in result.points.iter().enumerate() {
+            assert_eq!(
+                point.angles.len(),
+                bus_count,
+                "Point {} angles.len()={} should equal bus_count={}",
+                i,
+                point.angles.len(),
+                bus_count
+            );
+        }
+    }
+
+    #[test]
+    fn test_cpf_all_upper_solution() {
+        let net = load_ieee14();
+        let config = CpfConfig {
+            max_points: 20,
+            lambda_step_init: 0.1,
+            ..Default::default()
+        };
+        let result = run_cpf(&net, &config).expect("cpf run");
+        for (i, point) in result.points.iter().enumerate() {
+            assert!(
+                point.upper_solution,
+                "Point {} should have upper_solution=true",
+                i
+            );
+        }
+    }
+
+    #[test]
+    fn test_cpf_lambda_monotonically_increasing() {
+        let net = load_ieee14();
+        let config = CpfConfig {
+            max_points: 30,
+            lambda_step_init: 0.1,
+            ..Default::default()
+        };
+        let result = run_cpf(&net, &config).expect("cpf run");
+        let points = &result.points;
+        for i in 1..points.len() {
+            assert!(
+                points[i].lambda >= points[i - 1].lambda - 1e-12,
+                "Lambda should be non-decreasing: points[{}].lambda={:.6} < points[{}].lambda={:.6}",
+                i,
+                points[i].lambda,
+                i - 1,
+                points[i - 1].lambda
+            );
+        }
+    }
+
+    #[test]
+    fn test_cpf_small_step_produces_more_points() {
+        let net = load_ieee14();
+        let config_fine = CpfConfig {
+            max_points: 30,
+            lambda_step_init: 0.02,
+            ..Default::default()
+        };
+        let config_coarse = CpfConfig {
+            max_points: 30,
+            lambda_step_init: 0.5,
+            ..Default::default()
+        };
+        let result_fine = run_cpf(&net, &config_fine).expect("cpf run fine");
+        let result_coarse = run_cpf(&net, &config_coarse).expect("cpf run coarse");
+        assert!(
+            result_fine.points.len() > result_coarse.points.len(),
+            "Fine step (0.02) should produce more points ({}) than coarse step (0.5) ({})",
+            result_fine.points.len(),
+            result_coarse.points.len()
+        );
+    }
+
+    #[test]
+    fn test_cpf_p_nose_positive() {
+        let net = load_ieee14();
+        let config = CpfConfig {
+            max_points: 50,
+            lambda_step_init: 0.1,
+            ..Default::default()
+        };
+        let result = run_cpf(&net, &config).expect("cpf run");
+        assert!(
+            result.p_nose_mw > 0.0,
+            "p_nose_mw should be positive: {:.2}",
+            result.p_nose_mw
+        );
+    }
 }

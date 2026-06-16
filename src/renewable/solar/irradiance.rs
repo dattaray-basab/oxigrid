@@ -233,4 +233,87 @@ mod tests {
         let (dhi, _dni_h) = erbs_decomposition(100.0, 0.1);
         assert!(dhi > 80.0, "dhi={}", dhi);
     }
+
+    #[test]
+    fn test_equatorial_equinox_elevation() {
+        // At equator near equinox (day 80), solar noon elevation should be near 90°
+        let pos = SolarPosition::compute(0.0, 80, 12.0);
+        assert!(
+            pos.elevation.to_degrees() > 80.0,
+            "elevation={}",
+            pos.elevation.to_degrees()
+        );
+    }
+
+    #[test]
+    fn test_high_latitude_winter_below_horizon() {
+        // At 70°N in early January (day 5), sun is below horizon even at noon
+        let pos = SolarPosition::compute(70.0, 5, 12.0);
+        assert!(
+            !pos.is_daytime() || pos.elevation.to_degrees() <= 0.0,
+            "elevation={}",
+            pos.elevation.to_degrees()
+        );
+    }
+
+    #[test]
+    fn test_air_mass_at_zenith() {
+        // Near-zenith sun (equatorial equinox noon) → air mass near 1.0
+        let pos = SolarPosition::compute(0.0, 80, 12.0);
+        assert!(
+            pos.air_mass >= 0.9 && pos.air_mass <= 1.5,
+            "air_mass={}",
+            pos.air_mass
+        );
+    }
+
+    #[test]
+    fn test_air_mass_below_horizon() {
+        // Sun below horizon → air mass should be very large or infinite
+        let pos = SolarPosition::compute(35.0, 1, 2.0); // 2 AM
+        assert!(
+            pos.air_mass > 1000.0 || pos.air_mass == f64::INFINITY,
+            "air_mass={}",
+            pos.air_mass
+        );
+    }
+
+    #[test]
+    fn test_erbs_high_clearness_low_diffuse() {
+        // At kt=0.85 ERBS model gives diffuse fraction ~0.165
+        let (dhi, _dni_h) = erbs_decomposition(800.0, 0.85);
+        let diffuse_fraction = dhi / 800.0;
+        assert!(
+            diffuse_fraction < 0.25,
+            "diffuse_fraction={}",
+            diffuse_fraction
+        );
+    }
+
+    #[test]
+    fn test_erbs_moderate_clearness() {
+        // At kt=0.5 ERBS model gives intermediate diffuse fraction ~0.3–0.7
+        let (dhi, _dni_h) = erbs_decomposition(500.0, 0.5);
+        let diffuse_fraction = dhi / 500.0;
+        assert!(
+            (0.25..=0.70).contains(&diffuse_fraction),
+            "diffuse_fraction={}",
+            diffuse_fraction
+        );
+    }
+
+    #[test]
+    fn test_poa_zero_ghi_zero_output() {
+        // Zero GHI must produce zero output for all components
+        let pos = SolarPosition::compute(35.0, 172, 12.0);
+        let poa = poa_isotropic(0.0, &pos, 30.0, 180.0, 0.2, 172);
+        assert!(
+            poa.total == 0.0 && poa.direct == 0.0 && poa.diffuse == 0.0 && poa.ground == 0.0,
+            "expected all zeros but got total={} direct={} diffuse={} ground={}",
+            poa.total,
+            poa.direct,
+            poa.diffuse,
+            poa.ground
+        );
+    }
 }

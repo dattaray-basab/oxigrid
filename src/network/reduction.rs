@@ -1764,4 +1764,211 @@ mod tests {
             "H_agg should be 5.0 for equal capacities, got {h_agg}"
         );
     }
+
+    // ── 8 new unit tests ─────────────────────────────────────────────────────
+
+    #[test]
+    fn test_kron_preserves_boundary_voltages() {
+        // 4-bus fully connected network; eliminate 2 interior buses,
+        // verify the remaining 2×2 reduced Y-bus is non-trivial.
+        let y = make_4bus_y();
+        let mut kr = KronReducer::new(4, y);
+        kr.eliminate_buses(&[0, 1])
+            .expect("eliminate buses 0 and 1 should succeed");
+        let red = kr.reduced_matrix();
+        assert_eq!(red.len(), 2, "Should have 2 boundary buses remaining");
+        // Verify non-singularity: at least one entry has non-zero magnitude
+        let has_nonzero = red
+            .iter()
+            .any(|row| row.iter().any(|(g, b)| g.abs() > 1e-12 || b.abs() > 1e-12));
+        assert!(
+            has_nonzero,
+            "Reduced Y-bus must contain at least one non-zero entry"
+        );
+    }
+
+    #[test]
+    fn test_ward_inject_correct_power() {
+        // Ward config: internal=[0,1], external=[3], boundary=[2]
+        // p_ward_injections length == n_boundary == 1
+        let config = make_ward_config_4bus();
+        let y = make_4bus_y();
+        let ward = WardEquivalent::new(4, y, config);
+        let p_ext = [200.0_f64];
+        let q_ext = [100.0_f64];
+        let result = ward
+            .compute(&p_ext, &q_ext)
+            .expect("Ward compute with large external load should succeed");
+        assert_eq!(
+            result.p_ward_injections.len(),
+            1,
+            "Should have exactly 1 boundary injection"
+        );
+        assert!(
+            result.p_ward_injections[0].is_finite(),
+            "P ward injection must be finite, got {}",
+            result.p_ward_injections[0]
+        );
+        assert!(
+            result.q_ward_injections[0].is_finite(),
+            "Q ward injection must be finite, got {}",
+            result.q_ward_injections[0]
+        );
+    }
+
+    #[test]
+    fn test_rei_admittances_positive_real() {
+        // Build a 2-bus REI equivalent with well-conditioned positive
+        // self-conductances; verify all spoke G values are >= 0.
+        let rei = ReiEquivalent {
+            generator_buses: vec![0],
+            load_buses: vec![1],
+        };
+        let y_sub = vec![
+            vec![(1.0_f64, 10.0_f64), (-0.5_f64, -5.0_f64)],
+            vec![(-0.5_f64, -5.0_f64), (1.0_f64, 10.0_f64)],
+        ];
+        let p_inj = [100.0_f64, -80.0_f64];
+        let q_inj = [30.0_f64, -20.0_f64];
+        let result = rei
+            .compute(&y_sub, &p_inj, &q_inj, 2)
+            .expect("REI compute should succeed for valid 2-bus sub-system");
+        for &(_, g_spoke, _) in &result.spoke_admittances {
+            assert!(
+                g_spoke >= 0.0,
+                "Spoke conductance must be non-negative, got {g_spoke}"
+            );
+        }
+    }
+
+    #[test]
+    fn test_reduced_ybus_dimension() {
+        // 5-bus: diagonal j10, off-diag -j2
+        // Eliminate buses 1, 2, 3 → 2 buses (0 and 4) remain
+        let y: Vec<Vec<(f64, f64)>> = (0..5)
+            .map(|i| {
+                (0..5)
+                    .map(|j| {
+                        if i == j {
+                            (0.0_f64, 10.0_f64)
+                        } else {
+                            (0.0_f64, -2.0_f64)
+                        }
+                    })
+                    .collect()
+            })
+            .collect();
+        let mut kr = KronReducer::new(5, y);
+        kr.eliminate_buses(&[1, 2, 3])
+            .expect("eliminate buses 1, 2, 3 should succeed");
+        let red = kr.reduced_matrix();
+        assert_eq!(
+            red.len(),
+            2,
+            "After eliminating 3 of 5 buses, 2 should remain"
+        );
+    }
+
+    #[test]
+    fn test_lossless_equivalent_passive() {
+        // make_3x3_y() is purely imaginary (no resistive losses).
+        // After Kron-eliminating bus 1, all real parts of the 2×2
+        // reduced matrix must remain zero.
+        let y = make_3x3_y();
+        let mut kr = KronReducer::new(3, y);
+        kr.eliminate_bus(1)
+            .expect("eliminate passive bus 1 should succeed");
+        let red = kr.reduced_matrix();
+        assert_eq!(red.len(), 2, "Should have 2 buses after eliminating bus 1");
+        for (row_idx, row) in red.iter().enumerate() {
+            for (col_idx, &(g, _b)) in row.iter().enumerate() {
+                assert!(
+                    g.abs() < 1e-9,
+                    "Lossless network: G[{row_idx}][{col_idx}] should be 0, got {g}"
+                );
+            }
+        }
+    }
+
+    #[test]
+    fn test_boundary_bus_count_after_ward() {
+        // 6-bus: internal=[0,1,2], boundary=[3], external=[4,5]
+        // n_buses_equivalent = n_internal + n_boundary = 3 + 1 = 4
+        let config = WardEquivalentConfig {
+            internal_buses: vec![0, 1, 2],
+            external_buses: vec![4, 5],
+            boundary_buses: vec![3],
+            include_load_transfer: true,
+            base_mva: 100.0,
+        };
+        let y: Vec<Vec<(f64, f64)>> = (0..6)
+            .map(|i| {
+                (0..6)
+                    .map(|j| {
+                        if i == j {
+                            (0.0_f64, 12.0_f64)
+                        } else {
+                            (0.0_f64, -2.0_f64)
+                        }
+                    })
+                    .collect()
+            })
+            .collect();
+        let ward = WardEquivalent::new(6, y, config);
+        let result = ward
+            .compute(&[10.0_f64, 10.0_f64], &[5.0_f64, 5.0_f64])
+            .expect("Ward 6-bus compute should succeed");
+        assert_eq!(
+            result.n_buses_equivalent, 4,
+            "3 internal + 1 boundary = 4 equivalent buses, got {}",
+            result.n_buses_equivalent
+        );
+    }
+
+    #[test]
+    fn test_external_bus_elimination_reduces_size() {
+        // 8-bus: eliminate buses 4..=7 (4 external buses), retain 4 buses.
+        let y: Vec<Vec<(f64, f64)>> = (0..8)
+            .map(|i| {
+                (0..8)
+                    .map(|j| {
+                        if i == j {
+                            (0.0_f64, 16.0_f64)
+                        } else {
+                            (0.0_f64, -2.0_f64)
+                        }
+                    })
+                    .collect()
+            })
+            .collect();
+        let mut kr = KronReducer::new(8, y);
+        kr.eliminate_buses(&[4, 5, 6, 7])
+            .expect("eliminate buses 4-7 should succeed");
+        let red = kr.reduced_matrix();
+        assert_eq!(
+            red.len(),
+            4,
+            "After eliminating 4 of 8 buses, 4 should remain"
+        );
+    }
+
+    #[test]
+    fn test_lodf_diagonal_is_minus_one() {
+        // 3-bus, 3-branch ring; LODF diagonal convention: lodf[k][k] = -1.0
+        let from = [0_usize, 1, 0];
+        let to = [1_usize, 2, 2];
+        let x = [0.1_f64, 0.2, 0.4];
+        let b = build_b_bus(3, &from, &to, &x);
+        let ptdf = ptdf_matrix(&b, &from, &to, &x, 0)
+            .expect("PTDF computation should succeed for 3-bus network");
+        let lodf = lodf_matrix(&ptdf, &from, &to);
+        assert_eq!(lodf.len(), 3, "LODF should be 3×3 for 3 branches");
+        for (k, row) in lodf.iter().enumerate() {
+            assert!(
+                (row[k] - (-1.0)).abs() < 1e-9,
+                "LODF diagonal lodf[{k}][{k}] should be -1.0, got {}",
+                row[k]
+            );
+        }
+    }
 }

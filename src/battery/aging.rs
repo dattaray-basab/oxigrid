@@ -467,4 +467,277 @@ mod tests {
         assert!((dead - m.dead_li_ah).abs() < 1e-12);
         assert!((m.dead_li_ah - m.plated_ah * m.irreversible_fraction).abs() < 1e-12);
     }
+
+    #[test]
+    fn test_calendar_aging_rate_increases_with_temperature() {
+        let dt = 31_536_000.0_f64; // 1 year in seconds
+        let mut m_cold = AgingModel::new(AgingParams::lfp_default());
+        let mut m_hot = AgingModel::new(AgingParams::lfp_default());
+        m_cold.step_calendar(dt, 288.15); // 15°C
+        m_hot.step_calendar(dt, 318.15); // 45°C
+        assert!(m_hot.state.q_loss_cal_pct > m_cold.state.q_loss_cal_pct);
+    }
+
+    #[test]
+    fn test_cycle_aging_increases_with_dod() {
+        let mut low_dod = AgingModel::new(AgingParams::lfp_default());
+        let mut high_dod = AgingModel::new(AgingParams::lfp_default());
+        for _ in 0..100 {
+            low_dod.register_cycle(0.2);
+        }
+        for _ in 0..100 {
+            high_dod.register_cycle(0.8);
+        }
+        assert!(high_dod.state.q_loss_cyc_pct > low_dod.state.q_loss_cyc_pct);
+    }
+
+    #[test]
+    fn test_sei_layer_growth_sqrt_time() {
+        let mut m1 = AgingModel::new(AgingParams::nmc_default());
+        let mut m2 = AgingModel::new(AgingParams::nmc_default());
+        m1.step_calendar(3_600.0, 298.15);
+        m2.step_calendar(14_400.0, 298.15);
+        let ratio = m2.state.q_loss_cal_pct / m1.state.q_loss_cal_pct;
+        // √(14400)/√(3600) = 120/60 = 2.0; the model starts at t=max(t0,1) so ratio
+        // converges to 2.0 at large times but differs slightly at small t0 — allow 5%
+        assert!((ratio - 2.0).abs() < 0.05, "ratio={:.4}", ratio);
+    }
+
+    #[test]
+    fn test_capacity_fade_at_1000_cycles() {
+        let mut m = AgingModel::new(AgingParams::lfp_default());
+        for _ in 0..1000 {
+            m.register_cycle(1.0);
+        }
+        let expected = 1000.0 * 0.0025 * 100.0;
+        assert!((m.state.q_loss_cyc_pct - expected).abs() < 1e-6);
+        assert!(m.state.q_remaining < 75.0);
+    }
+
+    #[test]
+    fn test_resistance_increase_over_lifetime() {
+        let params = AgingParams::nmc_default();
+        let r0_nom = params.r0_nom;
+        let r_growth_factor = params.r_growth_factor;
+        let mut m = AgingModel::new(params);
+        for _ in 0..200 {
+            m.register_cycle(1.0);
+        }
+        assert!(m.state.r0_current > r0_nom);
+        let total_loss_frac = m.state.q_loss_cyc_pct / 100.0;
+        let expected_r0 = r0_nom * (1.0 + r_growth_factor * total_loss_frac);
+        assert!((m.state.r0_current - expected_r0).abs() < 1e-9);
+    }
+
+    #[test]
+    fn test_rul_at_80pct_soh() {
+        let m = AgingModel::new(AgingParams::lfp_default());
+        let t80 = m.time_to_80pct_soh(298.15);
+        // Verify the formula directly: at t=t80, calendar loss should equal ~20%
+        // k_eff * sqrt(t80) = 0.20  →  q_loss_cal = k_eff * sqrt(t80) = 0.20
+        // Use a 45°C model to get a short enough t80 to cross-check numerically
+        let m_hot = AgingModel::new(AgingParams::nmc_default()); // NMC: higher k_cal
+        let t80_hot = m_hot.time_to_80pct_soh(333.15); // 60°C
+        assert!(t80_hot > 0.0, "t80 should be positive: {:.3e}", t80_hot);
+        assert!(
+            t80 > t80_hot,
+            "LFP@25°C should last longer than NMC@60°C: {:.3e} vs {:.3e}",
+            t80,
+            t80_hot
+        );
+        // Simulate to cross t80_hot and confirm SoH ≤ 0.80 at that point
+        let dt = t80_hot / 1000.0;
+        let mut m2 = AgingModel::new(AgingParams::nmc_default());
+        for _ in 0..1100 {
+            m2.step_calendar(dt, 333.15);
+        }
+        assert!(
+            m2.state.soh <= 0.80,
+            "After simulating past t80 SoH should be ≤ 0.80: {:.6}",
+            m2.state.soh
+        );
+    }
+
+    #[test]
+    fn test_combined_calendar_and_cycle_aging() {
+        let dt_year = 31_536_000.0_f64;
+        let mut m_cal = AgingModel::new(AgingParams::lfp_default());
+        let mut m_cyc = AgingModel::new(AgingParams::lfp_default());
+        let mut m_both = AgingModel::new(AgingParams::lfp_default());
+        m_cal.step_calendar(dt_year, 298.15);
+        for _ in 0..100 {
+            m_cyc.register_cycle(1.0);
+        }
+        m_both.step_calendar(dt_year, 298.15);
+        for _ in 0..100 {
+            m_both.register_cycle(1.0);
+        }
+        let q_loss_cal_alone = m_cal.state.q_loss_cal_pct;
+        let q_loss_cyc_alone = m_cyc.state.q_loss_cyc_pct;
+        assert!(m_both.state.soh < 1.0 - q_loss_cal_alone / 100.0);
+        assert!(m_both.state.soh < 1.0 - q_loss_cyc_alone / 100.0);
+    }
+
+    #[test]
+    fn test_aging_acceleration_factor() {
+        let m25 = AgingModel::new(AgingParams::lfp_default());
+        let m35 = AgingModel::new(AgingParams::lfp_default());
+        let t80_25 = m25.time_to_80pct_soh(298.15);
+        let t80_35 = m35.time_to_80pct_soh(308.15);
+        let ratio = t80_25 / t80_35;
+        assert!(ratio > 1.0);
+        assert!(ratio > 1.5, "ratio={:.4}", ratio);
+    }
+
+    #[test]
+    fn test_step_current_cycle_detection() {
+        let mut model = AgingModel::new(AgingParams::lfp_default());
+        // Discharge: soc drops 1.0 → 0.9, builds charge_throughput
+        // First call triggers reversal at t=0 but charge_throughput=0 → no cycle counted
+        model.step_current(10.0, 3600.0, 0.9);
+        let cycles_before = model.state.equiv_full_cycles;
+        // Direction reversal: now charging (soc increases)
+        model.step_current(-5.0, 3600.0, 0.95);
+        assert!(
+            model.state.equiv_full_cycles > cycles_before,
+            "equiv_full_cycles should increase on reversal: before={:.4} after={:.4}",
+            cycles_before,
+            model.state.equiv_full_cycles
+        );
+    }
+
+    #[test]
+    fn test_step_current_no_reversal_no_cycle() {
+        let mut model = AgingModel::new(AgingParams::lfp_default());
+        // First call: soc=0.5 (from prev_soc=1.0, this causes a direction change at start)
+        model.step_current(5.0, 360.0, 0.5);
+        // Subsequent calls with same soc: soc_change=0, cur_dir=0 → no reversal
+        let cycles_after_first = model.state.equiv_full_cycles;
+        model.step_current(5.0, 360.0, 0.5);
+        model.step_current(5.0, 360.0, 0.5);
+        model.step_current(5.0, 360.0, 0.5);
+        assert_eq!(
+            model.state.equiv_full_cycles, cycles_after_first,
+            "No reversal means no new cycles: equiv_full_cycles={}",
+            model.state.equiv_full_cycles
+        );
+    }
+
+    #[test]
+    fn test_aging_state_new_matches_params() {
+        let params = AgingParams::lfp_default();
+        let q_nom = params.q_nom;
+        let r0_nom = params.r0_nom;
+        let state = AgingState::new(&params);
+        assert_eq!(state.time_s, 0.0, "time_s should be zero");
+        assert_eq!(
+            state.equiv_full_cycles, 0.0,
+            "equiv_full_cycles should be zero"
+        );
+        assert_eq!(state.q_loss_cal_pct, 0.0, "q_loss_cal_pct should be zero");
+        assert_eq!(state.q_loss_cyc_pct, 0.0, "q_loss_cyc_pct should be zero");
+        assert!(
+            (state.q_remaining - q_nom).abs() < 1e-12,
+            "q_remaining={} q_nom={}",
+            state.q_remaining,
+            q_nom
+        );
+        assert!(
+            (state.r0_current - r0_nom).abs() < 1e-12,
+            "r0_current={} r0_nom={}",
+            state.r0_current,
+            r0_nom
+        );
+        assert!(
+            (state.soh - 1.0).abs() < 1e-12,
+            "soh should be 1.0, got {}",
+            state.soh
+        );
+    }
+
+    #[test]
+    fn test_nmc_default_params_reasonable() {
+        let p = AgingParams::nmc_default();
+        assert!(p.k_cal > 0.0, "k_cal should be positive: {}", p.k_cal);
+        assert!(p.e_a > 20_000.0, "e_a should be > 20000 J/mol: {}", p.e_a);
+        assert!(p.k_cyc > 0.0, "k_cyc should be positive: {}", p.k_cyc);
+        assert!(
+            p.dod_exponent > 0.0,
+            "dod_exponent should be positive: {}",
+            p.dod_exponent
+        );
+        assert!(p.q_nom > 0.0, "q_nom should be positive: {}", p.q_nom);
+        assert!(p.r0_nom > 0.0, "r0_nom should be positive: {}", p.r0_nom);
+    }
+
+    #[test]
+    fn test_small_dod_ignored_in_register_cycle() {
+        let mut model = AgingModel::new(AgingParams::lfp_default());
+        let cycles_before = model.state.equiv_full_cycles;
+        let q_remaining_before = model.state.q_remaining;
+        // DoD below 1e-4 threshold should be ignored
+        model.register_cycle(1e-6);
+        model.register_cycle(1e-5);
+        assert_eq!(
+            model.state.equiv_full_cycles, cycles_before,
+            "equiv_full_cycles should not change for sub-threshold DoD"
+        );
+        assert!(
+            (model.state.q_remaining - q_remaining_before).abs() < 1e-12,
+            "q_remaining should not change for sub-threshold DoD"
+        );
+    }
+
+    #[test]
+    fn test_plating_strip_during_discharge() {
+        let mut m = LithiumPlatingModel::nmc_default(3.0);
+        // Build up plated_ah by fast charging
+        m.step(6.0, 3600.0, 298.15); // 2C for 1 hour
+        let plated_before = m.plated_ah;
+        assert!(
+            plated_before > 0.0,
+            "Should have plated Li: plated_ah={:.6e}",
+            plated_before
+        );
+        // Now discharge to strip reversible Li
+        m.step(-3.0, 3600.0, 298.15); // 1C discharge for 1 hour
+        assert!(
+            m.plated_ah < plated_before,
+            "Stripping should reduce plated_ah: before={:.6e} after={:.6e}",
+            plated_before,
+            m.plated_ah
+        );
+    }
+
+    #[test]
+    fn test_lfp_plating_model_defaults_reasonable() {
+        let m = LithiumPlatingModel::lfp_default(75.0);
+        assert!(
+            (m.c_rate_threshold - 1.0).abs() < 1e-9,
+            "LFP c_rate_threshold should be 1.0: {}",
+            m.c_rate_threshold
+        );
+        assert!(
+            (m.irreversible_fraction - 0.15).abs() < 1e-9,
+            "LFP irreversible_fraction should be 0.15: {}",
+            m.irreversible_fraction
+        );
+        assert!(
+            (m.cold_amplification - 4.0).abs() < 1e-9,
+            "LFP cold_amplification should be 4.0: {}",
+            m.cold_amplification
+        );
+    }
+
+    #[test]
+    fn test_time_to_80pct_very_cold() {
+        let model = AgingModel::new(AgingParams::lfp_default());
+        // At -20°C (253.15 K), k_eff is extremely small → t80 should be astronomically large
+        let t80 = model.time_to_80pct_soh(253.15);
+        assert!(
+            t80 > 1e14,
+            "t80 at -20°C should be astronomically large: {:.4e}",
+            t80
+        );
+    }
 }

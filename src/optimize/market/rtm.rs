@@ -233,4 +233,196 @@ mod tests {
         let result = rtm.clear(&[], 100.0, 0.0).expect("RTM should clear");
         assert!(result.total_imbalance.abs() < 1e-6);
     }
+
+    #[test]
+    fn test_rtm_scarcity_price_spike() {
+        let da_schedule = vec![50.0];
+        let da_prices = vec![40.0];
+        let config = RtmConfig::default(); // imbalance_price_factor = 3.0
+        let rtm = RealTimeMarket::new(da_schedule, da_prices, config);
+
+        // No offers available — shortage of 30 MW cannot be resolved
+        let result = rtm.clear(&[], 80.0, 0.0).expect("RTM clear should succeed");
+
+        assert!(
+            (result.total_imbalance - 30.0).abs() < 1e-6,
+            "total_imbalance should be 30.0, got {:.4}",
+            result.total_imbalance
+        );
+        assert!(
+            (result.clearing_price - 120.0).abs() < 1e-6,
+            "clearing_price should be 40.0 * 3.0 = 120.0 (scarcity), got {:.4}",
+            result.clearing_price
+        );
+    }
+
+    #[test]
+    fn test_rtm_marginal_offer_sets_price() {
+        let da_schedule = vec![100.0, 50.0];
+        let da_prices = vec![30.0, 35.0];
+        let config = RtmConfig::default();
+        let rtm = RealTimeMarket::new(da_schedule, da_prices, config);
+
+        // imbalance = 170 - 150 - 0 = 20 MW
+        let rt_offers = vec![
+            RtmOffer {
+                unit_id: 0,
+                p_available: 10.0,
+                p_curtailable: 0.0,
+                bid_up: 42.0,
+                bid_down: 20.0,
+            },
+            RtmOffer {
+                unit_id: 1,
+                p_available: 20.0,
+                p_curtailable: 0.0,
+                bid_up: 55.0,
+                bid_down: 20.0,
+            },
+        ];
+
+        let result = rtm
+            .clear(&rt_offers, 170.0, 0.0)
+            .expect("RTM clear should succeed");
+
+        assert!(
+            (result.clearing_price - 55.0).abs() < 1e-6,
+            "marginal offer should set price to 55.0, got {:.4}",
+            result.clearing_price
+        );
+        assert!(
+            result.settled_imbalance.abs() < 1e-6,
+            "imbalance should be fully settled, residual = {:.4}",
+            result.settled_imbalance
+        );
+    }
+
+    #[test]
+    fn test_rtm_renewable_actual_reduces_imbalance() {
+        let da_schedule = vec![100.0];
+        let da_prices = vec![30.0];
+        let config = RtmConfig::default();
+        let rtm = RealTimeMarket::new(da_schedule, da_prices, config);
+
+        // imbalance = 110 - 100 - 10 = 0.0
+        let result = rtm
+            .clear(&[], 110.0, 10.0)
+            .expect("RTM clear should succeed");
+
+        assert!(
+            result.total_imbalance.abs() < 1e-6,
+            "renewable injection should cancel demand excess; total_imbalance = {:.4}",
+            result.total_imbalance
+        );
+    }
+
+    #[test]
+    fn test_rtm_downward_merit_order() {
+        let da_schedule = vec![200.0];
+        let da_prices = vec![30.0];
+        let config = RtmConfig::default();
+        let rtm = RealTimeMarket::new(da_schedule, da_prices, config);
+
+        // surplus = 200 - 160 = 40 MW; two downward offers
+        let rt_offers = vec![
+            RtmOffer {
+                unit_id: 0,
+                p_available: 0.0,
+                p_curtailable: 30.0,
+                bid_up: 50.0,
+                bid_down: 12.0,
+            },
+            RtmOffer {
+                unit_id: 0,
+                p_available: 0.0,
+                p_curtailable: 20.0,
+                bid_up: 50.0,
+                bid_down: 8.0,
+            },
+        ];
+
+        let result = rtm
+            .clear(&rt_offers, 160.0, 0.0)
+            .expect("RTM clear should succeed");
+
+        assert!(
+            result.total_imbalance < 0.0,
+            "should have surplus (negative imbalance), got {:.4}",
+            result.total_imbalance
+        );
+        assert!(
+            (result.clearing_price - 12.0).abs() < 1e-6,
+            "marginal downward offer should set price to 12.0, got {:.4}",
+            result.clearing_price
+        );
+    }
+
+    #[test]
+    fn test_rtm_negative_price_feasibility() {
+        let da_schedule = vec![100.0];
+        let da_prices = vec![5.0];
+        let config = RtmConfig::default();
+        let rtm = RealTimeMarket::new(da_schedule, da_prices, config);
+
+        // imbalance = 120 - 100 - 0 = 20 MW; offer has negative bid (valid)
+        let rt_offers = vec![RtmOffer {
+            unit_id: 0,
+            p_available: 50.0,
+            p_curtailable: 0.0,
+            bid_up: -2.0,
+            bid_down: -5.0,
+        }];
+
+        let result = rtm
+            .clear(&rt_offers, 120.0, 0.0)
+            .expect("RTM clear should succeed");
+
+        assert!(
+            (result.clearing_price - (-2.0)).abs() < 1e-6,
+            "negative bid should set clearing price to -2.0, got {:.4}",
+            result.clearing_price
+        );
+        assert!(
+            (result.total_imbalance - 20.0).abs() < 1e-6,
+            "total_imbalance should be 20.0, got {:.4}",
+            result.total_imbalance
+        );
+        assert!(
+            (result.adjustments[0] - 20.0).abs() < 1e-6,
+            "unit 0 should be adjusted up by 20 MW, got {:.4}",
+            result.adjustments[0]
+        );
+    }
+
+    #[test]
+    fn test_rtm_partial_settlement() {
+        let da_schedule = vec![100.0];
+        let da_prices = vec![30.0];
+        let config = RtmConfig::default(); // imbalance_price_factor = 3.0
+        let rtm = RealTimeMarket::new(da_schedule, da_prices, config);
+
+        // imbalance = 120 - 100 - 0 = 20 MW; only 5 MW available → 15 MW unresolved
+        let rt_offers = vec![RtmOffer {
+            unit_id: 0,
+            p_available: 5.0,
+            p_curtailable: 0.0,
+            bid_up: 50.0,
+            bid_down: 20.0,
+        }];
+
+        let result = rtm
+            .clear(&rt_offers, 120.0, 0.0)
+            .expect("RTM clear should succeed");
+
+        assert!(
+            result.settled_imbalance > 0.0,
+            "residual 15 MW should remain unsettled, got {:.4}",
+            result.settled_imbalance
+        );
+        assert!(
+            (result.clearing_price - 90.0).abs() < 1e-6,
+            "scarcity price should be 30.0 * 3.0 = 90.0, got {:.4}",
+            result.clearing_price
+        );
+    }
 }

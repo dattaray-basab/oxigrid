@@ -1649,4 +1649,253 @@ mod tests {
             "Bus 1 with harmonic source should have THD > 0: {thd_bus1}"
         );
     }
+
+    // -----------------------------------------------------------------------
+    // New tests — round 2
+    // -----------------------------------------------------------------------
+
+    #[test]
+    fn test_solve_returns_ok_with_no_harmonic_sources() {
+        // 3-bus system, 2 branches, no harmonic sources, only linear loads.
+        let branches = vec![
+            HarmonicBranch::new(0, 1, 0.01, 0.1, 0.0, 100.0),
+            HarmonicBranch::new(1, 2, 0.02, 0.15, 0.0, 100.0),
+        ];
+        let loads = vec![
+            HarmonicLoad {
+                bus: 1,
+                p_fundamental_mw: 5.0,
+                q_fundamental_mvar: 1.0,
+                load_type: HarmonicLoadType::LinearResistive,
+            },
+            HarmonicLoad {
+                bus: 2,
+                p_fundamental_mw: 8.0,
+                q_fundamental_mvar: 2.0,
+                load_type: HarmonicLoadType::LinearResistive,
+            },
+        ];
+        let config = HarmonicPfConfigV1 {
+            harmonic_orders: vec![5, 7],
+            ..Default::default()
+        };
+        let hpf = HarmonicPowerFlow::new(3, branches, vec![], loads, config, 0);
+        let p_inj = vec![0.13, -0.05, -0.08];
+        let q_inj = vec![0.03, -0.01, -0.02];
+
+        let result = hpf
+            .solve(&p_inj, &q_inj)
+            .expect("solve must succeed with no harmonic sources");
+
+        assert_eq!(
+            result.fundamental_voltages.len(),
+            3,
+            "must have 3 bus voltages"
+        );
+        for (i, &v) in result.fundamental_voltages.iter().enumerate() {
+            assert!(
+                v.is_finite() && v > 0.0,
+                "bus {i} fundamental voltage must be finite and positive, got {v}"
+            );
+        }
+    }
+
+    #[test]
+    fn test_harmonic_injection_at_non_slack_bus() {
+        let branches = vec![HarmonicBranch::new(0, 1, 0.01, 0.05, 0.0, 100.0)];
+        // explicit injection: 0.1 pu at h=5, angle=0
+        let src = HarmonicSource::with_explicit_currents(
+            1,
+            HarmonicSourceType::SixPulseDrive,
+            vec![(5u32, 0.1, 0.0)],
+        );
+        let config = HarmonicPfConfigV1 {
+            harmonic_orders: vec![5],
+            ..Default::default()
+        };
+        let hpf = HarmonicPowerFlow::new(2, branches, vec![src], vec![], config, 0);
+
+        let (ir1, ii1) = hpf.harmonic_injection(1, 5);
+        assert!(
+            (ir1 - 0.1).abs() < 1e-12,
+            "bus 1 h=5 real injection should be 0.1, got {ir1}"
+        );
+        assert!(
+            ii1.abs() < 1e-12,
+            "bus 1 h=5 imag injection should be 0.0, got {ii1}"
+        );
+
+        // Slack bus has no injection from this source
+        let (ir0, ii0) = hpf.harmonic_injection(0, 5);
+        assert!(
+            ir0.abs() < 1e-12 && ii0.abs() < 1e-12,
+            "slack bus injection should be zero, got ({ir0}, {ii0})"
+        );
+    }
+
+    #[test]
+    fn test_thd_from_harmonic_solution() {
+        let hpf = two_bus_system();
+        let p_inj = vec![0.0, -0.1];
+        let q_inj = vec![0.0, -0.03];
+
+        let result = hpf
+            .solve(&p_inj, &q_inj)
+            .expect("two_bus_system solve must succeed");
+
+        // Recompute THD manually and compare with stored result
+        let v1 = result.fundamental_voltages[1];
+        let thd_manual = HarmonicPowerFlow::compute_voltage_thd(v1, &result.harmonic_voltages[1]);
+        let thd_stored = result.bus_thd_v[1];
+
+        assert!(
+            (thd_manual - thd_stored).abs() < 1e-6,
+            "manually computed THD {thd_manual} should match stored {thd_stored}"
+        );
+        assert!(thd_manual >= 0.0, "THD must be non-negative: {thd_manual}");
+    }
+
+    #[test]
+    fn test_harmonic_voltages_finite_and_positive() {
+        let hpf = two_bus_system();
+        let p_inj = vec![0.0, -0.05];
+        let q_inj = vec![0.0, -0.01];
+
+        let result = hpf
+            .solve(&p_inj, &q_inj)
+            .expect("two_bus_system solve must succeed");
+
+        for bus in 0..2 {
+            for &(order, mag, _angle) in &result.harmonic_voltages[bus] {
+                assert!(
+                    mag.is_finite(),
+                    "bus {bus} h={order} magnitude must be finite, got {mag}"
+                );
+                assert!(
+                    mag >= 0.0,
+                    "bus {bus} h={order} magnitude must be >= 0, got {mag}"
+                );
+            }
+        }
+    }
+
+    #[test]
+    fn test_multiple_harmonic_orders_3_5_7() {
+        let branches = vec![HarmonicBranch::new(0, 1, 0.01, 0.1, 0.0, 100.0)];
+        // SMPS has 3rd and 5th harmonic content
+        let sources = vec![HarmonicSource::new(
+            1,
+            HarmonicSourceType::SwitchModePowerSupply,
+            0.3,
+        )];
+        let config = HarmonicPfConfigV1 {
+            harmonic_orders: vec![3, 5, 7],
+            ..Default::default()
+        };
+        let hpf = HarmonicPowerFlow::new(2, branches, sources, vec![], config, 0);
+        let p_inj = vec![0.0, -0.05];
+        let q_inj = vec![0.0, -0.01];
+
+        let result = hpf
+            .solve(&p_inj, &q_inj)
+            .expect("solve with 3 harmonic orders must succeed");
+
+        assert_eq!(
+            result.harmonic_voltages[1].len(),
+            3,
+            "bus 1 should have exactly 3 harmonic entries (orders 3, 5, 7)"
+        );
+
+        let orders: Vec<u32> = result.harmonic_voltages[1]
+            .iter()
+            .map(|&(h, _, _)| h)
+            .collect();
+        for &expected_order in &[3u32, 5, 7] {
+            assert!(
+                orders.contains(&expected_order),
+                "bus 1 harmonic voltages should contain order {expected_order}, got {orders:?}"
+            );
+        }
+    }
+
+    #[test]
+    fn test_norton_source_injection_angle() {
+        // Source with explicit angle PI/4 at h=5
+        let src = HarmonicSource::with_explicit_currents(
+            0,
+            HarmonicSourceType::SixPulseDrive,
+            vec![(5u32, 1.0, PI / 4.0)],
+        );
+
+        let (ir, ii) = src.injection_at(5);
+        let expected_r = (PI / 4.0).cos();
+        let expected_i = (PI / 4.0).sin();
+        assert!(
+            (ir - expected_r).abs() < 1e-10,
+            "real part at h=5 should be cos(PI/4)={expected_r}, got {ir}"
+        );
+        assert!(
+            (ii - expected_i).abs() < 1e-10,
+            "imag part at h=5 should be sin(PI/4)={expected_i}, got {ii}"
+        );
+
+        // No injection at an order not in the list
+        let (ir7, ii7) = src.injection_at(7);
+        assert!(
+            ir7.abs() < 1e-12 && ii7.abs() < 1e-12,
+            "injection at h=7 (not listed) should be zero, got ({ir7}, {ii7})"
+        );
+    }
+
+    #[test]
+    fn test_shunt_susceptance_scales_linearly() {
+        let branch = HarmonicBranch::new(0, 1, 0.01, 0.1, 0.05, 100.0);
+
+        let b1 = branch.shunt_susceptance_at_harmonic(1);
+        assert!(
+            (b1 - 0.05).abs() < 1e-12,
+            "h=1 shunt susceptance should be 0.05, got {b1}"
+        );
+
+        let b5 = branch.shunt_susceptance_at_harmonic(5);
+        assert!(
+            (b5 - 0.25).abs() < 1e-12,
+            "h=5 shunt susceptance should be 0.25, got {b5}"
+        );
+
+        let b7 = branch.shunt_susceptance_at_harmonic(7);
+        assert!(
+            (b7 - 0.35).abs() < 1e-12,
+            "h=7 shunt susceptance should be 0.35, got {b7}"
+        );
+    }
+
+    #[test]
+    fn test_zero_injection_produces_near_zero_harmonic_voltages() {
+        let branches = vec![HarmonicBranch::new(0, 1, 0.01, 0.1, 0.0, 100.0)];
+        // No harmonic sources and no nonlinear loads
+        let loads = vec![HarmonicLoad {
+            bus: 1,
+            p_fundamental_mw: 5.0,
+            q_fundamental_mvar: 1.0,
+            load_type: HarmonicLoadType::LinearResistive,
+        }];
+        let config = HarmonicPfConfigV1 {
+            harmonic_orders: vec![5, 7],
+            ..Default::default()
+        };
+        let hpf = HarmonicPowerFlow::new(2, branches, vec![], loads, config, 0);
+
+        let result = hpf
+            .solve(&[0.0, 0.0], &[0.0, 0.0])
+            .expect("solve with zero injections must succeed");
+
+        // Bus 1 (non-slack) must have near-zero harmonic voltages
+        for &(order, mag, _angle) in &result.harmonic_voltages[1] {
+            assert!(
+                mag < 1e-10,
+                "bus 1 h={order} voltage must be near-zero with no harmonic injection, got {mag}"
+            );
+        }
+    }
 }

@@ -150,4 +150,58 @@ mod tests {
         assert_eq!(StateOfCharge::new(-0.1).0, 0.0);
         assert_eq!(StateOfCharge::new(0.5).0, 0.5);
     }
+
+    #[test]
+    fn test_wh_to_joules_ratio() {
+        // Inner value is Wh directly — 1 Wh stored as 1.0
+        assert!((Energy(1.0).0 - 1.0).abs() < 1e-10);
+        // from_kwh(1.0) => 1000 Wh
+        assert!((Energy::from_kwh(1.0).0 - 1000.0).abs() < 1e-10);
+        // Conceptual: 1 Wh * 3600 s/h = 3600 J
+        let joules = Energy(1.0).0 * 3600.0;
+        assert!((joules - 3600.0).abs() < 1e-10);
+        // Inner value of Energy(2.0) is 2.0
+        assert!((Energy(2.0).0 - 2.0).abs() < 1e-10);
+    }
+
+    #[test]
+    fn test_mwh_kwh_scaling() {
+        // 1 MWh = 1000 kWh = 1_000_000 Wh
+        assert!((Energy::from_kwh(1000.0).0 - 1_000_000.0).abs() < 1e-10);
+        // Round-trip: from_kwh(1000).to_kwh() == 1000
+        assert!((Energy::from_kwh(1000.0).to_kwh() - 1000.0).abs() < 1e-10);
+    }
+
+    #[test]
+    fn test_energy_addition() {
+        let sum = Energy(500.0) + Energy(700.0);
+        assert!((sum.0 - 1200.0).abs() < 1e-10);
+        let diff = Energy(700.0) - Energy(200.0);
+        assert!((diff.0 - 500.0).abs() < 1e-10);
+    }
+
+    #[test]
+    fn test_energy_comparison() {
+        assert!(Energy(100.0) < Energy(200.0));
+        assert!(Energy(500.0) > Energy(499.9));
+        assert!(Energy(0.0) == Energy(0.0));
+    }
+
+    #[test]
+    fn test_zero_energy() {
+        assert!((Energy::default().0 - 0.0).abs() < 1e-10);
+        let added = Energy(0.0) + Energy(100.0);
+        assert!((added.0 - 100.0).abs() < 1e-10);
+        let zeroed = Energy(50.0) - Energy(50.0);
+        assert!(zeroed.0.abs() < 1e-10);
+    }
+
+    #[test]
+    fn test_negative_energy_deficit() {
+        assert!((Energy(-500.0).0 - (-500.0)).abs() < 1e-10);
+        let neg = -Energy(300.0);
+        assert!((neg.0 - (-300.0)).abs() < 1e-10);
+        let deficit = Energy(100.0) - Energy(400.0);
+        assert!((deficit.0 - (-300.0)).abs() < 1e-10);
+    }
 }

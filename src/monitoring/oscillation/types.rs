@@ -715,6 +715,7 @@ pub enum DampingTrend {
     Deteriorating,
 }
 /// Oscillation analysis report from the WAM monitor.
+#[derive(Debug)]
 pub struct OscillationReport {
     /// Analysis timestamp \[s\].
     pub timestamp: f64,
@@ -1178,4 +1179,127 @@ pub enum AlertSeverity {
     Warning,
     /// Critical — immediate operator action required.
     Critical,
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    // 1. WamOscillationMonitor::new — fields set correctly
+    #[test]
+    fn test_wam_monitor_new_fields() {
+        let monitor = WamOscillationMonitor::new(4, 50.0);
+        assert_eq!(monitor.n_buses, 4);
+        assert!((monitor.sampling_rate_hz - 50.0).abs() < f64::EPSILON);
+        assert_eq!(monitor.angle_buffers.len(), 4);
+        assert_eq!(monitor.speed_buffers.len(), 4);
+    }
+
+    // 2. PronyAnalyzer::new — fields set correctly
+    #[test]
+    fn test_prony_analyzer_new_fields() {
+        let analyzer = PronyAnalyzer::new(6, 30.0, 64);
+        assert_eq!(analyzer.n_modes, 6);
+        assert!((analyzer.sampling_rate_hz - 30.0).abs() < f64::EPSILON);
+        assert_eq!(analyzer.window_size, 64);
+    }
+
+    // 3. PronyAnalyzer::analyze — error on < 4 samples
+    #[test]
+    fn test_prony_analyze_too_few_samples() {
+        let analyzer = PronyAnalyzer::new(2, 50.0, 32);
+        let short_signal = vec![1.0, 0.5, 0.25];
+        match analyzer.analyze(&short_signal) {
+            Err(OscillationError::InvalidConfig(msg)) => {
+                assert!(msg.contains("4"), "expected '4' in error: {msg}");
+            }
+            other => panic!("expected InvalidConfig error, got {other:?}"),
+        }
+    }
+
+    // 4. PronyAnalyzer::analyze — error on n_modes = 0
+    #[test]
+    fn test_prony_analyze_zero_modes_error() {
+        let analyzer = PronyAnalyzer::new(0, 50.0, 32);
+        let signal: Vec<f64> = (0..32).map(|i| (i as f64 * 0.1).sin()).collect();
+        match analyzer.analyze(&signal) {
+            Err(OscillationError::InvalidConfig(msg)) => {
+                assert!(
+                    msg.contains("n_modes") || msg.contains("1"),
+                    "unexpected error message: {msg}"
+                );
+            }
+            other => panic!("expected InvalidConfig error for n_modes=0, got {other:?}"),
+        }
+    }
+
+    // 5. classify_wam_mode — frequency-based classification
+    #[test]
+    fn test_classify_wam_mode_variants() {
+        // f > 2.0 → Control regardless of bus count
+        assert_eq!(
+            WamOscillationMonitor::classify_wam_mode(2.5, 10),
+            ModeType::Control
+        );
+        // f ≈ 0.4, many buses → InterArea
+        assert_eq!(
+            WamOscillationMonitor::classify_wam_mode(0.4, 8),
+            ModeType::InterArea
+        );
+        // f > 0.7, few buses (≤2) → Local
+        assert_eq!(
+            WamOscillationMonitor::classify_wam_mode(1.0, 2),
+            ModeType::Local
+        );
+        // f > 0.7, many buses → Local (freq dominates)
+        assert_eq!(
+            WamOscillationMonitor::classify_wam_mode(0.9, 6),
+            ModeType::Local
+        );
+    }
+
+    // 6. compute_damping_index — empty modes → 1.0
+    #[test]
+    fn test_compute_damping_index_empty() {
+        let result = WamOscillationMonitor::compute_damping_index(&[]);
+        assert!(
+            (result - 1.0).abs() < f64::EPSILON,
+            "expected 1.0 for empty modes, got {result}"
+        );
+    }
+
+    // 7. WamOscillationMonitor::analyze — error when n_buses = 0
+    #[test]
+    fn test_wam_analyze_no_buses_error() {
+        let monitor = WamOscillationMonitor::new(0, 50.0);
+        match monitor.analyze() {
+            Err(OscillationError::InvalidConfig(msg)) => {
+                assert!(
+                    msg.contains("no buses") || msg.contains("WAM"),
+                    "unexpected error message: {msg}"
+                );
+            }
+            other => panic!("expected InvalidConfig error for n_buses=0, got {other:?}"),
+        }
+    }
+
+    // 8. compute_swing_mode — two-bus case with known angle differences
+    #[test]
+    fn test_compute_swing_mode_two_bus() {
+        let mut monitor = WamOscillationMonitor::new(2, 50.0);
+        // Push 5 samples: bus 0 angles and bus 1 angles differ by a constant 0.1 rad
+        let angles_bus0 = [0.3, 0.4, 0.5, 0.6, 0.7];
+        let angles_bus1 = [0.2, 0.3, 0.4, 0.5, 0.6];
+        for (i, (&a0, &a1)) in angles_bus0.iter().zip(angles_bus1.iter()).enumerate() {
+            monitor.update(&[a0, a1], &[0.0, 0.0], i as f64 * 0.02);
+        }
+        let swing = monitor.compute_swing_mode(0, 1);
+        assert_eq!(swing.len(), 5, "swing signal should have 5 samples");
+        for &diff in &swing {
+            assert!(
+                (diff - 0.1).abs() < 1e-10,
+                "expected swing ≈ 0.1, got {diff}"
+            );
+        }
+    }
 }

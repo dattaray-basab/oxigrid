@@ -261,7 +261,10 @@ pub fn solve_expansion_planning(
         } // No beneficial candidate
 
         // Commit the best candidate
-        let cand = candidates.iter().find(|c| c.id == best_cand_id).unwrap();
+        let cand = candidates
+            .iter()
+            .find(|c| c.id == best_cand_id)
+            .expect("invariant: best_cand_id was found in candidates during earlier search");
         current_network.branches.push(cand.to_branch());
         current_op_cost -= best_saving;
 

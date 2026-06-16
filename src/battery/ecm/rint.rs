@@ -142,4 +142,86 @@ mod tests {
         let state = model.step(Current(1000.0), 3600.0, Temperature(298.15));
         assert_eq!(state.soc.0, 0.0);
     }
+
+    #[test]
+    fn test_rint_discharge_lower_than_ocv() {
+        let model = make_rint();
+        let ocv = model.ocv_curve.ocv(1.0);
+        let v = model.terminal_voltage(StateOfCharge::new(1.0), Current(75.0), Temperature(298.15));
+        assert!(v.0 < ocv);
+    }
+
+    #[test]
+    fn test_rint_charge_higher_than_ocv() {
+        let model = make_rint().with_soc(0.5);
+        let ocv = model.ocv_curve.ocv(0.5);
+        let v =
+            model.terminal_voltage(StateOfCharge::new(0.5), Current(-75.0), Temperature(298.15));
+        assert!(
+            v.0 > ocv,
+            "charge voltage {} should exceed OCV {}",
+            v.0,
+            ocv
+        );
+    }
+
+    #[test]
+    fn test_rint_terminal_voltage_is_finite() {
+        let model = make_rint();
+        let v = model.terminal_voltage(StateOfCharge::new(0.5), Current(10.0), Temperature(298.15));
+        assert!(v.0.is_finite(), "terminal voltage must be finite");
+    }
+
+    #[test]
+    fn test_rint_round_trip_energy_efficiency_lt1() {
+        let mut model = make_rint().with_soc(1.0);
+        let current_d = 75.0_f64;
+        let current_c = -75.0_f64;
+        let dt = 1.0_f64;
+        let steps = 1800_usize;
+        let mut energy_discharged = 0.0_f64;
+        let mut energy_charged = 0.0_f64;
+        for _ in 0..steps {
+            let state = model.step(Current(current_d), dt, Temperature(298.15));
+            energy_discharged += state.voltage.0 * current_d * dt;
+        }
+        for _ in 0..steps {
+            let state = model.step(Current(current_c), dt, Temperature(298.15));
+            energy_charged += state.voltage.0 * current_c.abs() * dt;
+        }
+        assert!(
+            energy_discharged < energy_charged,
+            "round-trip efficiency must be < 1.0: discharged={}, charged={}",
+            energy_discharged,
+            energy_charged
+        );
+    }
+
+    #[test]
+    fn test_rint_temperature_dependence_r0() {
+        let model = make_rint();
+        let v_ref =
+            model.terminal_voltage(StateOfCharge::new(1.0), Current(75.0), Temperature(298.15));
+        let v_hot =
+            model.terminal_voltage(StateOfCharge::new(1.0), Current(75.0), Temperature(400.0));
+        assert!(
+            v_hot.0 < v_ref.0,
+            "higher temp should give lower discharge voltage, got v_hot={}, v_ref={}",
+            v_hot.0,
+            v_ref.0
+        );
+    }
+
+    #[test]
+    fn test_rint_state_voltage_equals_ocv_at_rest() {
+        let model = make_rint().with_soc(0.7);
+        let ocv_expected = model.ocv_curve.ocv(0.7);
+        let state = model.state();
+        assert!(
+            (state.voltage.0 - ocv_expected).abs() < 1e-9,
+            "state voltage {} expected OCV {}",
+            state.voltage.0,
+            ocv_expected
+        );
+    }
 }

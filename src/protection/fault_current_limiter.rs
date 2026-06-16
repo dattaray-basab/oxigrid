@@ -1558,4 +1558,136 @@ mod tests {
         let expected_x2 = OMEGA_50HZ * 100e-3;
         assert!((x2 - expected_x2).abs() < 1e-6);
     }
+
+    // ── 8 new unit tests ─────────────────────────────────────────────────────
+
+    #[test]
+    fn test_fcl_trigger_threshold_exceeded_sets_quenching() {
+        let mut fcl = make_rsfcl();
+        // Current above critical (2.0 kA) → should trigger
+        assert!(fcl.should_trigger(2.5));
+        fcl.update_state(2.5, 1.0);
+        assert_eq!(fcl.operating_state, FclState::Quenching);
+        assert_eq!(fcl.fault_count, 1);
+    }
+
+    #[test]
+    fn test_limited_current_le_unlimited_via_impedance() {
+        // post_fcl_fault_current with non-zero FCL impedance must reduce current
+        let pre = 10.0_f64;
+        let z_src = 2.0_f64;
+        let z_fcl = 3.0_f64;
+        let limited = FclPlacementOptimizer::post_fcl_fault_current(pre, z_src, z_fcl);
+        assert!(limited < pre);
+        assert!((limited - 4.0).abs() < 1e-10);
+    }
+
+    #[test]
+    fn test_fcl_impedance_in_valid_range_after_trigger() {
+        let mut fcl = make_rsfcl();
+        // Trigger into Quenching
+        fcl.update_state(3.0, 1.0);
+        assert_eq!(fcl.operating_state, FclState::Quenching);
+        // At time=0 in Quenching: frac=0, R=0
+        let (r0, x0) = fcl.effective_impedance(0.0);
+        assert!(r0.abs() < 1e-10);
+        assert!(x0.abs() < 1e-10);
+        // At time=quench_rise_time_ms=10.0 in Quenching: frac=1, R=5.0
+        let (r_full, x_full) = fcl.effective_impedance(10.0);
+        assert!((r_full - 5.0).abs() < 1e-10);
+        assert!(x_full.abs() < 1e-10);
+        // Advance to Triggered state
+        fcl.operating_state = FclState::Triggered;
+        let (r_t, x_t) = fcl.effective_impedance(0.0);
+        assert!((r_t - 5.0).abs() < 1e-10);
+        assert!(x_t.abs() < 1e-10);
+    }
+
+    #[test]
+    fn test_resistive_vs_inductive_behavior_difference() {
+        // RSFCL in Normal: (0, 0)
+        let rsfcl = make_rsfcl();
+        let (r_res, x_res) = rsfcl.effective_impedance(0.0);
+        assert!(r_res.abs() < 1e-10);
+        assert!(x_res.abs() < 1e-10);
+
+        // Inductive in Normal: (0, X_sat) where X_sat = OMEGA_50HZ * 1e-3 (L=1 mH)
+        let ind = FaultCurrentLimiter::new(
+            20,
+            2,
+            3,
+            FclTechnology::InductiveSuperconducting {
+                saturated_inductance_mh: 1.0,
+                unsaturated_inductance_mh: 100.0,
+                saturation_current_ka: 2.0,
+                bias_coil_current_a: 200.0,
+            },
+            1.5,
+            110.0,
+        );
+        let (r_ind, x_ind) = ind.effective_impedance(0.0);
+        assert!(r_ind.abs() < 1e-10);
+        // Inductive must have non-zero X in Normal (saturated inductance)
+        assert!(x_ind > 0.0);
+        let expected_x_sat = OMEGA_50HZ * 1e-3;
+        assert!((x_ind - expected_x_sat).abs() < 1e-6);
+    }
+
+    #[test]
+    fn test_recovery_state_after_fault_clearance() {
+        let mut fcl = make_rsfcl();
+        // Put into Triggered state directly
+        fcl.operating_state = FclState::Triggered;
+        // Current falls below rated (1.5 kA)
+        fcl.update_state(1.0, 1.0);
+        assert_eq!(fcl.operating_state, FclState::Recovering);
+        // Impedance in Recovering is (0, 0) for RSFCL
+        let (r, x) = fcl.effective_impedance(0.0);
+        assert!(r.abs() < 1e-10);
+        assert!(x.abs() < 1e-10);
+    }
+
+    #[test]
+    fn test_no_false_trigger_during_normal_load() {
+        let mut fcl = make_rsfcl();
+        // Current well below critical (2.0 kA)
+        assert!(!fcl.should_trigger(1.0));
+        fcl.update_state(1.0, 5.0);
+        assert_eq!(fcl.operating_state, FclState::Normal);
+        assert_eq!(fcl.fault_count, 0);
+        // should_trigger returns false when state is not Normal, even if current is high
+        fcl.operating_state = FclState::Triggered;
+        assert!(!fcl.should_trigger(10.0));
+    }
+
+    #[test]
+    fn test_protection_coordination_overcurrent_interaction() {
+        // Verify that adding FCL impedance reduces fault current below overcurrent threshold
+        let overcurrent_threshold_ka = 5.0;
+        let pre_fault_ka = 10.0;
+        let z_source_ohm = 1.0;
+        // Choose z_fcl that halves the current to 5.0 — needs z_fcl = z_source
+        let z_fcl_ohm = 1.0;
+        let i_limited =
+            FclPlacementOptimizer::post_fcl_fault_current(pre_fault_ka, z_source_ohm, z_fcl_ohm);
+        assert!(i_limited < pre_fault_ka);
+        assert!((i_limited - 5.0).abs() < 1e-10);
+        // Verify we've hit the overcurrent threshold exactly
+        assert!((i_limited - overcurrent_threshold_ka).abs() < 1e-10);
+    }
+
+    #[test]
+    fn test_energy_dissipation_estimate_positive_after_fault() {
+        let mut fcl = make_rsfcl();
+        // In Normal state: R=0, energy=0
+        let e_normal = fcl.compute_energy_absorbed(3.0, 100.0);
+        assert!(e_normal.abs() < 1e-10);
+
+        // In Triggered state: R=5.0 → E = (3000)^2 * 5.0 * 0.1 = 4_500_000 J
+        fcl.operating_state = FclState::Triggered;
+        let e_triggered = fcl.compute_energy_absorbed(3.0, 100.0);
+        assert!(e_triggered > 0.0);
+        let expected_j = (3.0e3_f64).powi(2) * 5.0 * 0.1;
+        assert!((e_triggered - expected_j).abs() < 1.0);
+    }
 }

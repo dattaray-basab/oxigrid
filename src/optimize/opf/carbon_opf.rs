@@ -496,4 +496,214 @@ mod tests {
             "green_lmp length should equal n_buses"
         );
     }
+
+    #[test]
+    fn test_no_generators_returns_error() {
+        let mut solver = CarbonOpfSolver::new(base_config());
+        solver.set_network(vec![], vec![50.0, 0.0, 0.0]);
+        let result = solver.solve();
+        assert!(
+            matches!(result, Err(CarbonOpfError::NoGenerators)),
+            "expected NoGenerators error, got {:?}",
+            result
+        );
+    }
+
+    #[test]
+    fn test_pareto_front_single_point() {
+        let mut solver = CarbonOpfSolver::new(base_config());
+        solver.set_network(vec![], vec![80.0, 0.0, 0.0]);
+        solver.add_generator(coal_gen(0, 0.0, 100.0, 40.0));
+        solver.add_generator(solar_gen(1, 100.0));
+        let front = solver.pareto_front(1).expect("pareto_front(1)");
+        assert_eq!(
+            front.len(),
+            1,
+            "pareto_front(1) should return exactly 1 point"
+        );
+        let res = &front[0];
+        assert!(
+            res.total_cost_usd_per_h >= 0.0,
+            "total_cost should be non-negative"
+        );
+        assert!(
+            res.total_emissions_t_per_h >= 0.0,
+            "total_emissions should be non-negative"
+        );
+    }
+
+    #[test]
+    fn test_pareto_front_five_points_monotone() {
+        let cfg = CarbonOpfConfig {
+            base_mva: 100.0,
+            n_buses: 3,
+            carbon_limit_t_per_h: None,
+            carbon_price_usd_per_t: 0.0,
+            renewable_priority: false,
+            dual_objective_weight: 1.0,
+        };
+        let mut solver = CarbonOpfSolver::new(cfg);
+        solver.set_network(vec![], vec![80.0, 0.0, 0.0]);
+        // coal: cheap (cost=5.0) but high emission (0.9 t/MWh)
+        solver.add_generator(coal_gen(0, 0.0, 100.0, 5.0));
+        // solar: expensive (cost=100.0) but zero emission
+        solver.add_generator(GeneratorCarbon {
+            bus: 1,
+            p_max_mw: 100.0,
+            p_min_mw: 0.0,
+            energy_cost_usd_per_mwh: 100.0,
+            co2_rate_t_per_mwh: 0.0,
+            is_must_run: false,
+            p_fixed_mw: None,
+        });
+        let front = solver.pareto_front(5).expect("pareto_front(5)");
+        assert_eq!(
+            front.len(),
+            5,
+            "pareto_front(5) should return exactly 5 points"
+        );
+        // w goes from 0 (pure emission min) to 1 (pure cost min)
+        // emissions should be monotonically non-decreasing
+        for i in 0..4 {
+            assert!(
+                front[i].total_emissions_t_per_h <= front[i + 1].total_emissions_t_per_h + 1e-6,
+                "emissions not monotonically non-decreasing at index {}: {} > {}",
+                i,
+                front[i].total_emissions_t_per_h,
+                front[i + 1].total_emissions_t_per_h
+            );
+        }
+    }
+
+    #[test]
+    fn test_result_fields_nonnegative() {
+        let mut solver = CarbonOpfSolver::new(base_config());
+        solver.set_network(vec![], vec![80.0, 0.0, 0.0]);
+        solver.add_generator(coal_gen(0, 0.0, 100.0, 40.0));
+        solver.add_generator(solar_gen(1, 50.0));
+        let res = solver.solve().expect("solve should succeed");
+        assert!(
+            res.total_cost_usd_per_h >= 0.0,
+            "total_cost_usd_per_h must be non-negative"
+        );
+        assert!(
+            res.total_emissions_t_per_h >= 0.0,
+            "total_emissions_t_per_h must be non-negative"
+        );
+        assert!(
+            res.renewable_curtailment_mw >= 0.0,
+            "renewable_curtailment_mw must be non-negative"
+        );
+        for (i, &d) in res.dispatch_mw.iter().enumerate() {
+            assert!(
+                d >= 0.0,
+                "dispatch_mw[{}] must be non-negative, got {}",
+                i,
+                d
+            );
+        }
+    }
+
+    #[test]
+    fn test_zero_emission_generator() {
+        let mut solver = CarbonOpfSolver::new(base_config());
+        solver.set_network(vec![], vec![50.0, 0.0, 0.0]);
+        solver.add_generator(GeneratorCarbon {
+            bus: 0,
+            p_max_mw: 100.0,
+            p_min_mw: 0.0,
+            energy_cost_usd_per_mwh: 10.0,
+            co2_rate_t_per_mwh: 0.0,
+            is_must_run: false,
+            p_fixed_mw: None,
+        });
+        let res = solver.solve().expect("solve should succeed");
+        assert!(
+            (res.total_emissions_t_per_h - 0.0).abs() < 1e-9,
+            "zero-emission generator should produce 0 emissions, got {}",
+            res.total_emissions_t_per_h
+        );
+        assert!(
+            (res.dispatch_mw[0] - 50.0).abs() < 1e-6,
+            "single generator should dispatch exactly load (50 MW), got {}",
+            res.dispatch_mw[0]
+        );
+    }
+
+    #[test]
+    fn test_single_generator_degenerate() {
+        let mut solver = CarbonOpfSolver::new(base_config());
+        solver.set_network(vec![], vec![100.0, 0.0, 0.0]);
+        solver.add_generator(GeneratorCarbon {
+            bus: 0,
+            p_max_mw: 200.0,
+            p_min_mw: 0.0,
+            energy_cost_usd_per_mwh: 50.0,
+            co2_rate_t_per_mwh: 0.5,
+            is_must_run: false,
+            p_fixed_mw: None,
+        });
+        let res = solver.solve().expect("solve should succeed");
+        assert!(
+            (res.dispatch_mw[0] - 100.0).abs() < 1e-6,
+            "single generator should dispatch exactly 100 MW, got {}",
+            res.dispatch_mw[0]
+        );
+        assert!(
+            (res.total_cost_usd_per_h - 5000.0).abs() < 1e-6,
+            "total cost should be 100*50=5000, got {}",
+            res.total_cost_usd_per_h
+        );
+        assert!(
+            (res.total_emissions_t_per_h - 50.0).abs() < 1e-6,
+            "total emissions should be 100*0.5=50, got {}",
+            res.total_emissions_t_per_h
+        );
+    }
+
+    #[test]
+    fn test_carbon_price_zero_vs_large_different_dispatch() {
+        // Setup: coal is cheaper than solar at zero carbon price, so at zero
+        // carbon price coal is dispatched first and solar dispatch is low.
+        // At a high carbon price the coal carbon adder (1000 * 0.9 = 900) makes
+        // coal much more expensive than solar, so solar is dispatched first and
+        // coal dispatch decreases (solar dispatch increases).
+        //
+        // coal energy_cost = 2.0 USD/MWh,  co2_rate = 0.9 t/MWh
+        // solar energy_cost = 5.0 USD/MWh, co2_rate = 0.0 t/MWh
+        //
+        // At carbon_price=0    : c_aug(coal)=2.0, c_aug(solar)=5.0 → coal dispatched first
+        // At carbon_price=1000 : c_aug(coal)=902, c_aug(solar)=5.0 → solar dispatched first
+        let make_solver = |carbon_price: f64| {
+            let cfg = CarbonOpfConfig {
+                base_mva: 100.0,
+                n_buses: 3,
+                carbon_limit_t_per_h: None,
+                carbon_price_usd_per_t: carbon_price,
+                renewable_priority: false,
+                dual_objective_weight: 1.0,
+            };
+            let mut solver = CarbonOpfSolver::new(cfg);
+            solver.set_network(vec![], vec![80.0, 0.0, 0.0]);
+            // coal: very cheap (2 USD/MWh) but high emission (0.9 t/MWh)
+            solver.add_generator(coal_gen(0, 0.0, 100.0, 2.0));
+            // solar: more expensive (5 USD/MWh), zero emission
+            solver.add_generator(solar_gen(1, 100.0));
+            solver
+        };
+
+        let res_zero = make_solver(0.0)
+            .solve()
+            .expect("solve with zero carbon price");
+        let res_high = make_solver(1000.0)
+            .solve()
+            .expect("solve with high carbon price");
+
+        assert!(
+            res_high.dispatch_mw[1] > res_zero.dispatch_mw[1],
+            "high carbon price should force more solar dispatch: zero_price_solar={}, high_price_solar={}",
+            res_zero.dispatch_mw[1],
+            res_high.dispatch_mw[1]
+        );
+    }
 }

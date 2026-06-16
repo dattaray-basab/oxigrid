@@ -231,4 +231,95 @@ mod tests {
         let imbalance_after = pack.pack_state().soc_imbalance;
         assert!(imbalance_after < imbalance_before);
     }
+
+    #[test]
+    fn test_pack_total_energy_equals_voltage_times_capacity() {
+        let pack = SeriesParallelPack::uniform(4, 2, make_cell());
+        let v = pack.nominal_voltage();
+        let cap = pack.nominal_capacity_ah();
+        let energy = v * cap; // Wh
+        assert!(energy > 0.0, "energy must be positive, got {}", energy);
+        assert!(energy.is_finite(), "energy must be finite");
+        // 4s2p: ~4*4.2 V * 2*3.0 Ah = ~100.8 Wh
+        assert!(
+            energy > 50.0 && energy < 200.0,
+            "energy {} out of expected range",
+            energy
+        );
+    }
+
+    #[test]
+    fn test_pack_construction_from_uniform() {
+        let pack = SeriesParallelPack::uniform(3, 4, make_cell());
+        assert_eq!(pack.ns, 3);
+        assert_eq!(pack.np, 4);
+        assert_eq!(pack.cells.len(), 3);
+        assert_eq!(pack.cells[0].len(), 4);
+    }
+
+    #[test]
+    fn test_pack_step_returns_finite_voltage() {
+        let mut pack = SeriesParallelPack::uniform(4, 2, make_cell());
+        let state = pack.step(Current(6.0), 1.0, Temperature(298.15));
+        assert!(state.voltage.0.is_finite(), "pack voltage must be finite");
+        assert!(state.voltage.0 > 0.0, "pack voltage must be positive");
+    }
+
+    #[test]
+    fn test_pack_snapshot_soc_mean_equals_cell_soc() {
+        let pack = SeriesParallelPack::uniform(2, 2, make_cell());
+        let state = pack.pack_state_snapshot();
+        assert!(
+            (state.soc_mean.0 - 1.0).abs() < 1e-9,
+            "fresh pack soc_mean={} expected 1.0",
+            state.soc_mean.0
+        );
+        assert!(
+            (state.soc_imbalance).abs() < 1e-9,
+            "fresh pack imbalance={} expected 0.0",
+            state.soc_imbalance
+        );
+    }
+
+    #[test]
+    fn test_pack_charge_increases_soc() {
+        let cell = make_cell();
+        let mut pack = SeriesParallelPack::uniform(2, 1, cell);
+        // Discharge first
+        for _ in 0..1000 {
+            pack.step(Current(3.0), 1.0, Temperature(298.15));
+        }
+        let soc_after_discharge = pack.pack_state_snapshot().soc_mean.0;
+        // Now charge
+        for _ in 0..1000 {
+            pack.step(Current(-3.0), 1.0, Temperature(298.15));
+        }
+        let soc_after_charge = pack.pack_state_snapshot().soc_mean.0;
+        assert!(
+            soc_after_charge > soc_after_discharge,
+            "soc after charge {} should exceed soc after discharge {}",
+            soc_after_charge,
+            soc_after_discharge
+        );
+    }
+
+    #[test]
+    fn test_pack_bms_trait_pack_state() {
+        use crate::battery::pack::Bms;
+        let pack = SeriesParallelPack::uniform(2, 2, make_cell());
+        let bms_state = pack.pack_state();
+        let snap_state = pack.pack_state_snapshot();
+        assert!(
+            (bms_state.voltage.0 - snap_state.voltage.0).abs() < 1e-9,
+            "bms voltage {} != snapshot voltage {}",
+            bms_state.voltage.0,
+            snap_state.voltage.0
+        );
+        assert!(
+            (bms_state.soc_mean.0 - snap_state.soc_mean.0).abs() < 1e-9,
+            "bms soc_mean {} != snapshot soc_mean {}",
+            bms_state.soc_mean.0,
+            snap_state.soc_mean.0
+        );
+    }
 }

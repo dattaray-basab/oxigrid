@@ -7,7 +7,7 @@
 /// - Thermal rise under load
 use oxigrid::battery::ecm::{OneRcModel, RintModel};
 use oxigrid::battery::thermal::LumpedThermalModel;
-use oxigrid::battery::OcvSocCurve;
+use oxigrid::battery::{BatteryModel, OcvSocCurve};
 use oxigrid::units::{Current, StateOfCharge, Temperature};
 
 #[test]
@@ -20,7 +20,9 @@ fn test_lfp_ocv_plateau_flat() {
     assert!(
         (v80 - v20) < 0.15,
         "LFP plateau too steep: v20={:.3}V v80={:.3}V diff={:.3}V",
-        v20, v80, v80 - v20
+        v20,
+        v80,
+        v80 - v20
     );
 }
 
@@ -71,11 +73,7 @@ fn test_lfp_rint_energy_conservation() {
 fn test_lfp_terminal_voltage_under_load() {
     let model = RintModel::new(OcvSocCurve::lfp_default(), 0.005, 75.0).with_soc(0.5);
     // At 50% SoC, OCV ≈ 3.32 V; at 1C (75A), voltage drop = 75 * 0.005 = 0.375 V
-    let v = model.terminal_voltage(
-        StateOfCharge::new(0.5),
-        Current(75.0),
-        Temperature(298.15),
-    );
+    let v = model.terminal_voltage(StateOfCharge::new(0.5), Current(75.0), Temperature(298.15));
     let ocv = OcvSocCurve::lfp_default().ocv(0.5);
     assert!((v.0 - (ocv - 75.0 * 0.005)).abs() < 1e-6);
 }
@@ -97,7 +95,8 @@ fn test_lfp_1rc_rest_relaxation() {
     assert!(
         model.v_rc1.abs() < v_rc1_end_of_pulse.abs() * 0.05,
         "RC1 not relaxing: {:.4} vs {:.4}",
-        model.v_rc1, v_rc1_end_of_pulse
+        model.v_rc1,
+        v_rc1_end_of_pulse
     );
 }
 

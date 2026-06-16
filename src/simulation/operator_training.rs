@@ -1442,4 +1442,240 @@ mod tests {
     fn frequency_emergency_session() -> TrainingSession {
         TrainingSession::frequency_emergency_scenario("trainee_freq".to_string())
     }
+
+    // ── 13. AccuracyOnly scoring: time bonus is zero even on fast correct response
+
+    #[test]
+    fn test_accuracy_only_no_time_bonus() {
+        let mut session = trip_session();
+        session.config.scoring_method = ScoringMethod::AccuracyOnly;
+        let _fired = session.advance_time(35.0);
+        // Answer immediately — elapsed ≈ 5 s, well within the 60 s limit.
+        session.current_time_s = 31.0;
+
+        let score = session.evaluate_response(
+            0,
+            &OtsOperatorAction::ActivateReserve {
+                reserve_type: "spinning".to_string(),
+            },
+        );
+
+        assert_eq!(
+            score.time_bonus, 0.0,
+            "AccuracyOnly scoring must yield zero time bonus, got {}",
+            score.time_bonus
+        );
+        assert!(
+            (score.points - 100.0).abs() < 1e-9,
+            "base points should be 100 for exact match, got {}",
+            score.points
+        );
+    }
+
+    // ── 14. AdjustGeneration partial credit: same unit, different MW ─────────
+
+    #[test]
+    fn test_adjust_generation_partial_credit_same_unit() {
+        let mut session = TrainingSession::n1_contingency_scenario("trainee_adj".to_string());
+        let _fired = session.advance_time(25.0);
+
+        // Correct answer is G1 @ 150 MW.  Submit G1 @ 300 MW (2× off).
+        let score = session.evaluate_response(
+            0,
+            &OtsOperatorAction::AdjustGeneration {
+                unit_id: "G1".to_string(),
+                mw: 300.0,
+            },
+        );
+
+        assert!(
+            score.points > 0.0 && score.points < 100.0,
+            "same unit different MW should yield partial credit, got {:.1}",
+            score.points
+        );
+        assert!(
+            score.points <= 70.0,
+            "partial AdjustGeneration credit capped at 70, got {:.1}",
+            score.points
+        );
+    }
+
+    // ── 15. CommitUnit vs ActivateReserve → 50 % partial credit ─────────────
+
+    #[test]
+    fn test_commit_vs_activate_reserve_partial_credit() {
+        // Event 0 of generator_trip_scenario expects ActivateReserve.
+        // Submitting CommitUnit for the same event should give 50 % partial credit.
+        let mut session = trip_session();
+        let _fired = session.advance_time(35.0);
+
+        let score = session.evaluate_response(
+            0,
+            &OtsOperatorAction::CommitUnit {
+                unit_id: "G4".to_string(),
+            },
+        );
+
+        let expected = 100.0 * 0.5;
+        assert!(
+            (score.points - expected).abs() < 1.0,
+            "CommitUnit vs ActivateReserve should yield ~50 pts, got {:.1}",
+            score.points
+        );
+    }
+
+    // ── 16. evaluate_response with out-of-range event index ─────────────────
+
+    #[test]
+    fn test_evaluate_response_invalid_event_index() {
+        let session = trip_session();
+        let score = session.evaluate_response(999, &OtsOperatorAction::DoNothing);
+
+        assert_eq!(
+            score.points, 0.0,
+            "invalid event index should yield 0 points"
+        );
+        assert!(
+            score.feedback.contains("999"),
+            "feedback should mention the missing index"
+        );
+    }
+
+    // ── 17. SystemSnapshot::nominal constructor ───────────────────────────────
+
+    #[test]
+    fn test_system_snapshot_nominal() {
+        let snap = SystemSnapshot::nominal(5);
+
+        assert_eq!(snap.bus_voltages_pu.len(), 5, "should have 5 bus voltages");
+        assert!(
+            snap.bus_voltages_pu.iter().all(|&v| (v - 1.0).abs() < 1e-9),
+            "all voltages should be 1.0 pu"
+        );
+        assert_eq!(
+            snap.branch_loading_pct.len(),
+            4,
+            "branch count should be n_bus − 1"
+        );
+        assert!(
+            (snap.frequency_hz - 50.0).abs() < 1e-9,
+            "nominal frequency should be 50 Hz"
+        );
+    }
+
+    // ── 18. CloseSwitch dips frequency; OpenSwitch raises it ─────────────────
+
+    #[test]
+    fn test_close_switch_dips_frequency_open_switch_raises() {
+        let mut session = trip_session();
+        let initial_freq = session.system_state.frequency_hz;
+
+        let snap_close = session.simulate_system_response(&OtsOperatorAction::CloseSwitch {
+            switch_id: "SW1".to_string(),
+        });
+        assert!(
+            snap_close.frequency_hz < initial_freq,
+            "CloseSwitch should dip frequency from {:.3} Hz, got {:.3} Hz",
+            initial_freq,
+            snap_close.frequency_hz
+        );
+
+        let freq_after_close = snap_close.frequency_hz;
+        let snap_open = session.simulate_system_response(&OtsOperatorAction::OpenSwitch {
+            switch_id: "SW1".to_string(),
+        });
+        assert!(
+            snap_open.frequency_hz > freq_after_close,
+            "OpenSwitch should raise frequency from {:.3} Hz, got {:.3} Hz",
+            freq_after_close,
+            snap_open.frequency_hz
+        );
+    }
+
+    // ── 19. frequency_emergency_scenario: two-event structure + gap detection ─
+
+    #[test]
+    fn test_frequency_emergency_scenario_structure_and_gaps() {
+        let session = frequency_emergency_session();
+
+        assert_eq!(
+            session.events.len(),
+            2,
+            "frequency emergency should have exactly 2 events"
+        );
+        assert!(
+            matches!(session.scenario_type, ScenarioType::EmergencyFrequency),
+            "scenario type should be EmergencyFrequency"
+        );
+        assert!(
+            (session.system_state.frequency_hz - 48.8).abs() < 1e-6,
+            "initial frequency should be 48.8 Hz"
+        );
+
+        // Do not answer any events, then check the report for competency gaps.
+        let mut active = frequency_emergency_session();
+        let _fired = active.advance_time(120.0);
+        let report = active.generate_session_report();
+
+        assert!(
+            !report.competency_gaps.is_empty(),
+            "unanswered events should produce competency gaps"
+        );
+        assert!(
+            !report.recommended_training.is_empty(),
+            "competency gaps should map to recommended training modules"
+        );
+        assert!(
+            !report.pass_fail,
+            "zero score should not pass the frequency emergency scenario"
+        );
+    }
+
+    // ── 20. IssueAlert vs IssueAlert (different type) → 60 % partial credit ──
+
+    #[test]
+    fn test_issue_alert_partial_credit() {
+        // Build a minimal session with an IssueAlert as the correct answer.
+        let event = ScenarioEvent {
+            time_s: 5.0,
+            event_type: OtsEventType::ProtectionOperation {
+                relay_id: "R1".to_string(),
+            },
+            description: "Relay R1 operated.".to_string(),
+            requires_action: true,
+            correct_action: CorrectAction {
+                action_type: OtsOperatorAction::IssueAlert {
+                    alert_type: "protection".to_string(),
+                },
+                target: "control_room".to_string(),
+                value: None,
+                rationale: "Notify control room of relay operation.".to_string(),
+            },
+            time_limit_s: 60.0,
+        };
+
+        let session = TrainingSession::new(
+            "ALERT-TEST".to_string(),
+            ScenarioType::Normal,
+            "trainee_alert".to_string(),
+            vec![event],
+            SystemSnapshot::nominal(3),
+            OtsConfig::default(),
+        );
+
+        // Submit IssueAlert with a *different* alert_type.
+        let score = session.evaluate_response(
+            0,
+            &OtsOperatorAction::IssueAlert {
+                alert_type: "voltage".to_string(),
+            },
+        );
+
+        let expected = 100.0 * 0.6;
+        assert!(
+            (score.points - expected).abs() < 1.0,
+            "IssueAlert variant mismatch should yield ~60 pts, got {:.1}",
+            score.points
+        );
+    }
 }

@@ -244,4 +244,117 @@ mod tests {
             spec.thd_pct
         );
     }
+
+    #[test]
+    fn dft_dominant_bin_at_correct_index() {
+        let samples = pure_sine(60.0, 1.0, 600.0, 600);
+        let spectrum = dft(&samples);
+        let dominant_k = spectrum
+            .iter()
+            .enumerate()
+            .max_by(|(_, a), (_, b)| {
+                let ma = (a.0 * a.0 + a.1 * a.1).sqrt();
+                let mb = (b.0 * b.0 + b.1 * b.1).sqrt();
+                ma.partial_cmp(&mb).expect("magnitude comparison failed")
+            })
+            .map(|(k, _)| k)
+            .expect("spectrum must be non-empty");
+        assert_eq!(dominant_k, 60usize);
+    }
+
+    #[test]
+    fn analyse_multiple_harmonics_thd() {
+        let samples = synthetic_waveform(
+            60.0,
+            6000.0,
+            6000,
+            &[(1, 1.0, 0.0), (3, 0.1, 0.0), (5, 0.05, 0.0)],
+        );
+        let spec = analyse(&samples, 6000.0, 60.0, 10, None);
+        // expected THD = sqrt(0.1^2 + 0.05^2) / 1.0 * 100 ≈ 11.18%
+        let expected_thd = (0.1_f64 * 0.1 + 0.05 * 0.05).sqrt() * 100.0;
+        assert!(
+            (spec.thd_pct - expected_thd).abs() < 1.0,
+            "THD={:.4}% expected≈{:.4}%",
+            spec.thd_pct,
+            expected_thd
+        );
+    }
+
+    #[test]
+    fn tdd_pct_some_when_rated_current_provided() {
+        let samples = synthetic_waveform(60.0, 6000.0, 6000, &[(1, 1.0, 0.0), (3, 0.1, 0.0)]);
+        let spec = analyse(&samples, 6000.0, 60.0, 10, Some(1.0));
+        assert!(
+            spec.tdd_pct.is_some(),
+            "tdd_pct should be Some when rated_current is provided"
+        );
+        assert!(
+            spec.tdd_pct.expect("tdd should be Some") > 0.0,
+            "TDD must be positive"
+        );
+    }
+
+    #[test]
+    fn ieee519_individual_voltage_compliant_true_when_small_ihd() {
+        // 3rd harmonic at 1% IHD < 3% limit for 1–69 kV
+        let samples = synthetic_waveform(60.0, 6000.0, 6000, &[(1, 1.0, 0.0), (3, 0.01, 0.0)]);
+        let spec = analyse(&samples, 6000.0, 60.0, 10, None);
+        assert!(
+            spec.ieee519_individual_voltage_compliant(13.8),
+            "IHD should be compliant at 13.8 kV, thd={:.4}%",
+            spec.thd_pct
+        );
+    }
+
+    #[test]
+    fn ieee519_individual_voltage_compliant_false_when_ihd_exceeds_limit() {
+        // 3rd harmonic at 50% IHD >> 3% limit for 1–69 kV
+        let samples = synthetic_waveform(60.0, 6000.0, 6000, &[(1, 1.0, 0.0), (3, 0.5, 0.0)]);
+        let spec = analyse(&samples, 6000.0, 60.0, 10, None);
+        assert!(
+            !spec.ieee519_individual_voltage_compliant(13.8),
+            "IHD should NOT be compliant at 13.8 kV with 50% 3rd harmonic"
+        );
+    }
+
+    #[test]
+    fn ieee519_voltage_compliant_below_1kv() {
+        // THD ≈ 5% < 8% limit for < 1 kV → compliant
+        let samples = synthetic_waveform(60.0, 6000.0, 6000, &[(1, 1.0, 0.0), (3, 0.05, 0.0)]);
+        let spec = analyse(&samples, 6000.0, 60.0, 10, None);
+        assert!(
+            spec.ieee519_voltage_compliant(0.48),
+            "THD={:.4}% should be compliant below 1 kV (limit 8%)",
+            spec.thd_pct
+        );
+        // THD ≈ 12% > 8% limit → non-compliant
+        let samples2 = synthetic_waveform(60.0, 6000.0, 6000, &[(1, 1.0, 0.0), (3, 0.12, 0.0)]);
+        let spec2 = analyse(&samples2, 6000.0, 60.0, 10, None);
+        assert!(
+            !spec2.ieee519_voltage_compliant(0.48),
+            "THD={:.4}% should NOT be compliant below 1 kV (limit 8%)",
+            spec2.thd_pct
+        );
+    }
+
+    #[test]
+    fn ieee519_voltage_compliant_above_161kv() {
+        // THD ≈ 0.8% < 1.5% limit for > 161 kV → compliant
+        let samples = synthetic_waveform(60.0, 6000.0, 6000, &[(1, 1.0, 0.0), (3, 0.008, 0.0)]);
+        let spec = analyse(&samples, 6000.0, 60.0, 10, None);
+        assert!(
+            spec.ieee519_voltage_compliant(345.0),
+            "THD={:.4}% should be compliant above 161 kV (limit 1.5%)",
+            spec.thd_pct
+        );
+        // THD ≈ 2% > 1.5% limit → non-compliant
+        let samples2 = synthetic_waveform(60.0, 6000.0, 6000, &[(1, 1.0, 0.0), (3, 0.02, 0.0)]);
+        let spec2 = analyse(&samples2, 6000.0, 60.0, 10, None);
+        assert!(
+            !spec2.ieee519_voltage_compliant(345.0),
+            "THD={:.4}% should NOT be compliant above 161 kV (limit 1.5%)",
+            spec2.thd_pct
+        );
+    }
 }

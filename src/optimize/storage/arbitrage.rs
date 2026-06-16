@@ -103,7 +103,11 @@ pub fn optimise_arbitrage(
 
     // Sort intervals by price for greedy assignment
     let mut idx_sorted: Vec<usize> = (0..n).collect();
-    idx_sorted.sort_by(|&a, &b| prices[a].partial_cmp(&prices[b]).unwrap());
+    idx_sorted.sort_by(|&a, &b| {
+        prices[a]
+            .partial_cmp(&prices[b])
+            .unwrap_or(std::cmp::Ordering::Equal)
+    });
 
     let mut e_charged = 0.0_f64;
     let mut e_discharged = 0.0_f64;
@@ -285,6 +289,92 @@ mod tests {
             net <= 1e-6,
             "Flat price should give ≤ 0 profit: ${:.4}",
             net
+        );
+    }
+
+    #[test]
+    fn test_schedule_length_matches_prices() {
+        let bat = sample_battery();
+        let prices = vec![0.05_f64, 0.10, 0.15, 0.20, 0.25, 0.30];
+        let result = optimise_arbitrage(&bat, &prices, 1.0);
+        assert_eq!(
+            result.schedule.len(),
+            prices.len(),
+            "Schedule length must equal number of price intervals"
+        );
+    }
+
+    #[test]
+    fn test_charge_efficiency_sqrt() {
+        let bat = ArbitrageBattery::lithium_ion(100.0, 50.0);
+        let expected = 0.90_f64.sqrt();
+        assert!(
+            (bat.charge_efficiency() - expected).abs() < 1e-12,
+            "charge_efficiency should be sqrt(0.90), got {:.12}",
+            bat.charge_efficiency()
+        );
+    }
+
+    #[test]
+    fn test_discharge_efficiency_sqrt() {
+        let bat = ArbitrageBattery::lithium_ion(100.0, 50.0);
+        let expected = 0.90_f64.sqrt();
+        assert!(
+            (bat.discharge_efficiency() - expected).abs() < 1e-12,
+            "discharge_efficiency should be sqrt(0.90), got {:.12}",
+            bat.discharge_efficiency()
+        );
+    }
+
+    #[test]
+    fn test_minimum_viable_spread_perfect_efficiency() {
+        let spread = minimum_viable_spread(1.0);
+        assert!(
+            spread.abs() < 1e-12,
+            "With perfect efficiency, min viable spread should be 0.0, got {:.12}",
+            spread
+        );
+    }
+
+    #[test]
+    fn test_cycles_nonnegative() {
+        let bat = sample_battery();
+        let mut prices = vec![0.05_f64; 12];
+        prices.extend(vec![0.20_f64; 12]);
+        let result = optimise_arbitrage(&bat, &prices, 1.0);
+        assert!(
+            result.cycles >= 0.0,
+            "Cycles must be non-negative, got {:.6}",
+            result.cycles
+        );
+    }
+
+    #[test]
+    fn test_empty_prices() {
+        let bat = sample_battery();
+        let result = optimise_arbitrage(&bat, &[], 1.0);
+        assert!(
+            result.schedule.is_empty(),
+            "Empty price list should yield empty schedule"
+        );
+    }
+
+    #[test]
+    fn test_energy_charged_equals_discharged_symmetric() {
+        // Symmetric profile: 12h cheap then 12h expensive, equal durations.
+        // The optimizer charges as much as it can and then discharges as much as it can.
+        // Both are bounded by the same e_available limit, so they should be equal.
+        let bat = sample_battery();
+        let mut prices = vec![0.05_f64; 12];
+        prices.extend(vec![0.20_f64; 12]);
+        let result = optimise_arbitrage(&bat, &prices, 1.0);
+        let diff = (result.energy_charged_kwh - result.energy_discharged_kwh).abs();
+        // Both are capped at (soc_max - soc_min) * capacity = 0.8 * 100 = 80 kWh
+        assert!(
+            diff < 1e-6,
+            "For symmetric profile, charged ({:.4} kWh) should equal discharged ({:.4} kWh)",
+            result.energy_charged_kwh,
+            result.energy_discharged_kwh
         );
     }
 }

@@ -591,3 +591,135 @@ pub enum FireSeverity {
     /// Extreme (catastrophic) severity wildfire.
     Extreme,
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::collections::HashMap;
+
+    fn make_overhead_component(
+        id: usize,
+        criticality: f64,
+        repair_time_h: f64,
+    ) -> ComponentVulnerability {
+        ComponentVulnerability {
+            component_id: id,
+            component_type: "overhead_line".to_string(),
+            failure_probability: HashMap::new(),
+            repair_time_h,
+            replacement_cost_usd: 100_000.0,
+            criticality_score: criticality,
+        }
+    }
+
+    fn make_estimator(min_h: f64, mode_h: f64, max_h: f64) -> RestorationEstimator {
+        RestorationEstimator {
+            crew_count: 4,
+            crew_travel_time_h: 2.0,
+            repair_time_distribution: RepairDistribution {
+                min_h,
+                mode_h,
+                max_h,
+            },
+            damage_assessment_time_h: 1.0,
+        }
+    }
+
+    // Test 1: ResiliencePlanner::new stores fields correctly.
+    #[test]
+    fn resilience_planner_new_stores_fields() {
+        let comp = make_overhead_component(0, 0.8, 10.0);
+        let planner = ResiliencePlanner::new(vec![comp], 5_000, 100.0);
+        assert_eq!(planner.n_customers, 5_000);
+        assert!((planner.peak_load_mw - 100.0).abs() < 1e-9);
+        assert_eq!(planner.components.len(), 1);
+    }
+
+    // Test 2: ResiliencePlanner with empty components returns baseline loss of 0.
+    #[test]
+    fn resilience_planner_empty_components_zero_loss() {
+        let planner = ResiliencePlanner::new(vec![], 1_000, 50.0);
+        let event = ExtremeEventType::Hurricane { category: 3 };
+        let metrics = planner.compute_baseline_metrics(&event);
+        assert!(
+            metrics.expected_loss_mwh.abs() < 1e-9,
+            "expected_loss_mwh should be 0 for empty components, got {}",
+            metrics.expected_loss_mwh
+        );
+    }
+
+    // Test 3: RestorationEstimator::expected_repair_time_h computes (min+mode+max)/3.
+    #[test]
+    fn restoration_estimator_expected_repair_time_triangular_mean() {
+        let estimator = make_estimator(3.0, 6.0, 12.0);
+        let expected = (3.0 + 6.0 + 12.0) / 3.0;
+        let got = estimator.expected_repair_time_h();
+        assert!(
+            (got - expected).abs() < 1e-9,
+            "expected {expected}, got {got}"
+        );
+    }
+
+    // Test 4: percentile_repair_time_h(0.5) is between travel+min and travel+max.
+    #[test]
+    fn restoration_estimator_percentile_within_bounds() {
+        let estimator = make_estimator(2.0, 5.0, 10.0);
+        let p50 = estimator.percentile_repair_time_h(0.5);
+        let lower = estimator.crew_travel_time_h + estimator.repair_time_distribution.min_h;
+        let upper = estimator.crew_travel_time_h
+            + estimator.repair_time_distribution.max_h
+            + estimator.damage_assessment_time_h;
+        assert!(p50 >= lower, "p50 {p50} should be >= lower bound {lower}");
+        assert!(p50 <= upper, "p50 {p50} should be <= upper bound {upper}");
+    }
+
+    // Test 5: restoration_sequence returns a plan with exactly 4 phases and total_time_h > 0.
+    #[test]
+    fn restoration_sequence_has_four_phases_positive_time() {
+        let estimator = make_estimator(4.0, 8.0, 16.0);
+        let plan = estimator.restoration_sequence(5, 10.0, 80.0);
+        assert_eq!(
+            plan.phases.len(),
+            4,
+            "restoration plan must have exactly 4 phases"
+        );
+        assert!(
+            plan.total_time_h > 0.0,
+            "total_time_h must be positive, got {}",
+            plan.total_time_h
+        );
+    }
+
+    // Test 6: compute_resilience_index returns a value in [0.0, 1.0] for nominal metrics.
+    #[test]
+    fn compute_resilience_index_in_unit_interval() {
+        let planner = ResiliencePlanner::new(vec![], 2_000, 200.0);
+        let metrics = ExtremeResilienceMetrics {
+            expected_loss_mwh: 500.0,
+            expected_repair_time_h: 12.0,
+            resilience_trapezoid_area: 300.0,
+            rapidity: 0.6,
+            robustness: 0.75,
+            redundancy: 0.8,
+            resourcefulness: 0.9,
+        };
+        let index = planner.compute_resilience_index(&metrics);
+        assert!(
+            (0.0..=1.0).contains(&index),
+            "resilience index {index} must be in [0.0, 1.0]"
+        );
+    }
+
+    // Test 7: generate_hardening_measures for a single overhead_line returns at least 2 measures.
+    #[test]
+    fn generate_hardening_measures_overhead_line_at_least_two() {
+        let comp = make_overhead_component(1, 1.0, 8.0);
+        let planner = ResiliencePlanner::new(vec![comp], 3_000, 75.0);
+        let measures = planner.generate_hardening_measures();
+        assert!(
+            measures.len() >= 2,
+            "expected at least 2 hardening measures for overhead_line, got {}",
+            measures.len()
+        );
+    }
+}

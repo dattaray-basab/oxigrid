@@ -740,3 +740,96 @@ pub struct VoltageViolation {
     /// Whether the violation is above or below the limits.
     pub violation_type: ViolationType,
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn oltc_controller_new_defaults() {
+        let c = OltcController::new(1, 2, -16, 16);
+        assert_eq!(c.id, 1);
+        assert_eq!(c.bus_id, 2);
+        assert_eq!(c.min_tap, -16);
+        assert_eq!(c.max_tap, 16);
+        assert_eq!(c.current_tap, 0);
+        assert!((c.target_voltage_pu - 1.0).abs() < 1e-9);
+        assert_eq!(c.daily_operations, 0);
+    }
+
+    #[test]
+    fn oltc_voltage_ratio_at_zero_tap() {
+        let c = OltcController::new(0, 0, -16, 16);
+        assert!((c.voltage_ratio() - 1.0).abs() < 1e-9);
+    }
+
+    #[test]
+    fn oltc_compute_action_within_deadband() {
+        let c = OltcController::new(0, 0, -16, 16);
+        // within deadband (±0.01 around 1.0)
+        assert_eq!(c.compute_action(1.005), None);
+        // low voltage → tap up
+        assert_eq!(c.compute_action(0.98), Some(1));
+        // high voltage → tap down
+        assert_eq!(c.compute_action(1.02), Some(-1));
+    }
+
+    #[test]
+    fn oltc_apply_tap_increments_counter() {
+        let mut c = OltcController::new(0, 0, -16, 16);
+        c.apply_tap(1).expect("first tap apply should succeed");
+        assert_eq!(c.daily_operations, 1);
+        c.apply_tap(-1).expect("second tap apply should succeed");
+        assert_eq!(c.daily_operations, 2);
+        // bring to 20 operations total (18 more zero-delta ops)
+        for _ in 0..18 {
+            c.apply_tap(0)
+                .expect("zero-delta tap should succeed within limit");
+        }
+        assert_eq!(c.daily_operations, 20);
+        // 21st should fail: daily limit reached
+        let result = c.apply_tap(0);
+        assert!(result.is_err());
+    }
+
+    #[test]
+    fn oltc_reset_daily_counter() {
+        let mut c = OltcController::new(0, 0, -16, 16);
+        c.apply_tap(0).expect("op 1");
+        c.apply_tap(0).expect("op 2");
+        c.apply_tap(0).expect("op 3");
+        assert_eq!(c.daily_operations, 3);
+        c.reset_daily_counter();
+        assert_eq!(c.daily_operations, 0);
+    }
+
+    #[test]
+    fn step_regulator_tap_ratio_and_range() {
+        let reg = StepRegulator::new(0, 167.0, 7.62, 1.0);
+        assert!((reg.tap_ratio() - 1.0).abs() < 1e-9);
+        let (v_min, v_max) = reg.effective_voltage_range();
+        assert!(v_min < 1.0);
+        assert!(v_max > 1.0);
+    }
+
+    #[test]
+    fn svc_model_q_from_voltage() {
+        let svc = SvcModel::new(0, -10.0, 10.0, 1.0);
+        // At setpoint voltage, droop gives Q = 0
+        let q_at_setpoint = svc.q_from_voltage(1.0);
+        assert!(q_at_setpoint.abs() < 1e-9);
+        // Under-voltage: needs capacitive support → positive Q
+        let q_low = svc.q_from_voltage(0.95);
+        assert!(q_low > 0.0);
+        // Over-voltage: needs inductive absorption → negative Q
+        let q_high = svc.q_from_voltage(1.05);
+        assert!(q_high < 0.0);
+    }
+
+    #[test]
+    fn regulator_type_variants_are_distinct() {
+        assert_ne!(RegulatorType::Oltc, RegulatorType::StepVoltageRegulator);
+        assert_ne!(TapControlMode::Automatic, TapControlMode::Manual);
+        assert_ne!(ViolationType::UnderVoltage, ViolationType::OverVoltage);
+    }
+}

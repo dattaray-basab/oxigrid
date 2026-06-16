@@ -228,4 +228,208 @@ mod tests {
         let row = parse_row("1 2 3.0 4.5").unwrap();
         assert_eq!(row, vec![1.0, 2.0, 3.0, 4.5]);
     }
+
+    const MINIMAL_MPC: &str = "\
+function mpc = test_case
+mpc.baseMVA = 100;
+mpc.bus = [
+1  3  0  0  0  0  1  1.0  0  138  1  1.1  0.9;
+2  1  50  20  0  0  1  1.0  0  138  1  1.1  0.9;
+];
+mpc.gen = [
+1  100  0  300  -300  1.0  100  1  200  0;
+];
+mpc.branch = [
+1  2  0.01  0.1  0.02  250  250  250  0  0  1;
+];
+";
+
+    #[test]
+    fn test_parse_matpower_string_two_bus() {
+        let network = parse_matpower_string(MINIMAL_MPC)
+            .expect("parse_matpower_string should succeed for minimal valid input");
+        assert_eq!(network.buses.len(), 2, "expected 2 buses");
+        assert_eq!(network.branches.len(), 1, "expected 1 branch");
+        assert!(
+            (network.base_mva - 100.0).abs() < 1e-9,
+            "expected base_mva == 100.0"
+        );
+    }
+
+    #[test]
+    fn test_parse_matpower_bus_types() {
+        let network = parse_matpower_string(MINIMAL_MPC)
+            .expect("parse_matpower_string should succeed for bus-type check");
+        assert_eq!(
+            network.buses[0].bus_type,
+            BusType::Slack,
+            "bus 1 should be Slack (type code 3)"
+        );
+        assert_eq!(
+            network.buses[1].bus_type,
+            BusType::PQ,
+            "bus 2 should be PQ (type code 1)"
+        );
+    }
+
+    #[test]
+    fn test_parse_matpower_branch_impedance() {
+        let network = parse_matpower_string(MINIMAL_MPC)
+            .expect("parse_matpower_string should succeed for branch-impedance check");
+        let branch = &network.branches[0];
+        assert!(
+            (branch.r - 0.01).abs() < 1e-9,
+            "branch r should be 0.01, got {}",
+            branch.r
+        );
+        assert!(
+            (branch.x - 0.1).abs() < 1e-9,
+            "branch x should be 0.1, got {}",
+            branch.x
+        );
+    }
+
+    #[test]
+    fn test_parse_base_mva_missing() {
+        let result = parse_base_mva("no_mva_here");
+        assert!(result.is_err(), "expected Err when baseMVA is absent");
+    }
+
+    #[test]
+    fn test_extract_matrix_data_single_row() {
+        let content = "\
+mpc.bus = [
+1  3  0  0  0  0  1  1.0  0  138  1  1.1  0.9;
+];
+";
+        let rows =
+            extract_matrix_data(content, "bus").expect("extract_matrix_data should return one row");
+        assert_eq!(rows.len(), 1, "expected exactly 1 row");
+        assert_eq!(rows[0].len(), 13, "expected 13 columns in bus row");
+    }
+
+    #[test]
+    fn test_parse_row_empty() {
+        let result = parse_row("  ");
+        assert!(
+            result.is_none(),
+            "parse_row of whitespace-only string should return None"
+        );
+    }
+
+    #[test]
+    fn test_parse_matpower_generator_status() {
+        let network = parse_matpower_string(MINIMAL_MPC)
+            .expect("parse_matpower_string should succeed for generator check");
+        let gen = &network.generators[0];
+        assert!(
+            gen.status,
+            "generator status should be true (status column = 1)"
+        );
+        assert!(
+            (gen.pmax - 200.0).abs() < 1e-9,
+            "generator pmax should be 200.0, got {}",
+            gen.pmax
+        );
+    }
+
+    #[test]
+    fn test_branch_active_and_inactive_status() {
+        let content = "\
+mpc.baseMVA = 100;
+mpc.bus = [
+1 3 0 0 0 0 1 1.0 0 100 1 1.05 0.95
+2 1 20 10 0 0 1 1.0 0 100 1 1.05 0.95
+3 1 30 15 0 0 1 1.0 0 100 1 1.05 0.95
+];
+mpc.branch = [
+1 2 0.01 0.05 0.02 100 100 100 0 0 1
+2 3 0.02 0.08 0.01 100 100 100 0 0 0
+];
+mpc.gen = [
+1 80 0 50 -50 1.02 100 1 200 0
+];
+";
+        let network = parse_matpower_string(content)
+            .expect("3-bus string with active and inactive branch should parse");
+        assert_eq!(network.branches.len(), 2, "expected 2 branches");
+        assert!(
+            network.branches[0].status,
+            "first branch (status=1) should be active"
+        );
+        assert!(
+            !network.branches[1].status,
+            "second branch (status=0) should be inactive"
+        );
+    }
+
+    #[test]
+    fn test_bus_row_too_few_columns_returns_error() {
+        let content = "\
+mpc.baseMVA = 100;
+mpc.bus = [
+1 3 0 0 0
+];
+";
+        let result = parse_matpower_string(content);
+        assert!(
+            result.is_err(),
+            "bus row with fewer than 13 columns should return Err"
+        );
+    }
+
+    #[test]
+    fn test_generator_active_and_inactive_status() {
+        let content = "\
+mpc.baseMVA = 100;
+mpc.bus = [
+1 3 0 0 0 0 1 1.0 0 100 1 1.05 0.95
+2 1 50 30 0 0 1 1.0 0 100 1 1.05 0.95
+];
+mpc.branch = [
+1 2 0.01 0.05 0.02 100 100 100 0 0 1
+];
+mpc.gen = [
+1 80 0 50 -50 1.02 100 1 200 0
+2 40 0 30 -30 1.01 100 0 100 0
+];
+";
+        let network = parse_matpower_string(content)
+            .expect("string with active and inactive generator should parse");
+        assert_eq!(network.generators.len(), 2, "expected 2 generators");
+        assert!(
+            network.generators[0].status,
+            "first generator (status=1) should be active"
+        );
+        assert!(
+            !network.generators[1].status,
+            "second generator (status=0) should be inactive"
+        );
+    }
+
+    #[test]
+    fn test_multi_bus_parse_counts() {
+        let content = "\
+mpc.baseMVA = 100;
+mpc.bus = [
+1 3 0 0 0 0 1 1.0 0 100 1 1.05 0.95
+2 1 20 10 0 0 1 1.0 0 100 1 1.05 0.95
+3 1 30 15 0 0 1 1.0 0 100 1 1.05 0.95
+4 1 40 20 0 0 1 1.0 0 100 1 1.05 0.95
+];
+mpc.branch = [
+1 2 0.01 0.05 0.02 100 100 100 0 0 1
+2 3 0.02 0.08 0.01 100 100 100 0 0 1
+3 4 0.03 0.10 0.02 100 100 100 0 0 1
+];
+mpc.gen = [
+1 80 0 50 -50 1.02 100 1 200 0
+2 40 0 30 -30 1.01 100 1 100 0
+];
+";
+        let network = parse_matpower_string(content).expect("4-bus matpower string should parse");
+        assert_eq!(network.buses.len(), 4, "expected 4 buses");
+        assert_eq!(network.branches.len(), 3, "expected 3 branches");
+        assert_eq!(network.generators.len(), 2, "expected 2 generators");
+    }
 }

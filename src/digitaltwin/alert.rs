@@ -466,4 +466,111 @@ mod tests {
         assert!(AlertSeverity::Critical > AlertSeverity::Warning);
         assert!(AlertSeverity::Warning > AlertSeverity::Info);
     }
+
+    /// A freshly created AlertEngine has zero active alerts and a zero counter.
+    #[test]
+    fn alert_engine_starts_empty() {
+        let engine = AlertEngine::new(AlertThresholds::default());
+        assert!(
+            engine.active_alerts.is_empty(),
+            "new engine must have no active alerts"
+        );
+        assert_eq!(engine.alert_counter, 0, "alert counter must start at zero");
+        assert!(
+            engine.suppression_list.is_empty(),
+            "suppression list must start empty"
+        );
+    }
+
+    /// Acknowledging an alert by its ID must set `acknowledged = true`.
+    #[test]
+    fn alert_acknowledge_sets_flag() {
+        let mut engine = AlertEngine::new(AlertThresholds::default());
+        // Trigger a voltage alert to get an alert with a known ID.
+        let state = make_state(vec![0.92], 50.0);
+        let alerts = engine.check_state(&state, 1_000_000);
+        assert_eq!(alerts.len(), 1, "should produce one alert");
+        let alert_id = alerts[0].alert_id;
+
+        let found = engine.acknowledge(alert_id);
+        assert!(found, "acknowledge should return true for a known ID");
+
+        let acked = engine.active_alerts.iter().find(|a| a.alert_id == alert_id);
+        assert!(
+            acked.map(|a| a.acknowledged).unwrap_or(false),
+            "alert must be marked acknowledged"
+        );
+    }
+
+    /// Suppressing a (category, element) pair must prevent that alert from firing.
+    #[test]
+    fn alert_suppression_blocks_future_alerts() {
+        let mut engine = AlertEngine::new(AlertThresholds::default());
+        // Suppress voltage alerts for bus 0 before any state is checked.
+        engine.suppress(AlertCategory::Voltage, 0);
+
+        let state = make_state(vec![0.85], 50.0); // well below threshold
+        let alerts = engine.check_state(&state, 1_000_000);
+        assert!(
+            alerts
+                .iter()
+                .all(|a| !(a.category == AlertCategory::Voltage && a.affected_element == Some(0))),
+            "suppressed (Voltage, bus 0) should not appear in alerts"
+        );
+    }
+
+    /// `active_by_severity` must return alerts sorted with highest severity first.
+    #[test]
+    fn alert_active_by_severity_descending() {
+        let mut engine = AlertEngine::new(AlertThresholds::default());
+        // Trigger a Warning-level voltage alert (0.92 pu) at t=0.
+        let state_warn = make_state(vec![0.92], 50.0);
+        engine.check_state(&state_warn, 0);
+
+        // Trigger an Emergency-level frequency alert at t=62M (past dedup window).
+        let state_crit = make_state(vec![1.0], 49.3);
+        engine.check_state(&state_crit, 62_000_000);
+
+        let sorted = engine.active_by_severity();
+        assert!(sorted.len() >= 2, "must have at least two active alerts");
+        // Verify descending order.
+        let severities: Vec<AlertSeverity> = sorted.iter().map(|a| a.severity).collect();
+        let is_desc = severities.windows(2).all(|w| w[0] >= w[1]);
+        assert!(
+            is_desc,
+            "active_by_severity must return alerts in descending severity order"
+        );
+    }
+
+    /// Checking a state with no violations must produce zero new alerts.
+    #[test]
+    fn alert_no_violations_produces_no_alerts() {
+        let mut engine = AlertEngine::new(AlertThresholds::default());
+        // Nominal state: voltage 1.0 pu, frequency 50.0 Hz.
+        let state = make_state(vec![1.0, 1.0], 50.0);
+        let alerts = engine.check_state(&state, 1_000_000);
+        assert!(
+            alerts.is_empty(),
+            "nominal state must not generate any alerts"
+        );
+    }
+
+    /// Triggering the same condition for N buses must produce exactly N alerts
+    /// (one per bus, each with a distinct alert_id).
+    #[test]
+    fn alert_batch_distinct_ids_per_bus() {
+        let mut engine = AlertEngine::new(AlertThresholds::default());
+        // Four buses all with low voltage — should produce four distinct alerts.
+        let state = make_state(vec![0.92, 0.91, 0.90, 0.89], 50.0);
+        let alerts = engine.check_state(&state, 1_000_000);
+
+        // There should be alerts for all four buses (some may be Emergency level for 0.89/0.90).
+        assert_eq!(alerts.len(), 4, "one alert per violating bus");
+
+        // All alert IDs must be unique.
+        let mut ids: Vec<u64> = alerts.iter().map(|a| a.alert_id).collect();
+        ids.sort_unstable();
+        ids.dedup();
+        assert_eq!(ids.len(), 4, "all four alert IDs must be distinct");
+    }
 }

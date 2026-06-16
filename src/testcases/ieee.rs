@@ -341,7 +341,7 @@ pub fn ieee30() -> Result<PowerNetwork, OxiGridError> {
 // IEEE 57-Bus System (topologically representative)
 // ---------------------------------------------------------------------------
 
-/// IEEE 57-bus system — 100 MVA base, 57 buses, 80 branches, 7 generators.
+/// IEEE 57-bus system — 100 MVA base, 57 buses, 85 branches, 7 generators.
 ///
 /// Represents a portion of the American Electric Power (AEP) system.
 /// This implementation uses topologically correct data faithful to the
@@ -415,7 +415,8 @@ pub fn ieee57() -> Result<PowerNetwork, OxiGridError> {
         net.buses.push(make_bus(id, t, pd, qd, gs, bs, kv, vm, va)?);
     }
 
-    // Branch data (80 branches)
+    // Branch data (85 branches, including parallel circuits on 4-18, 24-25,
+    // 42-49 and 49-54).
     let line_data: &[(usize, usize, f64, f64, f64, f64)] = &[
         (1, 2, 0.0083, 0.0280, 0.1290, 250.0),
         (2, 3, 0.0298, 0.0850, 0.0818, 250.0),
@@ -624,4 +625,395 @@ fn generate_representative_system(
     };
 
     generate_synthetic_network(&config)
+}
+
+// ---------------------------------------------------------------------------
+// Unit tests
+// ---------------------------------------------------------------------------
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::network::bus::BusType;
+
+    /// Number of buses whose `bus_type` matches `Slack`.
+    fn slack_count(net: &PowerNetwork) -> usize {
+        net.buses
+            .iter()
+            .filter(|b| b.bus_type == BusType::Slack)
+            .count()
+    }
+
+    // ── Internal helpers ────────────────────────────────────────────────────
+
+    #[test]
+    fn map_bus_type_valid_codes() {
+        assert_eq!(map_bus_type(1).unwrap(), BusType::PQ);
+        assert_eq!(map_bus_type(2).unwrap(), BusType::PV);
+        assert_eq!(map_bus_type(3).unwrap(), BusType::Slack);
+    }
+
+    #[test]
+    fn map_bus_type_rejects_unknown() {
+        for code in [0u8, 4, 9, 255] {
+            let err = map_bus_type(code).unwrap_err();
+            assert!(
+                matches!(err, OxiGridError::InvalidNetwork(_)),
+                "code {code} should map to InvalidNetwork, got {err:?}"
+            );
+        }
+    }
+
+    #[test]
+    fn make_bus_maps_fields_and_converts_angle() {
+        let bus = make_bus(7, 2, 21.7, 12.7, 0.1, 0.2, 132.0, 1.045, -4.98).unwrap();
+        assert_eq!(bus.id, 7);
+        assert_eq!(bus.name, "Bus 7");
+        assert_eq!(bus.bus_type, BusType::PV);
+        assert_eq!(bus.base_kv.0, 132.0);
+        assert_eq!(bus.vm, 1.045);
+        // Angle stored internally in radians.
+        assert!((bus.va - (-4.98_f64).to_radians()).abs() < 1e-12);
+        assert_eq!(bus.pd.0, 21.7);
+        assert_eq!(bus.qd.0, 12.7);
+        assert_eq!(bus.gs, 0.1);
+        assert_eq!(bus.bs, 0.2);
+        assert!(bus.zone.is_none());
+    }
+
+    #[test]
+    fn make_bus_propagates_bad_type() {
+        assert!(make_bus(1, 7, 0.0, 0.0, 0.0, 0.0, 132.0, 1.0, 0.0).is_err());
+    }
+
+    #[test]
+    fn make_branch_is_a_line_with_mirrored_ratings() {
+        let br = make_branch(3, 4, 0.01, 0.05, 0.02, 250.0);
+        assert_eq!(br.from_bus, 3);
+        assert_eq!(br.to_bus, 4);
+        assert_eq!(br.r, 0.01);
+        assert_eq!(br.x, 0.05);
+        assert_eq!(br.b, 0.02);
+        assert_eq!(br.rate_a, 250.0);
+        assert_eq!(br.rate_b, 250.0);
+        assert_eq!(br.rate_c, 250.0);
+        assert_eq!(br.tap, 0.0, "a line must have tap == 0");
+        assert_eq!(br.shift, 0.0);
+        assert!(br.status, "branch must default to in-service");
+    }
+
+    #[test]
+    fn make_transformer_sets_tap() {
+        let tx = make_transformer(5, 6, 0.0, 0.25, 0.0, 100.0, 0.978);
+        assert_eq!(tx.tap, 0.978, "transformer must carry a non-trivial tap");
+        assert_eq!(tx.from_bus, 5);
+        assert_eq!(tx.to_bus, 6);
+        assert!(tx.status);
+    }
+
+    #[test]
+    fn make_gen_uses_100_mva_base_and_is_online() {
+        let g = make_gen(2, 40.0, 42.4, 50.0, -40.0, 1.045, 140.0, 0.0);
+        assert_eq!(g.bus_id, 2);
+        assert_eq!(g.pg, 40.0);
+        assert_eq!(g.qg, 42.4);
+        assert_eq!(g.qmax, 50.0);
+        assert_eq!(g.qmin, -40.0);
+        assert_eq!(g.vg, 1.045);
+        assert_eq!(g.mbase, 100.0);
+        assert_eq!(g.pmax, 140.0);
+        assert_eq!(g.pmin, 0.0);
+        assert!(g.status);
+    }
+
+    // ── IEEE 14-bus ─────────────────────────────────────────────────────────
+
+    #[test]
+    fn ieee14_structure() {
+        let net = ieee14().unwrap();
+        assert_eq!(net.buses.len(), 14);
+        assert_eq!(net.branches.len(), 20);
+        assert_eq!(net.generators.len(), 5);
+        assert_eq!(net.base_mva, 100.0);
+        assert_eq!(slack_count(&net), 1);
+        // Slack is bus 1 (index 0).
+        assert_eq!(net.slack_bus_index().unwrap(), 0);
+        net.validate().unwrap();
+        assert!(net.is_connected());
+    }
+
+    #[test]
+    fn ieee14_total_load_is_canonical() {
+        let net = ieee14().unwrap();
+        // Published IEEE 14 active load ≈ 259 MW.
+        assert!(
+            (net.total_load_mw() - 259.0).abs() < 1.0,
+            "ieee14 load {} MW should be ≈ 259 MW",
+            net.total_load_mw()
+        );
+    }
+
+    #[test]
+    fn ieee14_generator_buses_exist() {
+        let net = ieee14().unwrap();
+        for g in &net.generators {
+            assert!(
+                net.bus_index(g.bus_id).is_ok(),
+                "generator references missing bus {}",
+                g.bus_id
+            );
+        }
+    }
+
+    #[test]
+    fn ieee14_bus_ids_are_unique_and_sequential() {
+        let net = ieee14().unwrap();
+        for (i, b) in net.buses.iter().enumerate() {
+            assert_eq!(b.id, i + 1, "bus ids must be 1..=14 in order");
+        }
+    }
+
+    // ── IEEE 30-bus ─────────────────────────────────────────────────────────
+
+    #[test]
+    fn ieee30_structure() {
+        let net = ieee30().unwrap();
+        assert_eq!(net.buses.len(), 30);
+        assert_eq!(net.branches.len(), 41);
+        assert_eq!(net.generators.len(), 6);
+        assert_eq!(slack_count(&net), 1);
+        net.validate().unwrap();
+        assert!(net.is_connected());
+    }
+
+    #[test]
+    fn ieee30_total_load_is_canonical() {
+        let net = ieee30().unwrap();
+        // Published IEEE 30 active load ≈ 283.4 MW.
+        assert!(
+            (net.total_load_mw() - 283.4).abs() < 1.0,
+            "ieee30 load {} MW should be ≈ 283.4 MW",
+            net.total_load_mw()
+        );
+    }
+
+    // ── IEEE 57-bus ─────────────────────────────────────────────────────────
+
+    #[test]
+    fn ieee57_structure() {
+        let net = ieee57().unwrap();
+        assert_eq!(net.buses.len(), 57);
+        assert_eq!(net.branches.len(), 85);
+        assert_eq!(net.generators.len(), 7);
+        assert_eq!(slack_count(&net), 1);
+        net.validate().unwrap();
+        assert!(net.is_connected());
+    }
+
+    // ── Representative large systems ─────────────────────────────────────────
+
+    #[test]
+    fn ieee118_structure() {
+        let net = ieee118().unwrap();
+        assert_eq!(net.buses.len(), 118);
+        assert_eq!(net.generators.len(), 54);
+        assert_eq!(slack_count(&net), 1);
+        net.validate().unwrap();
+        assert!(net.is_connected());
+    }
+
+    #[test]
+    fn ieee300_structure() {
+        let net = ieee300().unwrap();
+        assert_eq!(net.buses.len(), 300);
+        assert_eq!(net.generators.len(), 69);
+        assert_eq!(slack_count(&net), 1);
+        net.validate().unwrap();
+        assert!(net.is_connected());
+    }
+
+    #[test]
+    fn rts96_structure() {
+        let net = rts96().unwrap();
+        assert_eq!(net.buses.len(), 73);
+        assert_eq!(slack_count(&net), 1);
+        net.validate().unwrap();
+        assert!(net.is_connected());
+    }
+
+    #[test]
+    fn pegase89_structure_and_voltage_level() {
+        let net = pegase89().unwrap();
+        assert_eq!(net.buses.len(), 89);
+        assert_eq!(slack_count(&net), 1);
+        // PEGASE is a 380 kV European network.
+        assert!((net.buses[0].base_kv.0 - 380.0).abs() < 1e-9);
+        net.validate().unwrap();
+        assert!(net.is_connected());
+    }
+
+    #[test]
+    fn representative_systems_are_reproducible() {
+        // The synthetic backend is seeded deterministically from sizes, so two
+        // builds of the same case must be structurally identical.
+        let a = ieee118().unwrap();
+        let b = ieee118().unwrap();
+        assert_eq!(a.buses.len(), b.buses.len());
+        assert_eq!(a.branches.len(), b.branches.len());
+        assert_eq!(a.generators.len(), b.generators.len());
+    }
+
+    // ── Power flow on exact-data cases ───────────────────────────────────────
+
+    #[cfg(feature = "powerflow")]
+    #[test]
+    fn ieee14_newton_raphson_converges() {
+        use crate::powerflow::newton_raphson::NewtonRaphsonSolver;
+        use crate::powerflow::{PowerFlowConfig, PowerFlowMethod, PowerFlowSolver};
+
+        let net = ieee14().unwrap();
+        let cfg = PowerFlowConfig {
+            method: PowerFlowMethod::NewtonRaphson,
+            max_iter: 50,
+            tolerance: 1e-8,
+            enforce_q_limits: false,
+        };
+        let res = NewtonRaphsonSolver.solve(&net, &cfg).unwrap();
+        assert!(res.converged, "max_mismatch={:.2e}", res.max_mismatch);
+        for vm in &res.voltage_magnitude {
+            assert!((0.9..=1.1).contains(vm), "vm {vm} out of range");
+        }
+    }
+
+    #[cfg(feature = "powerflow")]
+    #[test]
+    fn ieee30_newton_raphson_converges() {
+        use crate::powerflow::newton_raphson::NewtonRaphsonSolver;
+        use crate::powerflow::{PowerFlowConfig, PowerFlowMethod, PowerFlowSolver};
+
+        let net = ieee30().unwrap();
+        let cfg = PowerFlowConfig {
+            method: PowerFlowMethod::NewtonRaphson,
+            max_iter: 50,
+            tolerance: 1e-8,
+            enforce_q_limits: false,
+        };
+        let res = NewtonRaphsonSolver.solve(&net, &cfg).unwrap();
+        assert!(res.converged, "max_mismatch={:.2e}", res.max_mismatch);
+    }
+
+    // ── Additional structural tests ───────────────────────────────────────────
+
+    #[test]
+    fn ieee14_returns_ok() {
+        assert!(ieee14().is_ok());
+    }
+
+    #[test]
+    fn ieee14_slack_bus_index_is_zero() {
+        let net = ieee14().expect("ieee14 must build");
+        let idx = net.slack_bus_index().expect("slack bus must exist");
+        assert_eq!(idx, 0, "slack bus index must be 0");
+    }
+
+    #[test]
+    fn ieee30_returns_ok_with_30_buses() {
+        let net = ieee30().expect("ieee30 must build");
+        assert_eq!(net.buses.len(), 30);
+    }
+
+    #[test]
+    fn ieee57_returns_ok_with_57_buses() {
+        let net = ieee57().expect("ieee57 must build");
+        assert_eq!(net.buses.len(), 57);
+    }
+
+    #[test]
+    fn ieee118_returns_ok_with_118_buses() {
+        let net = ieee118().expect("ieee118 must build");
+        assert_eq!(net.buses.len(), 118);
+    }
+
+    #[test]
+    fn rts96_bus_count_and_slack() {
+        let net = rts96().expect("rts96 must build");
+        assert_eq!(net.buses.len(), 73);
+        let slack_count = net
+            .buses
+            .iter()
+            .filter(|b| matches!(b.bus_type, BusType::Slack))
+            .count();
+        assert_eq!(slack_count, 1, "rts96 must have exactly 1 slack bus");
+    }
+
+    #[test]
+    fn pegase89_bus_count() {
+        let net = pegase89().expect("pegase89 must build");
+        assert_eq!(net.buses.len(), 89);
+    }
+
+    #[test]
+    fn ieee14_branches_positive() {
+        let net = ieee14().expect("ieee14 must build");
+        assert!(!net.branches.is_empty(), "must have branches");
+        for branch in &net.branches {
+            assert!(
+                branch.r >= 0.0,
+                "branch r must be non-negative, got {}",
+                branch.r
+            );
+            assert!(
+                branch.x > 0.0,
+                "branch x must be positive, got {}",
+                branch.x
+            );
+        }
+    }
+
+    #[test]
+    fn ieee14_total_load_positive() {
+        let net = ieee14().expect("ieee14 must build");
+        assert!(
+            net.total_load_mw() > 0.0,
+            "total load must be positive, got {}",
+            net.total_load_mw()
+        );
+    }
+
+    #[test]
+    fn ieee14_has_at_least_one_generator() {
+        let net = ieee14().expect("ieee14 must build");
+        assert!(
+            !net.generators.is_empty(),
+            "ieee14 must have at least one generator"
+        );
+    }
+
+    #[test]
+    fn ieee30_has_at_least_one_generator() {
+        let net = ieee30().expect("ieee30 must build");
+        assert!(
+            !net.generators.is_empty(),
+            "ieee30 must have at least one generator"
+        );
+    }
+
+    #[test]
+    fn ieee57_total_load_positive() {
+        let net = ieee57().expect("ieee57 must build");
+        assert!(
+            net.total_load_mw() > 0.0,
+            "ieee57 total load must be positive, got {}",
+            net.total_load_mw()
+        );
+    }
+
+    #[test]
+    fn ieee57_has_generators() {
+        let net = ieee57().expect("ieee57 must build");
+        assert!(
+            !net.generators.is_empty(),
+            "ieee57 must have at least one generator"
+        );
+    }
 }

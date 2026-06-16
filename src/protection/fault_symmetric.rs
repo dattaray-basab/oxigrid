@@ -239,10 +239,95 @@ mod tests {
     #[test]
     fn test_dc_offset_factor_range() {
         let y = two_bus_ybus();
-        let z = compute_zbus(&y).unwrap();
+        let z = compute_zbus(&y).expect("compute_zbus should succeed for valid 2-bus Y-bus");
         let v = vec![Complex64::new(1.0, 0.0); 2];
-        let result = three_phase_fault(&z, &v, 0, 100.0, None).unwrap();
+        let result = three_phase_fault(&z, &v, 0, 100.0, None)
+            .expect("three_phase_fault should succeed for valid inputs");
         let kappa = result.dc_offset_factor();
         assert!((1.0..=2.0).contains(&kappa), "κ={:.4}", kappa);
+    }
+
+    #[test]
+    fn test_singular_ybus_returns_error() {
+        // All-zero Y-bus is singular; compute_zbus must return Err.
+        let y = vec![
+            vec![Complex64::new(0.0, 0.0), Complex64::new(0.0, 0.0)],
+            vec![Complex64::new(0.0, 0.0), Complex64::new(0.0, 0.0)],
+        ];
+        let result = compute_zbus(&y);
+        assert!(result.is_err(), "singular Y-bus must return Err");
+    }
+
+    #[test]
+    fn test_fault_bus_out_of_range_returns_error() {
+        let y = two_bus_ybus();
+        let z = compute_zbus(&y).expect("compute_zbus should succeed for valid 2-bus Y-bus");
+        let v = vec![Complex64::new(1.0, 0.0); 2];
+        // fault_bus=99 is well beyond the 2-bus system; expect Err.
+        let result = three_phase_fault(&z, &v, 99, 100.0, None);
+        assert!(result.is_err(), "out-of-range fault_bus must return Err");
+    }
+
+    #[test]
+    fn test_xr_ratio_pure_reactive() {
+        // z_thevenin = 0 + 0.1j → X/R ratio should be infinity.
+        let fr = FaultResult {
+            bus_idx: 0,
+            fault_type: FaultType::ThreePhase,
+            z_thevenin: Complex64::new(0.0, 0.1),
+            v_prefault: Complex64::new(1.0, 0.0),
+            i_fault_pu: 10.0,
+            i_fault_ka: None,
+            fault_mva: 1000.0,
+            base_mva: 100.0,
+        };
+        assert!(
+            fr.xr_ratio().is_infinite(),
+            "pure reactive impedance must give infinite X/R ratio, got {}",
+            fr.xr_ratio()
+        );
+    }
+
+    #[test]
+    fn test_xr_ratio_finite() {
+        // z_thevenin = 0.1 + 0.2j → X/R = 0.2 / 0.1 = 2.0.
+        let fr = FaultResult {
+            bus_idx: 0,
+            fault_type: FaultType::ThreePhase,
+            z_thevenin: Complex64::new(0.1, 0.2),
+            v_prefault: Complex64::new(1.0, 0.0),
+            i_fault_pu: 5.0,
+            i_fault_ka: None,
+            fault_mva: 500.0,
+            base_mva: 100.0,
+        };
+        let xr = fr.xr_ratio();
+        assert!((xr - 2.0).abs() < 1e-9, "X/R ratio should be 2.0, got {xr}");
+    }
+
+    #[test]
+    fn test_i_fault_ka_present_when_kv_given() {
+        let y = two_bus_ybus();
+        let z = compute_zbus(&y).expect("compute_zbus should succeed for valid 2-bus Y-bus");
+        let v = vec![Complex64::new(1.0, 0.0); 2];
+        let result = three_phase_fault(&z, &v, 0, 100.0, Some(115.0))
+            .expect("three_phase_fault should succeed when bus_kv is provided");
+        assert!(
+            result.i_fault_ka.is_some(),
+            "i_fault_ka must be Some when bus_kv is provided"
+        );
+    }
+
+    #[test]
+    fn test_i_fault_ka_absent_when_kv_none() {
+        let y = two_bus_ybus();
+        let z = compute_zbus(&y).expect("compute_zbus should succeed for valid 2-bus Y-bus");
+        let v = vec![Complex64::new(1.0, 0.0); 2];
+        let result = three_phase_fault(&z, &v, 0, 100.0, None)
+            .expect("three_phase_fault should succeed when bus_kv is None");
+        assert!(
+            result.i_fault_ka.is_none(),
+            "i_fault_ka must be None when bus_kv is not provided"
+        );
     }
 }

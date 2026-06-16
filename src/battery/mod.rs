@@ -210,4 +210,98 @@ mod tests {
         assert_eq!(v_low, curve.ocv(0.0));
         assert_eq!(v_high, curve.ocv(1.0));
     }
+
+    #[test]
+    fn test_ocv_soc_curve_new_sorts_unsorted() {
+        // Provide points in reverse order; after construction they must be sorted.
+        let curve = OcvSocCurve::new(vec![(1.0, 4.2), (0.5, 3.7), (0.0, 3.0)]);
+        // Basic monotonicity after sort
+        assert!(
+            curve.ocv(0.0) < curve.ocv(1.0),
+            "OCV at SoC=0 must be less than OCV at SoC=1 after sorting"
+        );
+        // Boundary values must be correct
+        assert!(
+            (curve.ocv(0.0) - 3.0).abs() < 1e-9,
+            "OCV at SoC=0 should be 3.0 V"
+        );
+        assert!(
+            (curve.ocv(1.0) - 4.2).abs() < 1e-9,
+            "OCV at SoC=1 should be 4.2 V"
+        );
+        // Interpolated midpoint must bracket the endpoints
+        let v_mid = curve.ocv(0.5);
+        assert!(
+            v_mid > curve.ocv(0.0) && v_mid < curve.ocv(1.0),
+            "OCV at SoC=0.5 ({v_mid}) must bracket [3.0, 4.2]"
+        );
+    }
+
+    #[test]
+    fn test_ocv_midpoint_interpolation() {
+        let curve = OcvSocCurve::lfp_default();
+        let v_25 = curve.ocv(0.25);
+        let v_20 = curve.ocv(0.20);
+        let v_30 = curve.ocv(0.30);
+        assert!(
+            v_25 > v_20,
+            "OCV at 0.25 ({v_25}) must exceed OCV at 0.20 ({v_20})"
+        );
+        assert!(
+            v_25 < v_30,
+            "OCV at 0.25 ({v_25}) must be less than OCV at 0.30 ({v_30})"
+        );
+    }
+
+    #[test]
+    fn test_ocv_clamp_below_zero() {
+        // Minimal 2-point curve
+        let curve = OcvSocCurve::new(vec![(0.0, 3.0), (1.0, 4.2)]);
+        let v_neg = curve.ocv(-0.5);
+        let v_zero = curve.ocv(0.0);
+        assert_eq!(v_neg, v_zero, "OCV below SoC=0 must clamp to OCV at SoC=0");
+    }
+
+    #[test]
+    fn test_ocv_clamp_above_one() {
+        // Minimal 2-point curve
+        let curve = OcvSocCurve::new(vec![(0.0, 3.0), (1.0, 4.2)]);
+        let v_over = curve.ocv(2.0);
+        let v_full = curve.ocv(1.0);
+        assert_eq!(v_over, v_full, "OCV above SoC=1 must clamp to OCV at SoC=1");
+    }
+
+    #[test]
+    fn test_docv_dsoc_positive() {
+        // NMC is strictly monotone increasing, so derivative must be positive everywhere.
+        let curve = OcvSocCurve::nmc_default();
+        let deriv = curve.docv_dsoc(0.5);
+        assert!(
+            deriv > 0.0,
+            "dOCV/dSoC at 0.5 on NMC curve must be positive, got {deriv}"
+        );
+    }
+
+    #[test]
+    fn test_docv_dsoc_symmetric() {
+        // The built-in docv_dsoc uses central finite differences; verify it matches
+        // an independently computed central-diff with the same step size.
+        let curve = OcvSocCurve::lfp_default();
+        let soc = 0.5_f64;
+        let h = 1e-4_f64;
+        let manual_fd = (curve.ocv(soc + h) - curve.ocv(soc - h)) / (2.0 * h);
+        let built_in = curve.docv_dsoc(soc);
+        assert!(
+            (built_in - manual_fd).abs() < 1e-12,
+            "docv_dsoc({soc}) = {built_in} should match manual FD {manual_fd}"
+        );
+    }
+
+    #[test]
+    fn test_ocv_empty_curve() {
+        // An empty curve has no points; ocv() must return 0.0 rather than panic.
+        let curve = OcvSocCurve::new(vec![]);
+        let v = curve.ocv(0.5);
+        assert_eq!(v, 0.0, "OCV on empty curve should return 0.0, got {v}");
+    }
 }

@@ -228,7 +228,7 @@ impl StochasticOpfResult {
     /// Percentile cost at given probability level p ∈ `0,1`.
     pub fn cost_percentile(&self, p: f64) -> f64 {
         let mut costs: Vec<f64> = self.scenarios.iter().map(|s| s.cost).collect();
-        costs.sort_by(|a, b| a.partial_cmp(b).unwrap());
+        costs.sort_by(|a, b| a.partial_cmp(b).unwrap_or(std::cmp::Ordering::Equal));
         let idx = ((p * costs.len() as f64) as usize).min(costs.len() - 1);
         costs[idx]
     }
@@ -403,7 +403,7 @@ pub fn run_stochastic_opf(
 /// CVaR_α = E[cost | cost ≥ VaR_α]
 fn compute_cvar(scenarios: &[Scenario], alpha: f64) -> f64 {
     let mut costs: Vec<f64> = scenarios.iter().map(|s| s.cost).collect();
-    costs.sort_by(|a, b| a.partial_cmp(b).unwrap());
+    costs.sort_by(|a, b| a.partial_cmp(b).unwrap_or(std::cmp::Ordering::Equal));
 
     let n = costs.len();
     if n == 0 {

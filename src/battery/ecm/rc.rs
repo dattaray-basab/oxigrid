@@ -280,4 +280,116 @@ mod tests {
         // SoC should be near 0 after full discharge
         assert!(state.soc.0 < 0.05);
     }
+
+    #[test]
+    fn test_1rc_time_constant() {
+        let r1 = 0.05_f64;
+        let c1 = 3000.0_f64;
+        let model = OneRcModel::new(OcvSocCurve::nmc_default(), 0.02, r1, c1, 75.0);
+        let expected = r1 * c1;
+        assert!(
+            (model.time_constant_1() - expected).abs() < f64::EPSILON * expected.abs().max(1.0)
+        );
+    }
+
+    #[test]
+    fn test_1rc_soc_clamping() {
+        let model_hi =
+            OneRcModel::new(OcvSocCurve::nmc_default(), 0.02, 0.05, 3000.0, 75.0).with_soc(1.5);
+        assert_eq!(model_hi.state().soc.0, 1.0);
+
+        let model_lo =
+            OneRcModel::new(OcvSocCurve::nmc_default(), 0.02, 0.05, 3000.0, 75.0).with_soc(-0.3);
+        assert_eq!(model_lo.state().soc.0, 0.0);
+    }
+
+    #[test]
+    fn test_1rc_zero_current_steady_state() {
+        let mut model = OneRcModel::new(OcvSocCurve::nmc_default(), 0.02, 0.05, 3000.0, 75.0);
+        // First apply a small discharge pulse to charge up the RC voltage
+        model.step(Current(10.0), 60.0, Temperature(298.15));
+        // Then rest for 100 s with zero current — RC voltage should fully decay
+        for _ in 0..10 {
+            model.step(Current(0.0), 100.0, Temperature(298.15));
+        }
+        let soc = model.soc;
+        let ocv = model.ocv_curve.ocv(soc);
+        // With zero current, terminal voltage = OCV − 0·R0 − V_RC1 ≈ OCV when V_RC1 → 0
+        let state = model.state();
+        let v_terminal = state.voltage.0;
+        // RC voltage decays with τ = r1·c1 = 0.05 × 3000 = 150 s.
+        // After 10 × 100 s rest the remaining RC voltage is ~0.13 mV; use 0.5 mV tolerance.
+        assert!(
+            (v_terminal - ocv).abs() < 5e-4,
+            "terminal voltage {v_terminal} should equal OCV {ocv} after long rest"
+        );
+    }
+
+    #[test]
+    fn test_1rc_step_soc_decreases_on_discharge() {
+        let mut model = OneRcModel::new(OcvSocCurve::nmc_default(), 0.02, 0.05, 3000.0, 75.0);
+        let initial_soc = model.state().soc.0;
+        // Positive current = discharge
+        model.step(Current(10.0), 60.0, Temperature(298.15));
+        let new_soc = model.state().soc.0;
+        assert!(
+            new_soc < initial_soc,
+            "SoC {new_soc} should be less than initial {initial_soc} after discharge"
+        );
+    }
+
+    #[test]
+    fn test_1rc_step_soc_increases_on_charge() {
+        let mut model =
+            OneRcModel::new(OcvSocCurve::nmc_default(), 0.02, 0.05, 3000.0, 75.0).with_soc(0.5);
+        let initial_soc = model.state().soc.0;
+        // Negative current = charging
+        model.step(Current(-10.0), 60.0, Temperature(298.15));
+        let new_soc = model.state().soc.0;
+        assert!(
+            new_soc > initial_soc,
+            "SoC {new_soc} should exceed initial {initial_soc} after charging"
+        );
+    }
+
+    #[test]
+    fn test_2rc_internal_resistance() {
+        let r0 = 0.010_f64;
+        let r1 = 0.025_f64;
+        let r2 = 0.015_f64;
+        let model = TwoRcModel::new(OcvSocCurve::nmc_default(), r0, r1, 5000.0, r2, 1000.0, 50.0);
+        let expected = r0 + r1 + r2;
+        let actual = model.state().internal_resistance;
+        assert!(
+            (actual - expected).abs() < 1e-12,
+            "internal_resistance {actual} != r0+r1+r2 = {expected}"
+        );
+    }
+
+    #[test]
+    fn test_2rc_soc_clamping() {
+        let model_hi = TwoRcModel::new(
+            OcvSocCurve::nmc_default(),
+            0.02,
+            0.05,
+            3000.0,
+            0.03,
+            500.0,
+            75.0,
+        )
+        .with_soc(1.5);
+        assert_eq!(model_hi.state().soc.0, 1.0);
+
+        let model_lo = TwoRcModel::new(
+            OcvSocCurve::nmc_default(),
+            0.02,
+            0.05,
+            3000.0,
+            0.03,
+            500.0,
+            75.0,
+        )
+        .with_soc(-0.3);
+        assert_eq!(model_lo.state().soc.0, 0.0);
+    }
 }

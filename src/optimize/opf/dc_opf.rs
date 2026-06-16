@@ -223,7 +223,12 @@ fn economic_dispatch(costs: &[GenCost], total_load_mw: f64) -> Result<Vec<f64>> 
 /// Merit-order dispatch for linear cost functions.
 fn merit_order_dispatch(costs: &[GenCost], total_load_mw: f64) -> Result<Vec<f64>> {
     let mut order: Vec<usize> = (0..costs.len()).collect();
-    order.sort_by(|&a, &b| costs[a].b.partial_cmp(&costs[b].b).unwrap());
+    order.sort_by(|&a, &b| {
+        costs[a]
+            .b
+            .partial_cmp(&costs[b].b)
+            .unwrap_or(std::cmp::Ordering::Equal)
+    });
 
     let mut p = vec![0.0f64; costs.len()];
     let mut remaining = total_load_mw;
@@ -314,5 +319,166 @@ mod tests {
     fn test_infeasible_load_too_high() {
         let costs = vec![GenCost::linear(20.0, 0.0, 50.0)];
         assert!(economic_dispatch(&costs, 100.0).is_err());
+    }
+
+    // ── 7 new unit tests ──────────────────────────────────────────────────────
+
+    /// 1. total_cost for a linear generator (c=0) must equal a + b·p exactly.
+    #[test]
+    fn test_total_cost_linear_gen() {
+        // linear() sets a=0, c=0
+        let gen = GenCost::linear(25.0, 10.0, 200.0);
+        let p = 80.0_f64;
+        let expected = gen.a + gen.b * p + gen.c * p * p; // 0 + 25*80 + 0 = 2000
+        assert!(
+            (gen.total_cost(p) - expected).abs() < 1e-10,
+            "total_cost={:.6} expected={:.6}",
+            gen.total_cost(p),
+            expected
+        );
+        assert!(
+            (gen.total_cost(p) - 2000.0).abs() < 1e-10,
+            "expected 2000.0, got {:.6}",
+            gen.total_cost(p)
+        );
+    }
+
+    /// 2. marginal_cost for a quadratic generator equals b + 2c·p at several outputs.
+    #[test]
+    fn test_marginal_cost_quadratic_various_outputs() {
+        let gen = GenCost::quadratic(5.0, 20.0, 0.04, 10.0, 150.0);
+        // marginal_cost(p) = b + 2c·p = 20 + 0.08·p
+        let check = |p: f64| {
+            let expected = gen.b + 2.0 * gen.c * p;
+            let got = gen.marginal_cost(p);
+            assert!(
+                (got - expected).abs() < 1e-10,
+                "p={} expected={:.6} got={:.6}",
+                p,
+                expected,
+                got
+            );
+        };
+        check(0.0);
+        check(10.0);
+        check(75.0);
+        check(150.0);
+    }
+
+    /// 3. economic_dispatch_pub with load == sum(p_min) → every gen at p_min.
+    #[test]
+    fn test_dispatch_at_p_min_total() {
+        let costs = vec![
+            GenCost::quadratic(0.0, 20.0, 0.05, 10.0, 100.0),
+            GenCost::quadratic(0.0, 30.0, 0.03, 20.0, 150.0),
+            GenCost::linear(25.0, 5.0, 80.0),
+        ];
+        let p_min_total: f64 = costs.iter().map(|c| c.p_min).sum(); // 35 MW
+        let p = economic_dispatch_pub(&costs, p_min_total)
+            .expect("dispatch at p_min_total must succeed");
+        for (i, (&pi, ci)) in p.iter().zip(costs.iter()).enumerate() {
+            assert!(
+                (pi - ci.p_min).abs() < 1e-3,
+                "gen {}: expected p_min={} got {:.6}",
+                i,
+                ci.p_min,
+                pi
+            );
+        }
+    }
+
+    /// 4. economic_dispatch_pub with load == sum(p_max) → every gen at p_max.
+    #[test]
+    fn test_dispatch_at_p_max_total() {
+        let costs = vec![
+            GenCost::quadratic(0.0, 20.0, 0.05, 10.0, 100.0),
+            GenCost::quadratic(0.0, 30.0, 0.03, 20.0, 150.0),
+            GenCost::linear(25.0, 5.0, 80.0),
+        ];
+        let p_max_total: f64 = costs.iter().map(|c| c.p_max).sum(); // 330 MW
+        let p = economic_dispatch_pub(&costs, p_max_total)
+            .expect("dispatch at p_max_total must succeed");
+        for (i, (&pi, ci)) in p.iter().zip(costs.iter()).enumerate() {
+            assert!(
+                (pi - ci.p_max).abs() < 1e-3,
+                "gen {}: expected p_max={} got {:.6}",
+                i,
+                ci.p_max,
+                pi
+            );
+        }
+    }
+
+    /// 5. economic_dispatch_pub returns Err when load_mw is below p_min_total.
+    #[test]
+    fn test_dispatch_err_load_below_p_min() {
+        let costs = vec![
+            GenCost::linear(20.0, 50.0, 200.0),
+            GenCost::linear(30.0, 30.0, 100.0),
+        ];
+        let p_min_total: f64 = costs.iter().map(|c| c.p_min).sum(); // 80 MW
+        let result = economic_dispatch_pub(&costs, p_min_total - 1.0);
+        assert!(
+            result.is_err(),
+            "expected Err for load below p_min_total, got Ok"
+        );
+    }
+
+    /// 6. economic_dispatch_pub returns Err when load_mw is above p_max_total.
+    #[test]
+    fn test_dispatch_err_load_above_p_max() {
+        let costs = vec![
+            GenCost::linear(20.0, 0.0, 50.0),
+            GenCost::linear(30.0, 0.0, 60.0),
+        ];
+        let p_max_total: f64 = costs.iter().map(|c| c.p_max).sum(); // 110 MW
+        let result = economic_dispatch_pub(&costs, p_max_total + 1.0);
+        assert!(
+            result.is_err(),
+            "expected Err for load above p_max_total, got Ok"
+        );
+    }
+
+    /// 7. Three linear generators: cheapest fills first (merit-order).
+    ///    Gen-0: $10/MWh, 0–100 MW
+    ///    Gen-1: $20/MWh, 0–100 MW
+    ///    Gen-2: $30/MWh, 0–100 MW
+    ///    Load = 150 MW → gen-0 full (100), gen-1 partial (50), gen-2 idle (0).
+    #[test]
+    fn test_merit_order_three_linear_gens() {
+        let costs = vec![
+            GenCost::linear(10.0, 0.0, 100.0), // cheapest
+            GenCost::linear(20.0, 0.0, 100.0), // mid
+            GenCost::linear(30.0, 0.0, 100.0), // most expensive
+        ];
+        let load = 150.0_f64;
+        let p = economic_dispatch_pub(&costs, load)
+            .expect("dispatch must succeed for load within limits");
+
+        let total: f64 = p.iter().sum();
+        assert!(
+            (total - load).abs() < 1e-3,
+            "total dispatch {:.4} != load {:.4}",
+            total,
+            load
+        );
+        // Cheapest unit should be at its maximum
+        assert!(
+            (p[0] - 100.0).abs() < 1e-3,
+            "gen-0 (cheapest) should be at p_max=100, got {:.4}",
+            p[0]
+        );
+        // Second unit carries the remainder
+        assert!(
+            (p[1] - 50.0).abs() < 1e-3,
+            "gen-1 should carry 50 MW, got {:.4}",
+            p[1]
+        );
+        // Most expensive unit should not be dispatched
+        assert!(
+            p[2].abs() < 1e-3,
+            "gen-2 (most expensive) should be idle, got {:.4}",
+            p[2]
+        );
     }
 }

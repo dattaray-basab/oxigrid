@@ -811,4 +811,150 @@ mod tests {
             "Emergency alarm must be raised when max angle diff > 60 deg"
         );
     }
+
+    /// Test A: Only 1 good reading → InsufficientData(2).
+    #[test]
+    fn test_insufficient_data_error() {
+        let readings = vec![
+            make_reading(0, 0, 0.0, 1.0, 0.0, 50.0, 0.0, 1), // bad quality
+            make_reading(1, 1, 0.0, 1.0, 0.0, 50.0, 0.0, 0), // only 1 good reading
+        ];
+        let monitor = WamsMonitor::new(WamsConfig::default());
+        let result = monitor.analyze(&readings);
+        assert!(
+            matches!(result, Err(WamsError::InsufficientData(2))),
+            "expected InsufficientData(2), got {:?}",
+            result
+        );
+    }
+
+    /// Test B: pmu_reporting_rate_hz = 0.0 → InvalidConfig.
+    #[test]
+    fn test_invalid_config_zero_rate() {
+        let cfg = WamsConfig {
+            pmu_reporting_rate_hz: 0.0,
+            ..WamsConfig::default()
+        };
+        let readings: Vec<PmuReading> = (0..5)
+            .map(|i| make_reading(i, i, i as f64 * 0.02, 1.0, 0.0, 50.0, 0.0, 0))
+            .collect();
+        let monitor = WamsMonitor::new(cfg);
+        let result = monitor.analyze(&readings);
+        assert!(
+            matches!(result, Err(WamsError::InvalidConfig(_))),
+            "expected InvalidConfig, got {:?}",
+            result
+        );
+    }
+
+    /// Test C: voltage_magnitude_pu = 0.85 (< 0.9) → Advisory alarm with "Low bus voltage".
+    #[test]
+    fn test_low_voltage_advisory_alarm() {
+        let readings = vec![
+            make_reading(0, 0, 0.0, 0.85, 0.0, 50.0, 0.0, 0),
+            make_reading(1, 1, 0.02, 0.85, 1.0, 50.0, 0.0, 0),
+        ];
+        let monitor = WamsMonitor::new(WamsConfig::default());
+        let result = monitor.analyze(&readings).expect("analysis failed");
+
+        let low_voltage_alarm = result.alarms.iter().find(|a| {
+            a.severity == AlarmSeverity::Advisory && a.description.contains("Low bus voltage")
+        });
+        assert!(
+            low_voltage_alarm.is_some(),
+            "expected Advisory alarm mentioning 'Low bus voltage', alarms: {:?}",
+            result.alarms
+        );
+    }
+
+    /// Test D: angle spread of 50° (45° < spread ≤ 60°) → Alert alarm.
+    #[test]
+    fn test_alert_alarm_at_50_deg_spread() {
+        let readings = vec![
+            make_reading(0, 0, 0.0, 1.0, 0.0, 50.0, 0.0, 0),
+            make_reading(1, 1, 0.02, 1.0, 50.0, 50.0, 0.0, 0),
+        ];
+        let monitor = WamsMonitor::new(WamsConfig::default());
+        let result = monitor.analyze(&readings).expect("analysis failed");
+
+        assert!(
+            result.angular_stability.max_angle_diff_deg > 45.0,
+            "expected max_angle_diff_deg > 45.0, got {:.2}",
+            result.angular_stability.max_angle_diff_deg
+        );
+        let has_alert = result
+            .alarms
+            .iter()
+            .any(|a| a.severity == AlarmSeverity::Alert);
+        assert!(
+            has_alert,
+            "expected at least one Alert alarm for 50 deg spread, alarms: {:?}",
+            result.alarms
+        );
+    }
+
+    /// Test E: angle spread of 35° (30° < spread ≤ 45°) → Advisory alarm, no Emergency.
+    #[test]
+    fn test_advisory_alarm_at_35_deg_spread() {
+        let readings = vec![
+            make_reading(0, 0, 0.0, 1.0, 0.0, 50.0, 0.0, 0),
+            make_reading(1, 1, 0.02, 1.0, 35.0, 50.0, 0.0, 0),
+        ];
+        let monitor = WamsMonitor::new(WamsConfig::default());
+        let result = monitor.analyze(&readings).expect("analysis failed");
+
+        let has_advisory = result
+            .alarms
+            .iter()
+            .any(|a| a.severity == AlarmSeverity::Advisory);
+        assert!(
+            has_advisory,
+            "expected Advisory alarm for 35 deg spread, alarms: {:?}",
+            result.alarms
+        );
+        let has_emergency = result
+            .alarms
+            .iter()
+            .any(|a| a.severity == AlarmSeverity::Emergency);
+        assert!(
+            !has_emergency,
+            "no Emergency alarm expected for 35 deg spread, alarms: {:?}",
+            result.alarms
+        );
+    }
+
+    /// Test F: angle spread of 45° → stability_margin = (1 - 45/90) = 0.5.
+    #[test]
+    fn test_stability_margin_formula() {
+        let readings = vec![
+            make_reading(0, 0, 0.0, 1.0, 0.0, 50.0, 0.0, 0),
+            make_reading(1, 1, 0.02, 1.0, 45.0, 50.0, 0.0, 0),
+        ];
+        let monitor = WamsMonitor::new(WamsConfig::default());
+        let result = monitor.analyze(&readings).expect("analysis failed");
+
+        assert!(
+            (result.angular_stability.stability_margin - 0.5).abs() < 1e-6,
+            "expected stability_margin ≈ 0.5, got {:.9}",
+            result.angular_stability.stability_margin
+        );
+    }
+
+    /// Test G: voltage_stability_index is the minimum voltage across all good readings.
+    #[test]
+    fn test_voltage_stability_index_is_minimum() {
+        let readings = vec![
+            make_reading(0, 0, 0.0, 1.02, 0.0, 50.0, 0.0, 0),
+            make_reading(1, 1, 0.02, 0.95, 1.0, 50.0, 0.0, 0),
+            make_reading(2, 2, 0.04, 1.05, 2.0, 50.0, 0.0, 0),
+        ];
+        let monitor = WamsMonitor::new(WamsConfig::default());
+        let result = monitor.analyze(&readings).expect("analysis failed");
+
+        assert!(
+            (result.voltage_stability_index - 0.95).abs() < 1e-9,
+            "expected voltage_stability_index = 0.95, got {:.12}",
+            result.voltage_stability_index
+        );
+    }
 }

@@ -408,4 +408,178 @@ mod tests {
             "high-penetration scenario should generate at least one recommendation"
         );
     }
+
+    // ── 7 new tests ────────────────────────────────────────────────────────────
+
+    /// Test 1: An empty network (n_buses = 0) must return `StudyError::EmptyNetwork`.
+    #[test]
+    fn test_empty_network_returns_error() {
+        let cfg = IntegrationStudyConfig {
+            study_name: "Empty Network Test".to_string(),
+            target_renewable_pct: 50.0,
+            study_years: vec![2025],
+            metrics: vec![StudyMetric::HostingCapacity],
+        };
+        let platform = IntegrationStudyPlatform::new(cfg, 0, vec![]);
+        let result = platform.study_scenario(&low_pen_scenario());
+        match result {
+            Err(StudyError::EmptyNetwork) => {}
+            other => panic!("expected Err(StudyError::EmptyNetwork), got {:?}", other),
+        }
+    }
+
+    /// Test 2: With zero renewable capacity the SCR is clamped to 10.0,
+    /// curtailment is exactly 0 %, and the frequency nadir is close to 60 Hz.
+    #[test]
+    fn test_zero_renewable_gives_clamped_scr_and_no_curtailment() {
+        let p = base_platform();
+        let scenario = RenewableScenario {
+            year: 2025,
+            solar_mw: vec![],
+            wind_mw: vec![],
+            battery_mwh: vec![],
+            retired_conventional_mw: 0.0,
+            load_growth_pct: 0.0,
+        };
+        let r = p
+            .study_scenario(&scenario)
+            .expect("study_scenario for zero-renewable case");
+        assert_eq!(
+            r.curtailment_pct, 0.0,
+            "zero renewable must have zero curtailment, got {}",
+            r.curtailment_pct
+        );
+        assert!(
+            (r.min_scr - 10.0).abs() < 1e-9,
+            "zero renewable SCR must be clamped to 10.0, got {}",
+            r.min_scr
+        );
+        // With no renewable penetration the nadir should be within 1 Hz of 60 Hz.
+        assert!(
+            r.frequency_nadir_hz > 59.0,
+            "frequency nadir with zero renewables should be close to 60 Hz, got {}",
+            r.frequency_nadir_hz
+        );
+    }
+
+    /// Test 3: Retiring all conventional capacity drives system inertia to zero.
+    #[test]
+    fn test_full_conventional_retirement_zeroes_inertia() {
+        let p = base_platform();
+        // Both generators are 200 MW each → retire 400 MW total.
+        let scenario = RenewableScenario {
+            year: 2030,
+            solar_mw: vec![(0, 100.0)],
+            wind_mw: vec![],
+            battery_mwh: vec![],
+            retired_conventional_mw: 400.0,
+            load_growth_pct: 0.0,
+        };
+        let r = p
+            .study_scenario(&scenario)
+            .expect("study_scenario for full retirement");
+        assert!(
+            r.system_inertia_mjs.abs() < 1e-9,
+            "full conventional retirement must reduce inertia to zero, got {}",
+            r.system_inertia_mjs
+        );
+    }
+
+    /// Test 4: `run_all_scenarios` returns exactly one `StudyResult` per input scenario.
+    #[test]
+    fn test_run_all_scenarios_result_count_matches_input() {
+        let p = base_platform();
+        let scenarios = vec![low_pen_scenario(), high_pen_scenario()];
+        let results = p
+            .run_all_scenarios(scenarios)
+            .expect("run_all_scenarios should succeed");
+        assert_eq!(
+            results.len(),
+            2,
+            "expected 2 results for 2 scenarios, got {}",
+            results.len()
+        );
+    }
+
+    /// Test 5: `recommend_upgrades` returns an empty vec when all metrics are healthy
+    /// (low-penetration scenario, no thresholds breached).
+    #[test]
+    fn test_recommend_upgrades_empty_for_healthy_scenario() {
+        let p = base_platform();
+        let r = p
+            .study_scenario(&low_pen_scenario())
+            .expect("low pen study");
+        let recs = p.recommend_upgrades(&[r]);
+        assert!(
+            recs.is_empty(),
+            "no recommendations expected for a healthy low-penetration result, got {:?}",
+            recs
+        );
+    }
+
+    /// Test 6: When solar + wind >> load the hosting capacity is capped at 120 % of load.
+    #[test]
+    fn test_hosting_capacity_capped_at_120_pct_of_load() {
+        let p = base_platform(); // base load = 500 MW → cap = 600 MW
+        let scenario = RenewableScenario {
+            year: 2025,
+            solar_mw: vec![(0, 1000.0)], // 1000 MW solar …
+            wind_mw: vec![(1, 500.0)],   // … + 500 MW wind = 1500 MW total, >> 600 MW cap
+            battery_mwh: vec![],
+            retired_conventional_mw: 0.0,
+            load_growth_pct: 0.0,
+        };
+        let r = p
+            .study_scenario(&scenario)
+            .expect("study_scenario for oversized renewables");
+        let expected_cap = 500.0_f64 * 1.2; // 600 MW
+        assert!(
+            (r.hosting_capacity_mw - expected_cap).abs() < 1e-9,
+            "hosting capacity should be capped at {:.1} MW, got {:.6}",
+            expected_cap,
+            r.hosting_capacity_mw
+        );
+    }
+
+    /// Test 7: A higher load-growth percentage lowers the renewable fraction for the same
+    /// renewable MW, which must eliminate curtailment that would otherwise occur.
+    #[test]
+    fn test_high_load_growth_reduces_curtailment() {
+        let p = base_platform();
+        // 500 MW of renewables against 500 MW base load → fraction = 1.0 → curtailment.
+        let scenario_no_growth = RenewableScenario {
+            year: 2025,
+            solar_mw: vec![(0, 300.0)],
+            wind_mw: vec![(1, 200.0)],
+            battery_mwh: vec![],
+            retired_conventional_mw: 0.0,
+            load_growth_pct: 0.0,
+        };
+        // Same renewable MW but load grows 200 % → effective load = 1500 MW → fraction ≈ 0.33.
+        let scenario_high_growth = RenewableScenario {
+            year: 2025,
+            solar_mw: vec![(0, 300.0)],
+            wind_mw: vec![(1, 200.0)],
+            battery_mwh: vec![],
+            retired_conventional_mw: 0.0,
+            load_growth_pct: 200.0,
+        };
+        let r_no_growth = p
+            .study_scenario(&scenario_no_growth)
+            .expect("study_scenario no-growth");
+        let r_high_growth = p
+            .study_scenario(&scenario_high_growth)
+            .expect("study_scenario high-growth");
+
+        assert!(
+            r_no_growth.curtailment_pct > 0.0,
+            "zero load growth with 500 MW renewables / 500 MW load should curtail, got {}",
+            r_no_growth.curtailment_pct
+        );
+        assert_eq!(
+            r_high_growth.curtailment_pct, 0.0,
+            "200 %% load growth should reduce renewable fraction enough to eliminate curtailment, got {}",
+            r_high_growth.curtailment_pct
+        );
+    }
 }

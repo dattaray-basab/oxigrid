@@ -237,7 +237,7 @@ pub fn run_dr_ems(dr_resources: &[DrResource], config: &DrEmsConfig) -> DrEmsRes
             dr_resources[b]
                 .net_benefit_per_kwh()
                 .partial_cmp(&dr_resources[a].net_benefit_per_kwh())
-                .unwrap()
+                .unwrap_or(std::cmp::Ordering::Equal)
         });
 
         let mut dr_curtail = vec![0.0f64; n_dr];

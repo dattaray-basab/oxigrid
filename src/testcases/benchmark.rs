@@ -763,4 +763,140 @@ mod tests {
         assert_eq!(cloned.notes[0], "Voltage error exceeded");
         assert_eq!(cloned.notes[1], "Solver did not converge");
     }
+
+    /// Reason: Each BenchmarkScenario network must have the number of buses matching its declared name.
+    #[test]
+    fn test_benchmark_scenario_bus_counts() {
+        let suite = power_flow_benchmarks();
+        for scenario in &suite {
+            let bus_count = scenario.network.buses.len();
+            assert!(
+                bus_count > 0,
+                "Scenario '{}': network must have at least 1 bus",
+                scenario.name
+            );
+            if scenario.name.contains("14") {
+                assert_eq!(
+                    bus_count, 14,
+                    "IEEE 14-Bus scenario must have exactly 14 buses"
+                );
+            } else if scenario.name.contains("30") {
+                assert_eq!(
+                    bus_count, 30,
+                    "IEEE 30-Bus scenario must have exactly 30 buses"
+                );
+            } else if scenario.name.contains("57") {
+                assert_eq!(
+                    bus_count, 57,
+                    "IEEE 57-Bus scenario must have exactly 57 buses"
+                );
+            }
+        }
+    }
+
+    /// Reason: max_voltage_pu and min_voltage_pu must be in physical plausible range (0.5, 1.5).
+    #[test]
+    fn test_expected_voltage_range_is_physical() {
+        let suite = power_flow_benchmarks();
+        for scenario in &suite {
+            let exp = &scenario.expected_result;
+            assert!(
+                exp.max_voltage_pu > 0.5,
+                "Scenario '{}': max_voltage_pu ({}) must be > 0.5",
+                scenario.name,
+                exp.max_voltage_pu
+            );
+            assert!(
+                exp.max_voltage_pu < 1.5,
+                "Scenario '{}': max_voltage_pu ({}) must be < 1.5",
+                scenario.name,
+                exp.max_voltage_pu
+            );
+            assert!(
+                exp.min_voltage_pu > 0.5,
+                "Scenario '{}': min_voltage_pu ({}) must be > 0.5",
+                scenario.name,
+                exp.min_voltage_pu
+            );
+            assert!(
+                exp.min_voltage_pu < 1.5,
+                "Scenario '{}': min_voltage_pu ({}) must be < 1.5",
+                scenario.name,
+                exp.min_voltage_pu
+            );
+        }
+    }
+
+    /// Reason: A BenchmarkReport constructed with empty notes must have is_empty() == true.
+    #[test]
+    fn test_report_notes_vec_is_empty_by_default() {
+        let report = BenchmarkReport {
+            scenario_name: "empty-notes-test".to_string(),
+            passed: true,
+            actual_converged: true,
+            actual_iterations: 5,
+            voltage_error_pu: 0.001,
+            losses_error_mw: 0.5,
+            notes: vec![],
+        };
+        assert!(
+            report.notes.is_empty(),
+            "BenchmarkReport notes should be empty when constructed with vec![]"
+        );
+        assert_eq!(report.notes.len(), 0);
+    }
+
+    /// Reason: n_iterations in each reference scenario should be in the range 1..=20 (power flow converges quickly).
+    #[test]
+    fn test_expected_result_n_iterations_in_reasonable_range() {
+        let suite = power_flow_benchmarks();
+        for scenario in &suite {
+            let n = scenario.expected_result.n_iterations;
+            assert!(
+                (1..=20).contains(&n),
+                "Scenario '{}': n_iterations ({}) must be in range 1..=20",
+                scenario.name,
+                n
+            );
+        }
+    }
+
+    /// Reason: Each BenchmarkScenario network must have at least 1 branch (an isolated bus set is not a real test case).
+    #[test]
+    fn test_benchmark_scenario_network_has_branches() {
+        let suite = power_flow_benchmarks();
+        for scenario in &suite {
+            assert!(
+                !scenario.network.branches.is_empty(),
+                "Scenario '{}': network must have at least 1 branch",
+                scenario.name
+            );
+        }
+    }
+
+    /// Reason: A BenchmarkReport with zero voltage and loss errors must satisfy is_pass() when passed = true.
+    #[test]
+    fn test_benchmark_report_with_zero_voltage_error_passes_sanity() {
+        let report = BenchmarkReport {
+            scenario_name: "perfect-solver".to_string(),
+            passed: true,
+            actual_converged: true,
+            actual_iterations: 4,
+            voltage_error_pu: 0.0,
+            losses_error_mw: 0.0,
+            notes: vec![],
+        };
+        assert!(
+            report.is_pass(),
+            "Report with passed=true must return is_pass()=true"
+        );
+        assert!(
+            report.voltage_error_pu == 0.0,
+            "voltage_error_pu should be exactly 0.0"
+        );
+        assert!(
+            report.losses_error_mw == 0.0,
+            "losses_error_mw should be exactly 0.0"
+        );
+    }
 }

@@ -251,7 +251,9 @@ pub fn bootstrap_ar1_ensemble(
             };
 
             // Bootstrap last value and forecast forward
-            let mut last = *series.last().unwrap();
+            let mut last = *series
+                .last()
+                .expect("invariant: series non-empty after branch guard");
             let values: Vec<f64> = (0..n_ahead)
                 .map(|_| {
                     // Sample a residual from the historical distribution (Gaussian approx)

@@ -203,7 +203,7 @@ impl TsStats {
         let max = good.iter().cloned().fold(f64::NEG_INFINITY, f64::max);
 
         let mut sorted = good.clone();
-        sorted.sort_by(|a, b| a.partial_cmp(b).unwrap());
+        sorted.sort_by(|a, b| a.partial_cmp(b).unwrap_or(std::cmp::Ordering::Equal));
         let p50 = sorted[n_good / 2];
         let p95 = sorted[((0.95 * n_good as f64) as usize).min(n_good - 1)];
 

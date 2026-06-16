@@ -218,8 +218,12 @@ impl OutputStats {
             p75: pct(0.75),
             p95: pct(0.95),
             p99: pct(0.99),
-            min: *samples.first().unwrap(),
-            max: *samples.last().unwrap(),
+            min: *samples
+                .first()
+                .expect("invariant: non-empty samples asserted above"),
+            max: *samples
+                .last()
+                .expect("invariant: non-empty samples asserted above"),
         }
     }
 

@@ -147,4 +147,115 @@ mod tests {
         let result: std::result::Result<TestStruct, _> = from_json_bytes(b"not json");
         assert!(result.is_err());
     }
+
+    #[test]
+    fn test_serialize_empty_network() {
+        use crate::network::topology::PowerNetwork;
+        let net = PowerNetwork::new(100.0);
+        let json = to_json(&net).expect("serialize empty PowerNetwork");
+        assert!(
+            !json.is_empty(),
+            "JSON must be non-empty for an empty network"
+        );
+    }
+
+    #[test]
+    fn test_roundtrip_power_network() {
+        use crate::network::bus::{Bus, BusType};
+        use crate::network::topology::PowerNetwork;
+        let mut net = PowerNetwork::new(100.0);
+        let mut b = Bus::new(1, BusType::Slack);
+        b.vm = 1.0;
+        net.buses.push(b);
+        let json = to_json(&net).expect("serialize PowerNetwork with one bus");
+        let recovered: PowerNetwork = from_json(&json).expect("deserialize PowerNetwork");
+        assert_eq!(
+            recovered.buses.len(),
+            net.buses.len(),
+            "bus count must survive round-trip"
+        );
+    }
+
+    #[test]
+    fn test_json_output_contains_field_names() {
+        let orig = sample();
+        let json = to_json_pretty(&orig).expect("pretty-print TestStruct");
+        assert!(json.contains("\"x\""), "JSON should contain field 'x'");
+        assert!(
+            json.contains("\"name\""),
+            "JSON should contain field 'name'"
+        );
+        assert!(
+            json.contains("\"values\""),
+            "JSON should contain field 'values'"
+        );
+    }
+
+    #[test]
+    fn test_write_read_json_file_roundtrip() {
+        let orig = sample();
+        let mut path = std::env::temp_dir();
+        path.push("oxigrid_serialize_test_roundtrip.json");
+        let path_str = path.to_str().expect("temp path is valid UTF-8");
+        write_json_file(path_str, &orig).expect("write JSON file");
+        let recovered: TestStruct = read_json_file(path_str).expect("read JSON file");
+        assert_eq!(orig, recovered);
+        let _ = std::fs::remove_file(path_str);
+    }
+
+    #[test]
+    fn test_read_nonexistent_file_returns_err() {
+        let result: std::result::Result<TestStruct, _> =
+            read_json_file("/tmp/oxigrid_nonexistent_xyz_12345.json");
+        assert!(result.is_err(), "reading a missing file must return Err");
+    }
+
+    #[test]
+    fn test_envelope_version_field() {
+        let orig = sample();
+        let env = SerializedEnvelope::wrap("TestStruct", orig);
+        let json = env.to_json_string().expect("serialize envelope");
+        assert!(
+            json.contains("\"version\""),
+            "JSON must contain 'version' key"
+        );
+        assert!(
+            json.contains("\"1.0\""),
+            "JSON must contain version value '1.0'"
+        );
+    }
+
+    #[test]
+    fn test_serialize_nested_envelope() {
+        let orig = sample();
+        let inner_env = SerializedEnvelope::wrap("TestStruct", orig);
+        let inner_json = inner_env
+            .to_json_string()
+            .expect("serialize inner envelope");
+        let outer_env = SerializedEnvelope::wrap("String", inner_json);
+        let outer_json = outer_env
+            .to_json_string()
+            .expect("serialize outer envelope");
+        assert!(
+            !outer_json.is_empty(),
+            "nested envelope JSON must be non-empty"
+        );
+    }
+
+    #[test]
+    fn test_empty_values_roundtrip() {
+        let orig = TestStruct {
+            x: 0.0,
+            name: "".into(),
+            values: vec![],
+        };
+        let json = to_json(&orig).expect("serialize TestStruct with empty fields");
+        let recovered: TestStruct =
+            from_json(&json).expect("deserialize TestStruct with empty fields");
+        assert_eq!(orig, recovered);
+        assert!(
+            recovered.values.is_empty(),
+            "values must remain empty after round-trip"
+        );
+    }
 }

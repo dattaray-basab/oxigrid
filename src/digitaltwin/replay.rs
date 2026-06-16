@@ -463,4 +463,146 @@ mod tests {
         assert_eq!(kpis.availability_pct, 100.0, "all buses energised");
         assert!(kpis.avg_frequency_hz > 0.0);
     }
+
+    /// A freshly created GridReplay has an empty history.
+    #[test]
+    fn replay_new_has_empty_history() {
+        let net = make_network();
+        let twin = GridDigitalTwin::new(net, TwinConfig::default());
+        let replay = GridReplay::new(twin);
+        assert!(
+            replay.history.is_empty(),
+            "new replay must start with no history"
+        );
+        assert_eq!(replay.playback_speed, 1.0, "default playback speed is 1.0");
+    }
+
+    /// Each `record()` call advances the history by exactly one entry.
+    #[test]
+    fn replay_record_increments_history_length() {
+        let net = make_network();
+        let twin = GridDigitalTwin::new(net, TwinConfig::default());
+        let mut replay = GridReplay::new(twin);
+
+        replay
+            .twin
+            .ingest_telemetry(&voltage_batch(0, 1.0, 1.0))
+            .expect("ingest");
+        replay.record(0);
+        assert_eq!(
+            replay.history.len(),
+            1,
+            "history should have 1 entry after first record"
+        );
+
+        replay
+            .twin
+            .ingest_telemetry(&voltage_batch(1_000_000, 1.01, 0.99))
+            .expect("ingest");
+        replay.record(1_000_000);
+        assert_eq!(
+            replay.history.len(),
+            2,
+            "history should have 2 entries after second record"
+        );
+    }
+
+    /// Timestamps in the history are stored in non-decreasing order when records
+    /// are inserted in order.
+    #[test]
+    fn replay_history_timestamps_are_ordered() {
+        let net = make_network();
+        let twin = GridDigitalTwin::new(net, TwinConfig::default());
+        let mut replay = GridReplay::new(twin);
+
+        for i in 0..5_i64 {
+            let ts = i * 500_000;
+            replay
+                .twin
+                .ingest_telemetry(&voltage_batch(ts, 1.0, 1.0))
+                .expect("ingest");
+            replay.record(ts);
+        }
+
+        let timestamps: Vec<i64> = replay.history.iter().map(|(ts, _)| *ts).collect();
+        let sorted = timestamps.windows(2).all(|w| w[0] <= w[1]);
+        assert!(sorted, "history timestamps must be non-decreasing");
+    }
+
+    /// `replay_from` with an `end_us` bound should only visit states strictly
+    /// before `end_us`.
+    #[test]
+    fn replay_from_with_end_bound_stops_at_end() {
+        let net = make_network();
+        let twin = GridDigitalTwin::new(net, TwinConfig::default());
+        let mut replay = GridReplay::new(twin);
+
+        for i in 0..4_i64 {
+            let ts = i * 1_000_000;
+            replay
+                .twin
+                .ingest_telemetry(&voltage_batch(ts, 1.0, 1.0))
+                .expect("ingest");
+            replay.record(ts);
+        }
+        // history: ts = 0, 1M, 2M, 3M
+        // replay [0, 2M) should visit 0 and 1M only (2 states).
+        let mut count = 0usize;
+        replay.replay_from(0, Some(2_000_000), |_, _| count += 1);
+        assert_eq!(
+            count, 2,
+            "replay_from with end=2M should visit exactly 2 states"
+        );
+    }
+
+    /// `compute_kpis` on an empty window (no history in range) returns a zeroed KPI.
+    #[test]
+    fn kpi_empty_window_returns_zeros() {
+        let net = make_network();
+        let twin = GridDigitalTwin::new(net, TwinConfig::default());
+        let replay = GridReplay::new(twin);
+
+        let kpis = replay.compute_kpis(0, 1_000_000);
+        assert_eq!(kpis.avg_voltage_pu, 0.0, "empty window avg V should be 0");
+        assert_eq!(
+            kpis.availability_pct, 0.0,
+            "empty window availability should be 0"
+        );
+        assert_eq!(kpis.n_voltage_violations, 0);
+    }
+
+    /// A what-if `LoadStep` on a valid bus must succeed and return a non-empty
+    /// counterfactual trajectory.
+    #[test]
+    fn what_if_load_step_produces_counterfactual() {
+        let net = make_network();
+        let twin = GridDigitalTwin::new(net, TwinConfig::default());
+        let mut replay = GridReplay::new(twin);
+
+        replay
+            .twin
+            .ingest_telemetry(&voltage_batch(0, 1.0, 1.0))
+            .expect("ingest 0");
+        replay.record(0);
+        replay
+            .twin
+            .ingest_telemetry(&voltage_batch(1_000_000, 1.01, 0.99))
+            .expect("ingest 1");
+        replay.record(1_000_000);
+
+        let states = replay
+            .what_if(
+                0,
+                TwinModification::LoadStep {
+                    bus: 0,
+                    delta_mw: 10.0,
+                },
+            )
+            .expect("what-if load step should succeed");
+
+        assert!(
+            !states.is_empty(),
+            "what-if load step must return a non-empty trajectory"
+        );
+    }
 }

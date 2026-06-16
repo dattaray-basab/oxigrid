@@ -310,4 +310,156 @@ mod tests {
             "Vr limiter should block positive dVr when at max: dvr = {dvr:.4}"
         );
     }
+
+    // ── 7 new tests ──────────────────────────────────────────────────────────
+
+    /// Test 1: `hydro_slow()` preset has the documented parameter values.
+    #[test]
+    fn test_hydro_slow_preset_parameters() {
+        let p = Avr1Params::hydro_slow();
+        assert!(
+            (p.ke - 1.0).abs() < 1e-12,
+            "hydro_slow ke should be 1.0, got {:.6}",
+            p.ke
+        );
+        assert!(
+            p.a_e.abs() < 1e-12,
+            "hydro_slow a_e should be 0.0 (no saturation), got {:.6}",
+            p.a_e
+        );
+        assert!(
+            p.vr_min.abs() < 1e-12,
+            "hydro_slow vr_min should be 0.0, got {:.6}",
+            p.vr_min
+        );
+        assert!(
+            (p.vr_max - 3.5).abs() < 1e-12,
+            "hydro_slow vr_max should be 3.5, got {:.6}",
+            p.vr_max
+        );
+    }
+
+    /// Test 2: `saturation()` returns 0.0 for non-positive Efd.
+    #[test]
+    fn test_saturation_zero_for_nonpositive_efd() {
+        let p = Avr1Params::steam_typical();
+        assert_eq!(
+            p.saturation(-1.0),
+            0.0,
+            "saturation(-1.0) must be 0.0 for steam_typical"
+        );
+        assert_eq!(
+            p.saturation(0.0),
+            0.0,
+            "saturation(0.0) must be 0.0 for steam_typical"
+        );
+    }
+
+    /// Test 3: `saturation()` is strictly monotonically increasing for positive Efd.
+    #[test]
+    fn test_saturation_monotonically_increasing() {
+        let p = Avr1Params::steam_typical();
+        let se1 = p.saturation(1.0);
+        let se15 = p.saturation(1.5);
+        let se2 = p.saturation(2.0);
+        assert!(
+            se2 > se15,
+            "saturation(2.0)={se2:.6} must exceed saturation(1.5)={se15:.6}"
+        );
+        assert!(
+            se15 > se1,
+            "saturation(1.5)={se15:.6} must exceed saturation(1.0)={se1:.6}"
+        );
+    }
+
+    /// Test 4: `from_steady_state` for `hydro_slow` gives near-zero derivatives.
+    #[test]
+    fn test_hydro_slow_steady_state_derivatives() {
+        let params = Avr1Params::hydro_slow();
+        let efd0 = 1.0;
+        let vt = 1.0;
+        let state = Avr1State::from_steady_state(efd0, vt, &params);
+        let (de, dv, dr) = state.derivatives(vt, &params);
+        assert!(
+            de.abs() < 1e-6,
+            "dEfd/dt = {de:.2e} at hydro_slow steady state"
+        );
+        assert!(
+            dv.abs() < 1e-6,
+            "dVr/dt = {dv:.2e} at hydro_slow steady state"
+        );
+        assert!(
+            dr.abs() < 1e-9,
+            "dRf/dt = {dr:.2e} at hydro_slow steady state"
+        );
+    }
+
+    /// Test 5: `simulate_voltage_step` returns a trace of the expected length
+    /// and the first time sample is 0.0.
+    #[test]
+    fn test_simulate_voltage_step_trace_length() {
+        let params = Avr1Params::steam_typical();
+        let dt = 0.01;
+        let t_end = 2.0;
+        let (times, efds) =
+            Avr1State::simulate_voltage_step(1.2, 1.0, 1.05, 0.5, t_end, dt, &params);
+
+        // The loop runs while time_s <= t_end, so we expect roughly t_end/dt + 1 samples.
+        let expected = (t_end / dt) as usize + 1;
+        // Allow ±1 for floating-point boundary effects.
+        assert!(
+            times.len().abs_diff(expected) <= 1,
+            "expected ~{expected} samples, got {}",
+            times.len()
+        );
+        assert_eq!(
+            efds.len(),
+            times.len(),
+            "times and efds must have the same length"
+        );
+        assert!(
+            times[0].abs() < 1e-12,
+            "first time sample must be 0.0, got {}",
+            times[0]
+        );
+    }
+
+    /// Test 6: `AvrGenerator` responds to a voltage dip — Efd should increase.
+    #[test]
+    fn test_avr_generator_responds_to_voltage_dip() {
+        let params = Avr1Params::steam_typical();
+        let mut avr = AvrGenerator::new(params, 1.2, 1.0);
+        let efd_before = avr.efd();
+
+        // Apply a sustained voltage dip (0.9 p.u.) for 50 steps of 10 ms each = 0.5 s.
+        for _ in 0..50 {
+            avr.step(0.9, 0.01);
+        }
+        let efd_after = avr.efd();
+
+        assert!(
+            efd_after > efd_before,
+            "Efd should increase after voltage dip: {efd_before:.4} → {efd_after:.4}"
+        );
+    }
+
+    /// Test 7: `time_s` accumulates correctly after multiple `step_rk4` calls.
+    #[test]
+    fn test_time_advances_correctly_after_rk4_steps() {
+        let params = Avr1Params::steam_typical();
+        let mut state = Avr1State::from_steady_state(1.2, 1.0, &params);
+        let dt = 0.01_f64;
+        let n_steps = 37_usize;
+
+        for _ in 0..n_steps {
+            state.step_rk4(1.0, dt, &params);
+        }
+
+        let expected_time = dt * n_steps as f64;
+        assert!(
+            (state.time_s - expected_time).abs() < 1e-9,
+            "time_s should be {expected_time:.6} after {n_steps} steps, got {:.6}",
+            state.time_s
+        );
+    }
 }

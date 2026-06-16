@@ -210,4 +210,137 @@ mod tests {
                                                                     // Second turbine should be in wake of first
         assert!(speeds[1] < speeds[0], "speeds={:?}", speeds);
     }
+
+    #[test]
+    fn test_frandsen_upstream_returns_u_inf() {
+        let src = WakeSource {
+            u_inf: 10.0,
+            d: 90.0,
+            ct: 0.8,
+            k: 0.04,
+        };
+        let u = src.frandsen_wake_speed(-100.0, 0.0);
+        assert_eq!(u, 10.0, "Frandsen upstream must return u_inf, got {u:.4}");
+    }
+
+    #[test]
+    fn test_frandsen_deficit_on_centreline() {
+        let src = WakeSource {
+            u_inf: 10.0,
+            d: 90.0,
+            ct: 0.8,
+            k: 0.04,
+        };
+        let u = src.frandsen_wake_speed(500.0, 0.0);
+        assert!(
+            u < 10.0 && u > 0.0,
+            "Frandsen centreline speed must be in (0, u_inf), got {u:.4}"
+        );
+    }
+
+    #[test]
+    fn test_frandsen_outside_wake_returns_u_inf() {
+        let src = WakeSource {
+            u_inf: 10.0,
+            d: 90.0,
+            ct: 0.8,
+            k: 0.04,
+        };
+        // 5 km crosswind — far outside any realistic wake cone
+        let u = src.frandsen_wake_speed(500.0, 5000.0);
+        assert_eq!(
+            u, 10.0,
+            "Frandsen far crosswind must return u_inf, got {u:.4}"
+        );
+    }
+
+    #[test]
+    fn test_jensen_zero_distance_gives_deficit() {
+        let src = WakeSource {
+            u_inf: 10.0,
+            d: 90.0,
+            ct: 0.8,
+            k: 0.04,
+        };
+        // Just a tiny step downstream: the rotor is effectively at the source,
+        // so the evaluation point is inside the wake cone at dx → 0+.
+        let u = src.jensen_wake_speed(0.001, 0.0);
+        assert!(
+            u <= 10.0,
+            "Jensen at dx≈0 on centreline must be ≤ u_inf, got {u:.4}"
+        );
+    }
+
+    #[test]
+    fn test_farm_single_turbine() {
+        let positions = vec![TurbinePosition { x: 0.0, y: 0.0 }];
+        let src = WakeSource {
+            u_inf: 10.0,
+            d: 90.0,
+            ct: 0.8,
+            k: 0.04,
+        };
+        let sources = vec![src];
+        let speeds = farm_wake_speeds(&positions, 270.0, &sources);
+        assert_eq!(speeds.len(), 1, "Expected exactly one speed value");
+        assert_eq!(
+            speeds[0], 10.0,
+            "Single turbine must see free-stream speed, got {:.4}",
+            speeds[0]
+        );
+    }
+
+    #[test]
+    fn test_farm_crosswind_no_wake() {
+        // Two turbines side-by-side perpendicular to a westerly (270°) wind.
+        // With wind blowing east (+x direction), turbines placed at large ±y
+        // separation are purely crosswind — neither is in the other's wake.
+        let positions = vec![
+            TurbinePosition { x: 0.0, y: 5000.0 },
+            TurbinePosition { x: 0.0, y: -5000.0 },
+        ];
+        let src = WakeSource {
+            u_inf: 10.0,
+            d: 90.0,
+            ct: 0.8,
+            k: 0.04,
+        };
+        let sources = vec![src; 2];
+        let speeds = farm_wake_speeds(&positions, 270.0, &sources);
+        assert_eq!(
+            speeds[0], 10.0,
+            "Crosswind turbine 0 must see u_inf, got {:.4}",
+            speeds[0]
+        );
+        assert_eq!(
+            speeds[1], 10.0,
+            "Crosswind turbine 1 must see u_inf, got {:.4}",
+            speeds[1]
+        );
+    }
+
+    #[test]
+    fn test_farm_three_turbines_in_line_speed_decreasing() {
+        // Three turbines in a row along the x-axis under a westerly (270°) wind.
+        // Wind blows from west to east (+x), so turbine at x=0 is most upwind,
+        // x=500 is mid, and x=1000 is most downwind.
+        let positions = vec![
+            TurbinePosition { x: 0.0, y: 0.0 },
+            TurbinePosition { x: 500.0, y: 0.0 },
+            TurbinePosition { x: 1000.0, y: 0.0 },
+        ];
+        let src = WakeSource {
+            u_inf: 10.0,
+            d: 90.0,
+            ct: 0.8,
+            k: 0.04,
+        };
+        let sources = vec![src; 3];
+        let speeds = farm_wake_speeds(&positions, 270.0, &sources);
+        assert_eq!(speeds.len(), 3, "Expected three speed values");
+        assert!(
+            speeds[0] > speeds[2],
+            "Most upwind turbine must see higher speed than most downwind; speeds={speeds:?}"
+        );
+    }
 }

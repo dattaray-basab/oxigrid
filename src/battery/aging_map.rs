@@ -88,7 +88,11 @@ pub fn extract_turning_points(series: &[f64]) -> Vec<f64> {
         }
     }
 
-    peaks.push(*series.last().unwrap());
+    peaks.push(
+        *series
+            .last()
+            .expect("invariant: series non-empty checked by caller"),
+    );
 
     // Deduplicate adjacent identical values
     peaks.dedup_by(|a, b| (*a - *b).abs() < 1e-9);

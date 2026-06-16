@@ -834,4 +834,177 @@ mod tests {
             losses.efficiency_pct
         );
     }
+
+    // ── Additional unit tests ─────────────────────────────────────────────────
+
+    /// HvdcLight (VSC variant) must report bidirectional p_range.
+    #[test]
+    fn test_hvdc_light_bidirectional() {
+        let mut link = HvdcLink::new_vsc(0, 1, 2, 600.0, 320.0);
+        link.hvdc_type = HvdcType::HvdcLight;
+        let (min_p, max_p) = link.p_range();
+        assert_eq!(min_p, -600.0, "HvdcLight min should be -p_rated");
+        assert_eq!(max_p, 600.0, "HvdcLight max should be +p_rated");
+    }
+
+    /// LCC converter losses at 1000 MW must be exactly 1000 × 0.012 = 12 MW.
+    #[test]
+    fn test_hvdc_lcc_converter_losses_exact() {
+        let mut link = HvdcLink::new_lcc(0, 1, 2, 1000.0, 500.0);
+        link.p_setpoint_mw = 1000.0;
+        let losses = link.converter_losses_mw();
+        assert!(
+            (losses - 12.0).abs() < 1e-9,
+            "LCC converter losses should be 12.0 MW, got {losses}"
+        );
+    }
+
+    /// VSC Q capacity must be ±30 % of rated power.
+    #[test]
+    fn test_hvdc_vsc_q_limits_proportional() {
+        let link = HvdcLink::new_vsc(0, 1, 2, 800.0, 320.0);
+        let expected = 0.3 * 800.0; // 240 MVAr
+        assert!(
+            (link.q_from_max - expected).abs() < 1e-9,
+            "q_from_max should be {expected}, got {}",
+            link.q_from_max
+        );
+        assert!(
+            (link.q_to_max - expected).abs() < 1e-9,
+            "q_to_max should be {expected}, got {}",
+            link.q_to_max
+        );
+        assert!(
+            (link.q_from_min + expected).abs() < 1e-9,
+            "q_from_min should be -{expected}, got {}",
+            link.q_from_min
+        );
+        assert!(
+            (link.q_to_min + expected).abs() < 1e-9,
+            "q_to_min should be -{expected}, got {}",
+            link.q_to_min
+        );
+    }
+
+    /// With length_km = 0, cable losses use simplified losses_pct / 200 model.
+    #[test]
+    fn test_hvdc_cable_losses_simplified_model() {
+        let mut link = HvdcLink::new_vsc(0, 1, 2, 1000.0, 320.0);
+        link.length_km = 0.0; // triggers simplified path
+        link.losses_pct = 2.0;
+        link.p_setpoint_mw = 1000.0;
+        let expected = 1000.0 * 2.0 / 200.0; // 10 MW
+        let losses = link.cable_losses_mw();
+        assert!(
+            (losses - expected).abs() < 1e-9,
+            "simplified cable losses should be {expected} MW, got {losses}"
+        );
+    }
+
+    /// Negative p_setpoint (reverse flow) must produce negative delivered power.
+    #[test]
+    fn test_hvdc_power_delivered_negative_setpoint() {
+        let mut link = HvdcLink::new_vsc(0, 1, 2, 500.0, 320.0);
+        link.p_setpoint_mw = -500.0;
+        let delivered = link.power_delivered_mw();
+        assert!(
+            delivered < 0.0,
+            "reverse-flow VSC delivered power should be negative, got {delivered}"
+        );
+    }
+
+    /// Three-terminal MTDC grid must solve and return 3 DC voltages with slack near 320 kV.
+    #[test]
+    fn test_mtdc_three_terminal_power_flow() {
+        let dc_buses = vec![
+            DcBus {
+                id: 0,
+                v_rated_kv: 320.0,
+                v_dc: 320.0,
+            },
+            DcBus {
+                id: 1,
+                v_rated_kv: 320.0,
+                v_dc: 320.0,
+            },
+            DcBus {
+                id: 2,
+                v_rated_kv: 320.0,
+                v_dc: 320.0,
+            },
+        ];
+        let dc_lines = vec![
+            DcLine {
+                id: 0,
+                from_dc_bus: 0,
+                to_dc_bus: 1,
+                resistance_ohm: 1.0,
+                rating_mw: 500.0,
+            },
+            DcLine {
+                id: 1,
+                from_dc_bus: 1,
+                to_dc_bus: 2,
+                resistance_ohm: 1.0,
+                rating_mw: 500.0,
+            },
+        ];
+        let converters = vec![
+            MtdcConverter {
+                id: 0,
+                ac_bus: 0,
+                dc_bus: 0,
+                p_rated_mw: 500.0,
+                control_mode: MtdcControlMode::ConstantVoltage,
+                p_setpoint_mw: 0.0,
+                v_dc_setpoint_kv: 320.0,
+            },
+            MtdcConverter {
+                id: 1,
+                ac_bus: 1,
+                dc_bus: 1,
+                p_rated_mw: 300.0,
+                control_mode: MtdcControlMode::ConstantPower,
+                p_setpoint_mw: 200.0,
+                v_dc_setpoint_kv: 320.0,
+            },
+            MtdcConverter {
+                id: 2,
+                ac_bus: 2,
+                dc_bus: 2,
+                p_rated_mw: 300.0,
+                control_mode: MtdcControlMode::ConstantPower,
+                p_setpoint_mw: -200.0,
+                v_dc_setpoint_kv: 320.0,
+            },
+        ];
+        let mut grid = MtdcGrid::new(converters, dc_buses, dc_lines, 0);
+        let v_dc = grid
+            .solve_dc_power_flow()
+            .expect("3-terminal MTDC power flow should converge");
+        assert_eq!(v_dc.len(), 3, "should return voltage for each DC bus");
+        assert!(
+            (v_dc[0] - 320.0).abs() < 5.0,
+            "slack bus voltage should be near 320 kV, got {:.2}",
+            v_dc[0]
+        );
+    }
+
+    /// An MTDC grid with no DC buses must return an error.
+    #[test]
+    fn test_mtdc_empty_grid_error() {
+        let mut grid = MtdcGrid::new(vec![], vec![], vec![], 0);
+        let result = grid.solve_dc_power_flow();
+        assert!(result.is_err(), "empty MTDC grid must return Err");
+    }
+
+    /// LCC links must have all four Q limits set to exactly 0.0.
+    #[test]
+    fn test_hvdc_lcc_q_limits_zero() {
+        let link = HvdcLink::new_lcc(0, 1, 2, 1000.0, 500.0);
+        assert_eq!(link.q_from_min, 0.0, "LCC q_from_min must be 0");
+        assert_eq!(link.q_from_max, 0.0, "LCC q_from_max must be 0");
+        assert_eq!(link.q_to_min, 0.0, "LCC q_to_min must be 0");
+        assert_eq!(link.q_to_max, 0.0, "LCC q_to_max must be 0");
+    }
 }

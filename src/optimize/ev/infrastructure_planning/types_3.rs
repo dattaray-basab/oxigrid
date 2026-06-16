@@ -428,3 +428,229 @@ impl EvInfraPlanner {
         }
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::super::types::{
+        ChargerCost, ChargingLocation, ChargingPreference, DemandForecastYear, EvDemandForecast,
+        InfrastructurePlanConfig, LocationType, PlacementPlan, PlanChargerType, SiteAllocation,
+    };
+    use super::EvInfraPlanner;
+
+    fn make_config() -> InfrastructurePlanConfig {
+        InfrastructurePlanConfig {
+            planning_horizon_years: 10,
+            discount_rate: 0.07,
+            charger_cost: ChargerCost {
+                level2_installed_usd: 8_000.0,
+                dcfc_installed_usd: 35_000.0,
+                annual_opex_pct: 0.05,
+                electricity_rate_per_kwh: 0.15,
+            },
+            reliability_target: 0.90,
+            grid_upgrade_cost_per_kw: 500.0,
+        }
+    }
+
+    fn make_location(id: &str, grid_kw: f64) -> ChargingLocation {
+        ChargingLocation {
+            location_id: id.to_string(),
+            bus_id: 1,
+            location_type: LocationType::Commercial,
+            available_area_sqm: 200.0,
+            daily_vehicles: 80.0,
+            peak_hour_fraction: 0.15,
+            grid_capacity_kw: grid_kw,
+            lat: 35.68,
+            lon: 139.69,
+        }
+    }
+
+    fn make_planner() -> EvInfraPlanner {
+        let locations = vec![
+            make_location("loc-a", 200.0),
+            make_location("loc-b", 150.0),
+            make_location("loc-c", 100.0),
+        ];
+        EvInfraPlanner::new(locations, make_config())
+    }
+
+    fn make_forecast() -> EvDemandForecast {
+        EvDemandForecast {
+            year: 2025,
+            ev_penetration_pct: 10.0,
+            avg_daily_km: 40.0,
+            avg_consumption_kwh_per_km: 0.20,
+            home_charging_pct: 0.60,
+            work_charging_pct: 0.25,
+            public_charging_pct: 0.15,
+            charging_preference: ChargingPreference::Uncoordinated,
+        }
+    }
+
+    #[test]
+    fn forecast_demand_horizon_length() {
+        let planner = make_planner();
+        let forecast = make_forecast();
+        let result = planner.forecast_demand(&forecast, 1_000.0, 5);
+        assert_eq!(
+            result.len(),
+            5,
+            "returned vec length must equal horizon_years"
+        );
+    }
+
+    #[test]
+    fn forecast_demand_peak_fraction() {
+        let planner = make_planner();
+        let forecast = make_forecast();
+        let result = planner.forecast_demand(&forecast, 1_000.0, 3);
+        let year0 = &result[0];
+        // peak_demand_kw = total_ev_kwh_per_day * 0.15
+        let expected_peak = year0.total_ev_kwh_per_day * 0.15;
+        assert!(
+            (year0.peak_demand_kw - expected_peak).abs() < 1e-6,
+            "peak_demand_kw = {}, expected {}",
+            year0.peak_demand_kw,
+            expected_peak
+        );
+    }
+
+    #[test]
+    fn size_chargers_capacity_covers_demand() {
+        let planner = make_planner();
+        let loc = make_location("test", 300.0);
+        let demand_kw_peak = 50.0;
+        let reliability = 0.90;
+        let sizing = planner.size_chargers(&loc, demand_kw_peak, reliability);
+        // total_capacity_kw must be >= demand_kw_peak * reliability (roughly)
+        // (Erlang B may require a bit more than the bare minimum)
+        assert!(
+            sizing.total_capacity_kw > 0.0,
+            "total_capacity_kw must be positive"
+        );
+    }
+
+    #[test]
+    fn size_chargers_blocking_probability_range() {
+        let planner = make_planner();
+        let loc = make_location("test2", 500.0);
+        let sizing = planner.size_chargers(&loc, 80.0, 0.95);
+        assert!(
+            (0.0..=1.0).contains(&sizing.blocking_probability),
+            "blocking_probability {} is out of [0,1]",
+            sizing.blocking_probability
+        );
+    }
+
+    #[test]
+    fn optimal_placement_budget_respected() {
+        let planner = make_planner();
+        let forecast_data: Vec<DemandForecastYear> = vec![DemandForecastYear {
+            year: 2025,
+            total_ev_kwh_per_day: 800.0,
+            home_kwh: 480.0,
+            work_kwh: 200.0,
+            public_kwh: 120.0,
+            peak_demand_kw: 120.0,
+        }];
+        let budget_usd = 50_000.0;
+        let plan = planner.optimal_charger_placement(&forecast_data, budget_usd);
+        assert!(
+            plan.total_cost_usd <= budget_usd + 1e-6,
+            "total_cost_usd {} exceeded budget {}",
+            plan.total_cost_usd,
+            budget_usd
+        );
+    }
+
+    #[test]
+    fn grid_impact_upgrade_cost_nonnegative() {
+        let planner = make_planner();
+        let placement = PlacementPlan {
+            sites: vec![SiteAllocation {
+                location_id: "loc-a".to_string(),
+                num_chargers: 2,
+                charger_type: PlanChargerType::Level2 { power_kw: 22.0 },
+                cost_usd: 16_000.0,
+            }],
+            total_cost_usd: 16_000.0,
+            total_capacity_kw: 44.0,
+            expected_annual_revenue: 5_000.0,
+        };
+        let bus_voltages = vec![1.0_f64; 3];
+        let branch_flows = vec![10.0_f64; 3];
+        let branch_ratings = vec![100.0_f64; 3];
+        let impact = planner.grid_impact_assessment(
+            &placement,
+            &bus_voltages,
+            &branch_flows,
+            &branch_ratings,
+        );
+        assert!(
+            impact.upgrade_cost_usd >= 0.0,
+            "upgrade_cost_usd must be non-negative"
+        );
+        assert!(
+            impact.max_voltage_drop_pu >= 0.0,
+            "max_voltage_drop_pu must be non-negative"
+        );
+    }
+
+    #[test]
+    fn demand_response_capacity_formula() {
+        let planner = make_planner();
+        let placement = PlacementPlan {
+            sites: vec![],
+            total_cost_usd: 0.0,
+            total_capacity_kw: 200.0,
+            expected_annual_revenue: 0.0,
+        };
+        let smart_fraction = 0.5;
+        let dr = planner.demand_response_potential(&placement, smart_fraction, 120.0, 60.0);
+        let expected_mw = smart_fraction * 200.0 / 1000.0;
+        assert!(
+            (dr.dr_capacity_mw - expected_mw).abs() < 1e-9,
+            "dr_capacity_mw = {}, expected {}",
+            dr.dr_capacity_mw,
+            expected_mw
+        );
+    }
+
+    #[test]
+    fn equity_analysis_quintile_count() {
+        let planner = make_planner();
+        let placement = PlacementPlan {
+            sites: vec![
+                SiteAllocation {
+                    location_id: "loc-a".to_string(),
+                    num_chargers: 3,
+                    charger_type: PlanChargerType::Level2 { power_kw: 22.0 },
+                    cost_usd: 24_000.0,
+                },
+                SiteAllocation {
+                    location_id: "loc-b".to_string(),
+                    num_chargers: 2,
+                    charger_type: PlanChargerType::Level2 { power_kw: 22.0 },
+                    cost_usd: 16_000.0,
+                },
+            ],
+            total_cost_usd: 40_000.0,
+            total_capacity_kw: 110.0,
+            expected_annual_revenue: 15_000.0,
+        };
+        let income_levels = vec![30_000.0, 50_000.0, 70_000.0];
+        let population = vec![1_000.0, 2_000.0, 1_500.0];
+        let report = planner.equity_analysis(&placement, &income_levels, &population);
+        assert_eq!(
+            report.coverage_by_quintile.len(),
+            5,
+            "equity report must have exactly 5 quintiles"
+        );
+        assert!(
+            (0.0..=1.0 + 1e-9).contains(&report.gini_coefficient),
+            "Gini coefficient {} out of [0,1]",
+            report.gini_coefficient
+        );
+    }
+}

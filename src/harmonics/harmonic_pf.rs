@@ -490,4 +490,222 @@ mod tests {
             "3rd and 13th harmonic voltages should differ (v3={v3:.4e}, v13={v13:.4e})"
         );
     }
+
+    // --- 7 new tests ---
+
+    #[test]
+    fn test_harmonic_pf_invalid_harmonic_order_errors() {
+        // An injection whose harmonic_order is not in the harmonics list must return Err.
+        let net = make_two_bus_network();
+        let hpf = HarmonicPowerFlow::new(50.0, vec![3, 5, 7]);
+        let injections = vec![HarmonicInjection {
+            bus: 1,
+            harmonic_order: 9, // not in [3, 5, 7]
+            current_magnitude_pu: 0.05,
+            current_angle_rad: 0.0,
+        }];
+        assert!(
+            hpf.solve(&net, &injections).is_err(),
+            "harmonic_order 9 not in [3,5,7] must return Err"
+        );
+    }
+
+    #[test]
+    fn test_harmonic_pf_multiple_injections_same_bus_sum() {
+        // Two identical injections at the same bus and harmonic should be summed,
+        // producing approximately 2x the voltage of a single injection.
+        let net = make_two_bus_network();
+        let hpf = HarmonicPowerFlow::new(50.0, vec![5]);
+
+        let single_inj = vec![HarmonicInjection {
+            bus: 1,
+            harmonic_order: 5,
+            current_magnitude_pu: 0.05,
+            current_angle_rad: 0.0,
+        }];
+        let res_single = hpf
+            .solve(&net, &single_inj)
+            .expect("single injection solve");
+
+        let double_inj = vec![
+            HarmonicInjection {
+                bus: 1,
+                harmonic_order: 5,
+                current_magnitude_pu: 0.05,
+                current_angle_rad: 0.0,
+            },
+            HarmonicInjection {
+                bus: 1,
+                harmonic_order: 5,
+                current_magnitude_pu: 0.05,
+                current_angle_rad: 0.0,
+            },
+        ];
+        let res_double = hpf
+            .solve(&net, &double_inj)
+            .expect("double injection solve");
+
+        let v_single = res_single.harmonic_voltages[1][0].norm();
+        let v_double = res_double.harmonic_voltages[1][0].norm();
+
+        assert!(
+            v_single > 1e-10,
+            "single injection must produce non-zero voltage, got {v_single:.3e}"
+        );
+        let ratio = v_double / v_single;
+        assert!(
+            (ratio - 2.0).abs() < 0.01,
+            "two identical injections at the same bus should double the voltage (ratio={ratio:.6}, expected 2.0)"
+        );
+    }
+
+    #[test]
+    fn test_individual_harmonics_equals_100x_spectrum() {
+        // individual_harmonics[bus][h_idx] must equal 100 * voltage_harmonic_spectrum[bus][h_idx]
+        // for every bus and every harmonic index.
+        let net = make_two_bus_network();
+        let hpf = HarmonicPowerFlow::new(60.0, vec![5, 7]);
+        let injections = vec![HarmonicInjection {
+            bus: 1,
+            harmonic_order: 5,
+            current_magnitude_pu: 0.08,
+            current_angle_rad: 0.0,
+        }];
+        let result = hpf.solve(&net, &injections).expect("solve should succeed");
+
+        for (bus, (ind_row, spec_row)) in result
+            .individual_harmonics
+            .iter()
+            .zip(result.voltage_harmonic_spectrum.iter())
+            .enumerate()
+        {
+            for (h_idx, (&ind, &spec)) in ind_row.iter().zip(spec_row.iter()).enumerate() {
+                let expected = 100.0 * spec;
+                assert!(
+                    (ind - expected).abs() < 1e-10,
+                    "bus={bus} h_idx={h_idx}: individual_harmonics={ind:.10} != 100*spectrum={expected:.10}"
+                );
+            }
+        }
+    }
+
+    #[test]
+    fn test_harmonic_pf_non_standard_frequency_succeeds() {
+        // 400 Hz fundamental is unusual but the solver must not reject any positive f64.
+        let net = make_two_bus_network();
+        let hpf = HarmonicPowerFlow::new(400.0, vec![3, 5]);
+        let injections = vec![HarmonicInjection {
+            bus: 1,
+            harmonic_order: 3,
+            current_magnitude_pu: 0.05,
+            current_angle_rad: 0.0,
+        }];
+        let result = hpf
+            .solve(&net, &injections)
+            .expect("400 Hz solve should succeed");
+
+        assert_eq!(result.harmonic_voltages.len(), 2, "two buses");
+        assert_eq!(
+            result.harmonic_voltages[0].len(),
+            2,
+            "two harmonics in list"
+        );
+    }
+
+    #[test]
+    fn test_thd_non_negative() {
+        // THD must be >= 0.0 for every bus even when there are no injections.
+        let net = make_two_bus_network();
+        let hpf = HarmonicPowerFlow::new(50.0, vec![3, 5, 7]);
+        let result = hpf
+            .solve(&net, &[])
+            .expect("zero-injection solve should succeed");
+
+        for (i, &thd) in result.thd_per_bus.iter().enumerate() {
+            assert!(
+                thd >= 0.0,
+                "bus {i}: thd_per_bus must be non-negative, got {thd}"
+            );
+        }
+    }
+
+    #[test]
+    fn test_injections_at_different_buses_both_produce_voltage() {
+        // Injecting at bus 0 (h=3) and bus 1 (h=7) should both produce non-zero
+        // harmonic voltages at the respective buses for the respective harmonics.
+        let net = make_two_bus_network();
+        let hpf = HarmonicPowerFlow::new(50.0, vec![3, 7]);
+        let injections = vec![
+            HarmonicInjection {
+                bus: 0,
+                harmonic_order: 3,
+                current_magnitude_pu: 0.05,
+                current_angle_rad: 0.0,
+            },
+            HarmonicInjection {
+                bus: 1,
+                harmonic_order: 7,
+                current_magnitude_pu: 0.05,
+                current_angle_rad: PI / 4.0,
+            },
+        ];
+        let result = hpf
+            .solve(&net, &injections)
+            .expect("two-bus two-harmonic solve");
+
+        // h_idx=0 corresponds to harmonic order 3, injected at bus 0
+        let v_bus0_h3 = result.harmonic_voltages[0][0].norm();
+        assert!(
+            v_bus0_h3 > 1e-10,
+            "bus 0, h=3: expected non-zero voltage, got {v_bus0_h3:.3e}"
+        );
+
+        // h_idx=1 corresponds to harmonic order 7, injected at bus 1
+        let v_bus1_h7 = result.harmonic_voltages[1][1].norm();
+        assert!(
+            v_bus1_h7 > 1e-10,
+            "bus 1, h=7: expected non-zero voltage, got {v_bus1_h7:.3e}"
+        );
+    }
+
+    #[test]
+    fn test_harmonic_voltage_scales_linearly_with_current() {
+        // The system is linear: doubling the injection current must double the
+        // resulting harmonic voltage magnitude (within 1% relative tolerance).
+        let net = make_two_bus_network();
+        let hpf = HarmonicPowerFlow::new(50.0, vec![5]);
+
+        let inj_single = vec![HarmonicInjection {
+            bus: 1,
+            harmonic_order: 5,
+            current_magnitude_pu: 0.05,
+            current_angle_rad: 0.0,
+        }];
+        let res_single = hpf
+            .solve(&net, &inj_single)
+            .expect("single-magnitude solve");
+
+        let inj_double = vec![HarmonicInjection {
+            bus: 1,
+            harmonic_order: 5,
+            current_magnitude_pu: 0.10,
+            current_angle_rad: 0.0,
+        }];
+        let res_double = hpf
+            .solve(&net, &inj_double)
+            .expect("double-magnitude solve");
+
+        let v_single = res_single.harmonic_voltages[1][0].norm();
+        let v_double = res_double.harmonic_voltages[1][0].norm();
+
+        assert!(
+            v_single > 1e-10,
+            "single magnitude must produce non-zero voltage, got {v_single:.3e}"
+        );
+        let ratio = v_double / v_single;
+        assert!(
+            (ratio - 2.0).abs() < 0.01,
+            "doubling injection current must double harmonic voltage (ratio={ratio:.6}, expected 2.0)"
+        );
+    }
 }

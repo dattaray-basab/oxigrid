@@ -615,4 +615,181 @@ mod tests {
         assert_eq!(result.schedules.len(), 0);
         assert_eq!(result.peak_power_kw, 0.0);
     }
+
+    #[test]
+    fn test_tou_optimized_basic() {
+        let fleet = make_fleet(5);
+        let charger = make_charger();
+        let fc = FleetCharger::new(charger, FleetAlgorithm::TouOptimized);
+        let result = fc.schedule_fleet(&fleet).expect("TOU optimized fleet");
+        assert_eq!(result.schedules.len(), 5, "should have one schedule per EV");
+        assert!(
+            result.total_energy_kwh > 0.0,
+            "total energy must be positive"
+        );
+    }
+
+    #[test]
+    fn test_v2g_optimized_basic() {
+        let fleet = make_fleet(3);
+        let charger = make_charger();
+        let fc = FleetCharger::new(charger, FleetAlgorithm::V2gOptimized);
+        let result = fc.schedule_fleet(&fleet).expect("V2G optimized fleet");
+        assert_eq!(result.schedules.len(), 3, "should have one schedule per EV");
+    }
+
+    #[test]
+    fn test_tou_optimized_result_invariants() {
+        let fleet = make_fleet(4);
+        let charger = make_charger();
+        let fc = FleetCharger::new(charger, FleetAlgorithm::TouOptimized);
+        let result = fc.schedule_fleet(&fleet).expect("TOU invariants");
+        assert!(
+            result.total_energy_kwh >= 0.0,
+            "energy must be non-negative"
+        );
+        assert!(
+            result.peak_power_kw >= 0.0,
+            "peak power must be non-negative"
+        );
+        for (i, &p) in result.aggregate_power.iter().enumerate() {
+            assert!(p >= 0.0, "aggregate_power[{}] = {} is negative", i, p);
+        }
+    }
+
+    #[test]
+    fn test_v2g_optimized_result_invariants() {
+        let fleet = make_fleet(3);
+        let charger = make_charger();
+        let fc = FleetCharger::new(charger, FleetAlgorithm::V2gOptimized);
+        let result = fc.schedule_fleet(&fleet).expect("V2G invariants");
+        assert!(
+            result.total_energy_kwh >= 0.0,
+            "energy must be non-negative"
+        );
+        assert!(
+            result.peak_power_kw >= 0.0,
+            "peak power must be non-negative"
+        );
+        assert!(
+            result.peak_reduction_vs_uncontrolled.is_finite(),
+            "peak_reduction_vs_uncontrolled must be finite"
+        );
+        // V2G is bidirectional: the fleet charges during cheap slots and
+        // discharges back to the grid (negative aggregate power) during the
+        // high-price window, so non-negativity does NOT hold here. The physical
+        // invariant is finiteness and a magnitude bounded by the fleet's
+        // aggregate charge/discharge capability.
+        let charge_cap_kw: f64 = fleet.sessions.iter().map(|s| s.max_charge_kw).sum();
+        let discharge_cap_kw: f64 = fleet.sessions.iter().map(|s| s.max_discharge_kw).sum();
+        for (i, &p) in result.aggregate_power.iter().enumerate() {
+            assert!(p.is_finite(), "aggregate_power[{i}] = {p} must be finite");
+            assert!(
+                p >= -discharge_cap_kw - 1e-3 && p <= charge_cap_kw + 1e-3,
+                "aggregate_power[{i}] = {p:.2} kW outside fleet capability \
+                 [{:.2}, {:.2}] kW",
+                -discharge_cap_kw,
+                charge_cap_kw
+            );
+        }
+        // The V2G optimiser must actually export to the grid during the
+        // high-price window — confirm at least one discharge (negative) slot.
+        assert!(
+            result.aggregate_power.iter().any(|&p| p < 0.0),
+            "V2G schedule must discharge to the grid in at least one slot"
+        );
+    }
+
+    #[test]
+    fn test_uncontrolled_aggregate_length() {
+        let fleet = make_fleet(5);
+        let charger = make_charger();
+        let fc = FleetCharger::new(charger, FleetAlgorithm::Uncontrolled);
+        let result = fc
+            .schedule_fleet(&fleet)
+            .expect("uncontrolled aggregate length");
+        assert_eq!(
+            result.aggregate_power.len(),
+            96,
+            "aggregate_power must have 96 slots"
+        );
+    }
+
+    #[test]
+    fn test_valley_filling_aggregate_length() {
+        let fleet = make_fleet(5);
+        let charger = make_charger();
+        let fc = FleetCharger::new(charger, FleetAlgorithm::ValleyFilling);
+        let result = fc
+            .schedule_fleet(&fleet)
+            .expect("valley filling aggregate length");
+        assert_eq!(
+            result.aggregate_power.len(),
+            96,
+            "aggregate_power must have 96 slots"
+        );
+    }
+
+    #[test]
+    fn test_peak_shaving_result_nonneg_energy() {
+        let fleet = make_fleet(6);
+        let charger = make_charger();
+        let fc = FleetCharger::new(charger, FleetAlgorithm::PeakShaving { limit_kw: 50.0 });
+        let result = fc
+            .schedule_fleet(&fleet)
+            .expect("peak shaving nonneg energy");
+        assert!(
+            result.total_energy_kwh >= 0.0,
+            "total_energy_kwh must be non-negative after peak shaving"
+        );
+    }
+
+    #[test]
+    fn test_single_ev_fleet_tou() {
+        let fleet = make_fleet(1);
+        let charger = make_charger();
+        let fc = FleetCharger::new(charger, FleetAlgorithm::TouOptimized);
+        let result = fc.schedule_fleet(&fleet).expect("single EV TOU");
+        assert_eq!(result.schedules.len(), 1, "exactly one schedule");
+        assert!(result.total_energy_kwh > 0.0, "single EV must charge");
+    }
+
+    #[test]
+    fn test_single_ev_fleet_uncontrolled() {
+        let fleet = make_fleet(1);
+        let charger = make_charger();
+        let fc = FleetCharger::new(charger, FleetAlgorithm::Uncontrolled);
+        let result = fc.schedule_fleet(&fleet).expect("single EV uncontrolled");
+        let max_charge_kw = 11.0_f64;
+        let epsilon = 1e-3;
+        assert!(
+            result.peak_power_kw <= max_charge_kw + epsilon,
+            "peak {:.3} kW should not exceed max charge rate {:.3} kW",
+            result.peak_power_kw,
+            max_charge_kw
+        );
+    }
+
+    #[test]
+    fn test_all_same_arrival_departure_uncontrolled() {
+        let n = 4usize;
+        let sessions: Vec<EvSession> = (0..n).map(|i| make_session(i, 17.0, 31.0, 0.3)).collect();
+        let fleet = EvFleet {
+            fleet_id: 1,
+            bus: 2,
+            sessions,
+            transformer_limit_kw: 200.0,
+            charger_slots: n,
+        };
+        let charger = make_charger();
+        let fc = FleetCharger::new(charger, FleetAlgorithm::Uncontrolled);
+        let result = fc
+            .schedule_fleet(&fleet)
+            .expect("same arrival/departure uncontrolled");
+        assert_eq!(
+            result.schedules.len(),
+            n,
+            "should have one schedule per EV even with identical windows"
+        );
+    }
 }

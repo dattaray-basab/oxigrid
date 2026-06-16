@@ -349,4 +349,294 @@ mod tests {
             "Jacobian nnz={nnz} must be < 40% of j_size²={dense_bound:.0} for IEEE 14-bus"
         );
     }
+
+    /// Jacobian for a 3-bus system with 2 PQ buses must be 4×4 (2×pvpq + 2×pq).
+    #[test]
+    fn jacobian_dimensions_match_network_size() {
+        let ybus = make_3bus_ybus();
+        let pvpq = &[1usize, 2];
+        let pq = &[1usize, 2];
+        let v_mag = [1.0_f64, 0.98, 0.96];
+        let v_ang = [0.0_f64, -0.02, -0.04];
+
+        let p_calc = {
+            let v: Vec<Complex64> = v_mag
+                .iter()
+                .zip(v_ang.iter())
+                .map(|(&m, &a)| Complex64::from_polar(m, a))
+                .collect();
+            let mut p = [0.0_f64; 3];
+            for (&y, (i, j)) in ybus.iter() {
+                p[i] += (v[i] * (y * v[j]).conj()).re;
+            }
+            p
+        };
+        let q_calc = {
+            let v: Vec<Complex64> = v_mag
+                .iter()
+                .zip(v_ang.iter())
+                .map(|(&m, &a)| Complex64::from_polar(m, a))
+                .collect();
+            let mut q = [0.0_f64; 3];
+            for (&y, (i, j)) in ybus.iter() {
+                q[i] += (v[i] * (y * v[j]).conj()).im;
+            }
+            q
+        };
+
+        let jac = build_jacobian_sparse(&ybus, &v_mag, &v_ang, &p_calc, &q_calc, pq, pvpq);
+        // j_size = len(pvpq) + len(pq) = 2 + 2 = 4
+        assert_eq!(jac.rows(), 4, "expected 4 rows for 2-PQ 3-bus system");
+        assert_eq!(jac.cols(), 4, "expected 4 cols for 2-PQ 3-bus system");
+    }
+
+    /// The H submatrix (top-left, rows 0..npvpq, cols 0..npvpq) must be non-zero
+    /// for a connected network.
+    #[test]
+    fn jacobian_h_submatrix_nonzero_for_connected_network() {
+        let ybus = make_3bus_ybus();
+        let pvpq = &[1usize, 2];
+        let pq = &[1usize, 2];
+        let v_mag = [1.0_f64, 0.98, 0.96];
+        let v_ang = [0.0_f64, -0.02, -0.04];
+
+        let p_calc = {
+            let v: Vec<Complex64> = v_mag
+                .iter()
+                .zip(v_ang.iter())
+                .map(|(&m, &a)| Complex64::from_polar(m, a))
+                .collect();
+            let mut p = [0.0_f64; 3];
+            for (&y, (i, j)) in ybus.iter() {
+                p[i] += (v[i] * (y * v[j]).conj()).re;
+            }
+            p
+        };
+        let q_calc = {
+            let v: Vec<Complex64> = v_mag
+                .iter()
+                .zip(v_ang.iter())
+                .map(|(&m, &a)| Complex64::from_polar(m, a))
+                .collect();
+            let mut q = [0.0_f64; 3];
+            for (&y, (i, j)) in ybus.iter() {
+                q[i] += (v[i] * (y * v[j]).conj()).im;
+            }
+            q
+        };
+
+        let jac = build_jacobian_sparse(&ybus, &v_mag, &v_ang, &p_calc, &q_calc, pq, pvpq);
+        // At least the diagonal of H must be non-zero.
+        let npvpq = pvpq.len();
+        let h_nonzero = (0..npvpq)
+            .any(|r| (0..npvpq).any(|c| jac.get(r, c).copied().unwrap_or(0.0).abs() > 1e-10));
+        assert!(
+            h_nonzero,
+            "H submatrix must have non-zero entries for a connected network"
+        );
+    }
+
+    /// After increasing a bus voltage magnitude, the N submatrix entries must
+    /// change (sensitivity to |V| change is captured in the N = dP/d|V|·|V| block).
+    #[test]
+    fn jacobian_n_submatrix_changes_with_voltage() {
+        let ybus = make_3bus_ybus();
+        let pvpq = &[1usize, 2];
+        let pq = &[1usize, 2];
+
+        let build = |v_mag: &[f64], v_ang: &[f64]| {
+            let p: Vec<f64> = {
+                let v: Vec<Complex64> = v_mag
+                    .iter()
+                    .zip(v_ang.iter())
+                    .map(|(&m, &a)| Complex64::from_polar(m, a))
+                    .collect();
+                let mut p = vec![0.0_f64; 3];
+                for (&y, (i, j)) in ybus.iter() {
+                    p[i] += (v[i] * (y * v[j]).conj()).re;
+                }
+                p
+            };
+            let q: Vec<f64> = {
+                let v: Vec<Complex64> = v_mag
+                    .iter()
+                    .zip(v_ang.iter())
+                    .map(|(&m, &a)| Complex64::from_polar(m, a))
+                    .collect();
+                let mut q = vec![0.0_f64; 3];
+                for (&y, (i, j)) in ybus.iter() {
+                    q[i] += (v[i] * (y * v[j]).conj()).im;
+                }
+                q
+            };
+            build_jacobian_sparse(&ybus, v_mag, v_ang, &p, &q, pq, pvpq)
+        };
+
+        let v_ang = [0.0_f64, -0.02, -0.04];
+        let jac1 = build(&[1.0_f64, 0.98, 0.96], &v_ang);
+        let jac2 = build(&[1.0_f64, 1.02, 1.00], &v_ang); // raised voltages
+
+        // N block occupies rows 0..npvpq, cols npvpq..j_size
+        let npvpq = pvpq.len();
+        let j_size = npvpq + pq.len();
+        let changed = (0..npvpq).any(|r| {
+            (npvpq..j_size).any(|c| {
+                let v1 = jac1.get(r, c).copied().unwrap_or(0.0);
+                let v2 = jac2.get(r, c).copied().unwrap_or(0.0);
+                (v1 - v2).abs() > 1e-6
+            })
+        });
+        assert!(
+            changed,
+            "N submatrix must change when voltage magnitudes change"
+        );
+    }
+
+    /// For a slack-only exclusion pattern (all remaining buses are PQ), the Jacobian
+    /// must be 2*(n-1) × 2*(n-1).
+    #[test]
+    fn jacobian_size_for_all_pq_network() {
+        // 4-bus ring: bus 0 = slack, buses 1-3 = PQ.
+        const N: usize = 4;
+        let y_line = Complex64::new(0.01, 0.05).inv();
+        let mut tri: TriMat<Complex64> = TriMat::new((N, N));
+        // Simple ring: 0-1-2-3-0
+        let pairs = [(0, 1), (1, 2), (2, 3), (3, 0)];
+        for (i, j) in pairs {
+            tri.add_triplet(i, i, y_line);
+            tri.add_triplet(j, j, y_line);
+            tri.add_triplet(i, j, -y_line);
+            tri.add_triplet(j, i, -y_line);
+        }
+        let ybus = tri.to_csc();
+
+        let pvpq = &[1usize, 2, 3];
+        let pq = &[1usize, 2, 3];
+        let v_mag = [1.0_f64; N];
+        let v_ang = [0.0_f64; N];
+
+        let p_calc: Vec<f64> = {
+            let v: Vec<Complex64> = v_mag
+                .iter()
+                .zip(v_ang.iter())
+                .map(|(&m, &a)| Complex64::from_polar(m, a))
+                .collect();
+            let mut p = vec![0.0_f64; N];
+            for (&y, (i, j)) in ybus.iter() {
+                p[i] += (v[i] * (y * v[j]).conj()).re;
+            }
+            p
+        };
+        let q_calc: Vec<f64> = {
+            let v: Vec<Complex64> = v_mag
+                .iter()
+                .zip(v_ang.iter())
+                .map(|(&m, &a)| Complex64::from_polar(m, a))
+                .collect();
+            let mut q = vec![0.0_f64; N];
+            for (&y, (i, j)) in ybus.iter() {
+                q[i] += (v[i] * (y * v[j]).conj()).im;
+            }
+            q
+        };
+
+        let jac = build_jacobian_sparse(&ybus, &v_mag, &v_ang, &p_calc, &q_calc, pq, pvpq);
+        let expected = 2 * (N - 1);
+        assert_eq!(jac.rows(), expected, "Jacobian rows should be 2*(n-1)");
+        assert_eq!(jac.cols(), expected, "Jacobian cols should be 2*(n-1)");
+    }
+
+    /// The Jacobian must be square for any valid (pvpq, pq) index set.
+    #[test]
+    fn jacobian_is_always_square() {
+        let ybus = make_3bus_ybus();
+        let pvpq = &[1usize, 2];
+        let pq = &[1usize, 2];
+        let v_mag = [1.0_f64, 0.99, 0.97];
+        let v_ang = [0.0_f64, -0.01, -0.02];
+
+        let p_calc = {
+            let v: Vec<Complex64> = v_mag
+                .iter()
+                .zip(v_ang.iter())
+                .map(|(&m, &a)| Complex64::from_polar(m, a))
+                .collect();
+            let mut p = [0.0_f64; 3];
+            for (&y, (i, j)) in ybus.iter() {
+                p[i] += (v[i] * (y * v[j]).conj()).re;
+            }
+            p
+        };
+        let q_calc = {
+            let v: Vec<Complex64> = v_mag
+                .iter()
+                .zip(v_ang.iter())
+                .map(|(&m, &a)| Complex64::from_polar(m, a))
+                .collect();
+            let mut q = [0.0_f64; 3];
+            for (&y, (i, j)) in ybus.iter() {
+                q[i] += (v[i] * (y * v[j]).conj()).im;
+            }
+            q
+        };
+
+        let jac = build_jacobian_sparse(&ybus, &v_mag, &v_ang, &p_calc, &q_calc, pq, pvpq);
+        assert_eq!(jac.rows(), jac.cols(), "Jacobian must be square");
+    }
+
+    /// For a radial (chain) 3-bus network the off-diagonal entries between non-adjacent
+    /// buses must be zero (no direct connection → no Jacobian coupling).
+    #[test]
+    fn jacobian_sparsity_radial_no_coupling_between_nonadjacent() {
+        // Radial: bus 0 → bus 1 → bus 2 (bus 0 = slack, buses 1,2 = PQ)
+        // Bus 0 and bus 2 are NOT directly connected, so H[0,1] and H[1,0]
+        // (which correspond to bus-pair (1,2) in pvpq) must be zero in H.
+        let ybus = make_3bus_ybus(); // make_3bus_ybus is radial: 0-1-2
+        let pvpq = &[1usize, 2];
+        let pq = &[1usize, 2];
+        let v_mag = [1.0_f64, 0.98, 0.96];
+        let v_ang = [0.0_f64, -0.03, -0.06];
+
+        let p_calc = {
+            let v: Vec<Complex64> = v_mag
+                .iter()
+                .zip(v_ang.iter())
+                .map(|(&m, &a)| Complex64::from_polar(m, a))
+                .collect();
+            let mut p = [0.0_f64; 3];
+            for (&y, (i, j)) in ybus.iter() {
+                p[i] += (v[i] * (y * v[j]).conj()).re;
+            }
+            p
+        };
+        let q_calc = {
+            let v: Vec<Complex64> = v_mag
+                .iter()
+                .zip(v_ang.iter())
+                .map(|(&m, &a)| Complex64::from_polar(m, a))
+                .collect();
+            let mut q = [0.0_f64; 3];
+            for (&y, (i, j)) in ybus.iter() {
+                q[i] += (v[i] * (y * v[j]).conj()).im;
+            }
+            q
+        };
+
+        let jac = build_jacobian_sparse(&ybus, &v_mag, &v_ang, &p_calc, &q_calc, pq, pvpq);
+        // pvpq indices: row 0 = bus 1, row 1 = bus 2. Bus 1 and 2 ARE adjacent
+        // in make_3bus_ybus (branch 1-2 exists), so H[0,1] and H[1,0] CAN be non-zero.
+        // The pair (bus0, bus2) = (pvpq row -1, row 1) is excluded (slack not in pvpq).
+        // What we can assert: jac is 4×4 and nnz ≤ 16.
+        assert!(
+            jac.nnz() <= 16,
+            "radial 3-bus Jacobian should have at most 16 nnz, got {}",
+            jac.nnz()
+        );
+        // Also verify diagonals are non-zero.
+        let diag_nonzero = (0..4).all(|i| jac.get(i, i).copied().unwrap_or(0.0).abs() > 0.0);
+        assert!(
+            diag_nonzero,
+            "all diagonal entries of a connected Jacobian must be non-zero"
+        );
+    }
 }

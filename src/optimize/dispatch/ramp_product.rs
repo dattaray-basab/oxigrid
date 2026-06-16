@@ -424,4 +424,209 @@ mod tests {
         let res = opt.optimize().expect("optimize failed");
         assert!(res.frp_cost_usd >= 0.0);
     }
+
+    // ── Test 7: offline generator skipped ─────────────────────────────────────
+    #[test]
+    fn test_offline_generator_skipped() {
+        let n_h = 3;
+        let req = 50.0;
+        let config = FrpConfig {
+            n_hours: n_h,
+            n_generators: 1,
+            ramping_requirement_mw_per_h: vec![req; n_h],
+            down_ramp_requirement_mw_per_h: vec![req * 0.5; n_h],
+            frp_price_usd_per_mw: 5.0,
+            reserve_price_usd_per_mw: 3.0,
+        };
+        let mut opt = FrpOptimizer::new(config);
+        opt.add_generator(RampingGenerator {
+            id: 0,
+            p_min_mw: 0.0,
+            p_max_mw: 200.0,
+            ramp_up_mw_per_h: 100.0,
+            ramp_down_mw_per_h: 80.0,
+            cost_per_mwh: 30.0,
+            commitment: vec![false; n_h],
+            dispatch_mw: vec![100.0; n_h],
+        });
+        let res = opt
+            .optimize()
+            .expect("optimize should succeed with offline generator");
+        for h in 0..n_h {
+            assert_eq!(
+                res.upward_frp_mw[h][0], 0.0,
+                "offline generator must not be allocated FRP at hour {h}"
+            );
+            assert!(
+                (res.unserved_frp_mw[h] - req).abs() < 1e-9,
+                "unserved must equal requirement at hour {h} when all generators offline"
+            );
+        }
+    }
+
+    // ── Test 8: schedule length mismatch returns error ─────────────────────────
+    #[test]
+    fn test_schedule_length_mismatch_error() {
+        let n_h = 4;
+        let mut opt = FrpOptimizer::new(single_gen_config(n_h, 50.0));
+        // commitment has length 2, not 4 → should trigger ScheduleLengthMismatch
+        opt.add_generator(RampingGenerator {
+            id: 0,
+            p_min_mw: 0.0,
+            p_max_mw: 200.0,
+            ramp_up_mw_per_h: 100.0,
+            ramp_down_mw_per_h: 80.0,
+            cost_per_mwh: 30.0,
+            commitment: vec![true, true], // length 2, not 4
+            dispatch_mw: vec![100.0; n_h],
+        });
+        let result = opt.optimize();
+        assert!(
+            matches!(result, Err(FrpError::ScheduleLengthMismatch { .. })),
+            "expected ScheduleLengthMismatch error, got {result:?}"
+        );
+    }
+
+    // ── Test 9: downward FRP allocated correctly ───────────────────────────────
+    #[test]
+    fn test_downward_frp_allocated() {
+        let config = FrpConfig {
+            n_hours: 1,
+            n_generators: 1,
+            ramping_requirement_mw_per_h: vec![0.0], // no upward requirement
+            down_ramp_requirement_mw_per_h: vec![60.0],
+            frp_price_usd_per_mw: 5.0,
+            reserve_price_usd_per_mw: 3.0,
+        };
+        let mut opt = FrpOptimizer::new(config);
+        opt.add_generator(RampingGenerator {
+            id: 0,
+            p_min_mw: 0.0,
+            p_max_mw: 200.0,
+            ramp_up_mw_per_h: 100.0,
+            ramp_down_mw_per_h: 80.0,
+            cost_per_mwh: 30.0,
+            commitment: vec![true],
+            dispatch_mw: vec![100.0], // footroom = 100, ramp_down=80 > req=60
+        });
+        let res = opt.optimize().expect("optimize should succeed");
+        assert!(
+            (res.downward_frp_mw[0][0] - 60.0).abs() < 1e-9,
+            "downward FRP must be 60.0 MW (limited by requirement, not ramp or footroom)"
+        );
+    }
+
+    // ── Test 10: FRP cost = allocated MW × price ───────────────────────────────
+    #[test]
+    fn test_frp_cost_equals_allocated_times_price() {
+        let price = 10.0;
+        let req = 30.0;
+        let config = FrpConfig {
+            n_hours: 1,
+            n_generators: 1,
+            ramping_requirement_mw_per_h: vec![req],
+            down_ramp_requirement_mw_per_h: vec![0.0],
+            frp_price_usd_per_mw: price,
+            reserve_price_usd_per_mw: 3.0,
+        };
+        let mut opt = FrpOptimizer::new(config);
+        // headroom = 200 - 50 = 150, ramp = 100 → avail = 100 > req = 30
+        opt.add_generator(gen_online(1, 200.0, 100.0, 50.0, 30.0));
+        let res = opt.optimize().expect("optimize should succeed");
+        let expected_cost = req * price; // 300.0
+        assert!(
+            (res.frp_cost_usd - expected_cost).abs() < 1e-9,
+            "cost must equal allocated ({req} MW) × price ({price} USD/MW) = {expected_cost}, got {}",
+            res.frp_cost_usd
+        );
+    }
+
+    // ── Test 11: zero requirement → all hours met ──────────────────────────────
+    #[test]
+    fn test_zero_requirement_all_met() {
+        let n_h = 5;
+        let config = FrpConfig {
+            n_hours: n_h,
+            n_generators: 1,
+            ramping_requirement_mw_per_h: vec![0.0; n_h],
+            down_ramp_requirement_mw_per_h: vec![0.0; n_h],
+            frp_price_usd_per_mw: 5.0,
+            reserve_price_usd_per_mw: 3.0,
+        };
+        let mut opt = FrpOptimizer::new(config);
+        opt.add_generator(gen_online(n_h, 200.0, 100.0, 100.0, 30.0));
+        let res = opt
+            .optimize()
+            .expect("optimize should succeed with zero requirements");
+        for h in 0..n_h {
+            assert!(
+                res.frp_requirement_met[h],
+                "zero requirement must always be met at hour {h}"
+            );
+            assert_eq!(
+                res.unserved_frp_mw[h], 0.0,
+                "unserved must be 0.0 when requirement is 0.0 at hour {h}"
+            );
+        }
+    }
+
+    // ── Test 12: two generators share the FRP requirement ─────────────────────
+    #[test]
+    fn test_multiple_generators_share_load() {
+        let req = 50.0;
+        let config = FrpConfig {
+            n_hours: 1,
+            n_generators: 2,
+            ramping_requirement_mw_per_h: vec![req],
+            down_ramp_requirement_mw_per_h: vec![0.0],
+            frp_price_usd_per_mw: 5.0,
+            reserve_price_usd_per_mw: 3.0,
+        };
+        let mut opt = FrpOptimizer::new(config);
+        // Each generator: headroom=130-100=30, ramp=50 → avail_up=30
+        // Together: 30+30=60 >= req=50
+        for id in 0..2_usize {
+            opt.add_generator(RampingGenerator {
+                id,
+                p_min_mw: 0.0,
+                p_max_mw: 130.0,
+                ramp_up_mw_per_h: 50.0,
+                ramp_down_mw_per_h: 50.0,
+                cost_per_mwh: 30.0 + id as f64, // slightly different costs
+                commitment: vec![true],
+                dispatch_mw: vec![100.0],
+            });
+        }
+        let res = opt.optimize().expect("optimize should succeed");
+        let total_up: f64 = res.upward_frp_mw[0].iter().sum();
+        assert!(
+            (total_up - req).abs() < 1e-9,
+            "total upward FRP must equal requirement {req}, got {total_up}"
+        );
+    }
+
+    // ── Test 13: no generators → all unserved ─────────────────────────────────
+    #[test]
+    fn test_no_generators_returns_unserved() {
+        let req = 40.0;
+        // n_generators=1 in config but we add no generator to the optimizer
+        let config = FrpConfig {
+            n_hours: 1,
+            n_generators: 1,
+            ramping_requirement_mw_per_h: vec![req],
+            down_ramp_requirement_mw_per_h: vec![20.0],
+            frp_price_usd_per_mw: 5.0,
+            reserve_price_usd_per_mw: 3.0,
+        };
+        let opt = FrpOptimizer::new(config);
+        // No generator added — optimizer must still return Ok with all unserved
+        let res = opt
+            .optimize()
+            .expect("optimize must succeed even with no generators");
+        assert!(
+            (res.unserved_frp_mw[0] - req).abs() < 1e-9,
+            "all requirement must be unserved when no generators present, got {}",
+            res.unserved_frp_mw[0]
+        );
+    }
 }

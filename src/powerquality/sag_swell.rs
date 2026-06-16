@@ -588,4 +588,297 @@ mod tests {
             );
         }
     }
+
+    #[test]
+    fn test_sag_detection_simple() {
+        // 5 normal bookend samples + 40 sag samples + 5 normal = 50 total
+        // 40 half-cycles = 20 cycles <= 30 => InstantaneousSag
+        let mut env = vec![1.0_f64; 5];
+        env.extend(vec![0.7_f64; 40]);
+        env.extend(vec![1.0_f64; 5]);
+        let events = detect_voltage_events(&env, 10_000.0, 50.0, 0.9, 1.1, 0.1);
+        assert!(!events.is_empty(), "Expected at least one sag event");
+        assert_eq!(
+            events[0].event_type,
+            VoltageEventType::InstantaneousSag,
+            "40 half-cycle sag (20 cycles) should be InstantaneousSag"
+        );
+    }
+
+    #[test]
+    fn test_swell_detection_simple() {
+        // 5 normal + 20 swell samples + 5 normal
+        // 20 half-cycles = 10 cycles <= 30 => InstantaneousSwell
+        let mut env = vec![1.0_f64; 5];
+        env.extend(vec![1.2_f64; 20]);
+        env.extend(vec![1.0_f64; 5]);
+        let events = detect_voltage_events(&env, 10_000.0, 50.0, 0.9, 1.1, 0.1);
+        assert!(!events.is_empty(), "Expected at least one swell event");
+        assert_eq!(
+            events[0].event_type,
+            VoltageEventType::InstantaneousSwell,
+            "20 half-cycle swell (10 cycles) should be InstantaneousSwell"
+        );
+    }
+
+    #[test]
+    fn test_interruption_simple() {
+        // voltage 0.05 pu < 0.1 threshold => Interruption
+        let mut env = vec![1.0_f64; 5];
+        env.extend(vec![0.05_f64; 10]);
+        env.extend(vec![1.0_f64; 5]);
+        let events = detect_voltage_events(&env, 10_000.0, 50.0, 0.9, 1.1, 0.1);
+        assert!(!events.is_empty(), "Expected an interruption event");
+        assert_eq!(
+            events[0].event_type,
+            VoltageEventType::Interruption,
+            "Voltage 0.05 pu < 0.1 threshold should be Interruption"
+        );
+    }
+
+    #[test]
+    fn test_half_cycle_rms_constant_dc() {
+        // RMS of a constant waveform of value c is c
+        let constant_val = 0.6_f64;
+        let waveform: Vec<f64> = vec![constant_val; 10_000];
+        let sample_rate = 10_000.0_f64;
+        let nominal_freq = 50.0_f64;
+        let rms_vals = half_cycle_rms(&waveform, sample_rate, nominal_freq);
+        assert!(!rms_vals.is_empty(), "RMS output should not be empty");
+        for (i, &v) in rms_vals.iter().enumerate() {
+            assert!(
+                (v - constant_val).abs() < 1e-9,
+                "RMS at index {} should be ~0.6, got {}",
+                i,
+                v
+            );
+        }
+    }
+
+    #[test]
+    fn test_itic_acceptable_moderate_sag() {
+        // 5 cycles at 60 Hz = 83.33ms, retained 0.75 pu
+        // itic lower at 83.33ms (20–500ms) = 0.7, upper >> 1.0
+        // 0.75 >= 0.7 => compatible
+        let event = VoltageEvent {
+            event_type: VoltageEventType::InstantaneousSag,
+            start_sample: 0,
+            end_sample: 9,
+            duration_cycles: 5.0,
+            magnitude_pu: 0.75,
+            retained_voltage: 0.75,
+            energy_absorbed: 0.0,
+        };
+        assert!(
+            itic_compatible(&event, 60.0),
+            "5-cycle sag at 0.75 pu (83.3ms) should be ITIC compatible"
+        );
+    }
+
+    #[test]
+    fn test_itic_prohibited_long_deep_sag() {
+        // 600 cycles at 60 Hz = 10,000ms = 10s, retained 0.4 pu
+        // itic lower at 10,000ms (500ms–10s) = 0.5
+        // 0.4 < 0.5 => NOT compatible
+        let event = VoltageEvent {
+            event_type: VoltageEventType::TemporarySag,
+            start_sample: 0,
+            end_sample: 1199,
+            duration_cycles: 600.0,
+            magnitude_pu: 0.4,
+            retained_voltage: 0.4,
+            energy_absorbed: 0.0,
+        };
+        assert!(
+            !itic_compatible(&event, 60.0),
+            "600-cycle deep sag at 0.4 pu (10s) should NOT be ITIC compatible"
+        );
+    }
+
+    #[test]
+    fn test_semi_f47_passes_short_sag() {
+        // 0.5 cycles at 50 Hz = 10ms < 20ms threshold => min required = 0.0
+        // retained 0.0 pu >= 0.0 => passes
+        let event = VoltageEvent {
+            event_type: VoltageEventType::InstantaneousSag,
+            start_sample: 0,
+            end_sample: 0,
+            duration_cycles: 0.5,
+            magnitude_pu: 0.0,
+            retained_voltage: 0.0,
+            energy_absorbed: 0.0,
+        };
+        assert!(
+            semi_f47_compatible(&event, 50.0),
+            "0.5-cycle interruption at 0.0 pu (10ms) should pass SEMI F47 (below 20ms threshold)"
+        );
+    }
+
+    #[test]
+    fn test_sag_boundary_exactly_09() {
+        // voltage exactly 0.9 pu: is_sag = v < 0.9 => false (not < 0.9)
+        // so no sag event should be detected
+        let env = vec![0.9_f64; 50];
+        let events = detect_voltage_events(&env, 10_000.0, 50.0, 0.9, 1.1, 0.1);
+        assert!(
+            events.is_empty(),
+            "Voltage exactly at threshold 0.9 pu should not trigger a sag event"
+        );
+    }
+
+    // ── New tests covering remaining requirements ──────────────────────────────
+
+    #[test]
+    fn test_sag_detection_instantaneous_below_09() {
+        // 10 half-cycle samples at 0.7 pu (5 cycles) → InstantaneousSag
+        let mut env = vec![1.0_f64; 10];
+        env.extend(vec![0.7_f64; 10]); // 10 half-cycles = 5 cycles ≤ 30 → Instantaneous
+        env.extend(vec![1.0_f64; 10]);
+        let events = detect_voltage_events(&env, 10_000.0, 50.0, 0.9, 1.1, 0.1);
+        assert!(
+            !events.is_empty(),
+            "Voltage 0.7 pu < 0.9 should trigger a sag event"
+        );
+        assert_eq!(
+            events[0].event_type,
+            VoltageEventType::InstantaneousSag,
+            "5-cycle sag at 0.7 pu should be InstantaneousSag, got {:?}",
+            events[0].event_type
+        );
+        assert!(
+            events[0].magnitude_pu < 0.9,
+            "Sag magnitude_pu must be < 0.9, got {}",
+            events[0].magnitude_pu
+        );
+    }
+
+    #[test]
+    fn test_swell_detection_above_11() {
+        // Swell at 1.15 pu for 6 half-cycle samples (3 cycles) → InstantaneousSwell
+        let mut env = vec![1.0_f64; 10];
+        env.extend(vec![1.15_f64; 6]); // 6 half-cycles = 3 cycles ≤ 30 → Instantaneous
+        env.extend(vec![1.0_f64; 10]);
+        let events = detect_voltage_events(&env, 10_000.0, 50.0, 0.9, 1.1, 0.1);
+        assert!(
+            !events.is_empty(),
+            "Voltage 1.15 pu > 1.1 should trigger a swell event"
+        );
+        assert_eq!(
+            events[0].event_type,
+            VoltageEventType::InstantaneousSwell,
+            "3-cycle swell at 1.15 pu should be InstantaneousSwell, got {:?}",
+            events[0].event_type
+        );
+        assert!(
+            events[0].magnitude_pu > 1.1,
+            "Swell magnitude_pu must be > 1.1, got {}",
+            events[0].magnitude_pu
+        );
+    }
+
+    #[test]
+    fn test_interruption_detection_below_01() {
+        // Voltage 0.03 pu < 0.1 interruption threshold → Interruption
+        let mut env = vec![1.0_f64; 10];
+        env.extend(vec![0.03_f64; 8]); // below interruption threshold
+        env.extend(vec![1.0_f64; 10]);
+        let events = detect_voltage_events(&env, 10_000.0, 50.0, 0.9, 1.1, 0.1);
+        assert!(
+            !events.is_empty(),
+            "Voltage 0.03 pu should trigger an interruption event"
+        );
+        assert_eq!(
+            events[0].event_type,
+            VoltageEventType::Interruption,
+            "Voltage 0.03 pu < 0.1 threshold should be Interruption, got {:?}",
+            events[0].event_type
+        );
+    }
+
+    #[test]
+    fn test_half_cycle_rms_all_ones() {
+        // RMS of constant 1.0 waveform must be 1.0 per half-cycle window
+        let waveform = vec![1.0_f64; 2000];
+        let rms = half_cycle_rms(&waveform, 10_000.0, 50.0);
+        assert!(
+            !rms.is_empty(),
+            "RMS of all-ones waveform should not be empty"
+        );
+        for (idx, &r) in rms.iter().enumerate() {
+            assert!(
+                (r - 1.0).abs() < 1e-12,
+                "Half-cycle RMS at index {} should be 1.0, got {}",
+                idx,
+                r
+            );
+        }
+    }
+
+    #[test]
+    fn test_itic_acceptable_region_normal_operation() {
+        // 2 cycles at 60 Hz = 33.33 ms, retained 0.9 pu
+        // itic_lower at 33.33 ms = 0.7 pu (flat region 20–500 ms)
+        // 0.9 >= 0.7 and 0.9 <= 1.1 (upper at >500ms) → acceptable
+        let event = VoltageEvent {
+            event_type: VoltageEventType::InstantaneousSag,
+            start_sample: 0,
+            end_sample: 199,
+            duration_cycles: 2.0,
+            magnitude_pu: 0.9,
+            retained_voltage: 0.9,
+            energy_absorbed: 0.0,
+        };
+        assert!(
+            itic_compatible(&event, 60.0),
+            "2-cycle sag at 0.9 pu (33.33 ms) should be within ITIC acceptable region"
+        );
+    }
+
+    #[test]
+    fn test_semi_f47_boundary_200ms_passes_at_50pu() {
+        // Duration exactly 200 ms at 50 Hz = 10 cycles
+        // SEMI F47: 20–200 ms window requires ≥ 0.50 pu
+        // retained = 0.50 pu → passes (boundary inclusive via >=)
+        let event = VoltageEvent {
+            event_type: VoltageEventType::InstantaneousSag,
+            start_sample: 0,
+            end_sample: 999,
+            duration_cycles: 10.0,
+            magnitude_pu: 0.50,
+            retained_voltage: 0.50,
+            energy_absorbed: 0.1,
+        };
+        assert!(
+            semi_f47_compatible(&event, 50.0),
+            "10-cycle sag at 0.5 pu (200 ms) should pass SEMI F47 (min = 0.50 at boundary)"
+        );
+    }
+
+    #[test]
+    fn test_event_duration_measurement() {
+        // 20 half-cycle envelope samples = 10 cycles at 50 Hz
+        let mut env = vec![1.0_f64; 5];
+        env.extend(vec![0.6_f64; 20]); // 20 half-cycles = 10 cycles
+        env.extend(vec![1.0_f64; 5]);
+        let events = detect_voltage_events(&env, 10_000.0, 50.0, 0.9, 1.1, 0.1);
+        assert_eq!(events.len(), 1, "Expected exactly one event");
+        let ev = &events[0];
+        assert!(
+            (ev.duration_cycles - 10.0).abs() < 1e-9,
+            "Duration should be 10.0 cycles (20 half-cycles), got {}",
+            ev.duration_cycles
+        );
+    }
+
+    #[test]
+    fn test_swell_boundary_exactly_11_not_triggered() {
+        // voltage exactly 1.1 pu: is_swell = v > 1.1 => false (not > 1.1)
+        // no swell event should be detected
+        let env = vec![1.1_f64; 50];
+        let events = detect_voltage_events(&env, 10_000.0, 50.0, 0.9, 1.1, 0.1);
+        assert!(
+            events.is_empty(),
+            "Voltage exactly at swell threshold 1.1 pu should not trigger a swell event"
+        );
+    }
 }

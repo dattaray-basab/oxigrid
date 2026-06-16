@@ -159,7 +159,11 @@ impl SmallSignalModel {
             });
         }
 
-        modes.sort_by(|a, b| a.damping_ratio.partial_cmp(&b.damping_ratio).unwrap());
+        modes.sort_by(|a, b| {
+            a.damping_ratio
+                .partial_cmp(&b.damping_ratio)
+                .unwrap_or(std::cmp::Ordering::Equal)
+        });
         modes
     }
 
@@ -307,5 +311,175 @@ mod tests {
         assert_eq!(a[(0, 1)], 1.0);
         // Upper-left should be 0
         assert_eq!(a[(0, 0)], 0.0);
+    }
+
+    // ---- 7 new tests ---------------------------------------------------
+
+    #[test]
+    fn test_oscillation_mode_is_stable_and_oscillatory() {
+        // Construct a mode manually and verify flag methods.
+        let stable_osc = OscillationMode {
+            sigma: -0.5,
+            omega_d: std::f64::consts::TAU,
+            damping_ratio: 0.079,
+            freq_hz: 1.0,
+            participation: vec![0.5, 0.5],
+        };
+        assert!(stable_osc.is_stable(), "negative sigma must be stable");
+        assert!(
+            stable_osc.is_oscillatory(),
+            "omega_d > 1e-6 must be oscillatory"
+        );
+
+        let unstable_real = OscillationMode {
+            sigma: 0.3,
+            omega_d: 0.0,
+            damping_ratio: 0.0,
+            freq_hz: 0.0,
+            participation: vec![1.0],
+        };
+        assert!(
+            !unstable_real.is_stable(),
+            "positive sigma must not be stable"
+        );
+        assert!(
+            !unstable_real.is_oscillatory(),
+            "zero omega_d must not be oscillatory"
+        );
+    }
+
+    #[test]
+    fn test_compute_eigenvalues_schur_known_matrix() {
+        // 2×2 matrix with known eigenvalues: [[−1, 0], [0, −3]] → λ = −1, −3 (both real)
+        let a = DMatrix::from_row_slice(2, 2, &[-1.0_f64, 0.0, 0.0, -3.0]);
+        let eigs = compute_eigenvalues_schur(&a);
+        assert_eq!(eigs.len(), 2, "should extract 2 eigenvalues");
+        let mut reals: Vec<f64> = eigs.iter().map(|&(r, _)| r).collect();
+        reals.sort_by(|x, y| x.partial_cmp(y).expect("finite eigenvalue"));
+        assert!(
+            (reals[0] - (-3.0)).abs() < 1e-8,
+            "first eigenvalue should be -3, got {}",
+            reals[0]
+        );
+        assert!(
+            (reals[1] - (-1.0)).abs() < 1e-8,
+            "second eigenvalue should be -1, got {}",
+            reals[1]
+        );
+        // Imaginary parts of a diagonal real matrix must be zero
+        for &(_, imag) in &eigs {
+            assert!(
+                imag.abs() < 1e-8,
+                "imaginary part should be zero, got {}",
+                imag
+            );
+        }
+    }
+
+    #[test]
+    fn test_state_matrix_lower_blocks_correct() {
+        // Single-machine: verify lower-left (−K/M) and lower-right (−D/M)
+        let h = 5.0_f64;
+        let d = 3.0_f64;
+        let k_s = 1.5_f64;
+        let freq = 50.0_f64;
+        let m = 2.0 * h / (2.0 * std::f64::consts::PI * freq);
+        let model = SmallSignalModel::smib(h, d, k_s, freq);
+        let a = model.state_matrix();
+        // a[(1,0)] = −K/M
+        let expected_lower_left = -k_s / m;
+        assert!(
+            (a[(1, 0)] - expected_lower_left).abs() < 1e-10,
+            "lower-left block: expected {:.6}, got {:.6}",
+            expected_lower_left,
+            a[(1, 0)]
+        );
+        // a[(1,1)] = −D/M
+        let expected_lower_right = -d / m;
+        assert!(
+            (a[(1, 1)] - expected_lower_right).abs() < 1e-10,
+            "lower-right block: expected {:.6}, got {:.6}",
+            expected_lower_right,
+            a[(1, 1)]
+        );
+    }
+
+    #[test]
+    fn test_overdamped_smib_no_oscillation_modes() {
+        // Very high damping → real eigenvalues → no oscillation modes.
+        // ζ > 1 when D/(2*√(K*M)) > 1, i.e. D > 2*√(K*M).
+        // M ≈ 0.0318, K=2 → critical D ≈ 2*√(2*0.0318) ≈ 0.504;
+        // Use D=5 to be safely overdamped.
+        let model = SmallSignalModel::smib(6.0, 5.0, 2.0, 60.0);
+        let modes = model.oscillation_modes();
+        assert!(
+            modes.is_empty(),
+            "overdamped SMIB should produce no oscillation modes, got {}",
+            modes.len()
+        );
+        // System must still be stable
+        assert!(model.is_stable(), "overdamped SMIB must be stable");
+    }
+
+    #[test]
+    fn test_new_constructor_matches_manual_fields() {
+        // SmallSignalModel::new() should store the supplied vectors verbatim.
+        let inertia = vec![0.05, 0.06];
+        let damping = vec![0.1, 0.2];
+        let k_sync = vec![vec![3.0, -1.0], vec![-1.0, 3.0]];
+        let model = SmallSignalModel::new(inertia.clone(), damping.clone(), k_sync.clone());
+        assert_eq!(model.inertia, inertia, "inertia mismatch");
+        assert_eq!(model.damping, damping, "damping mismatch");
+        assert_eq!(model.k_sync, k_sync, "k_sync mismatch");
+    }
+
+    #[test]
+    fn test_three_machine_stability_and_modes() {
+        // Three identical generators coupled in a ring; use small D so modes are oscillatory.
+        let m = 2.0 * 5.0 / (2.0 * std::f64::consts::PI * 50.0);
+        let ks = 2.0_f64;
+        // Ring coupling: diagonal = 2*ks, off-diagonal = −ks/2
+        let k_sync = vec![
+            vec![2.0 * ks, -ks / 2.0, -ks / 2.0],
+            vec![-ks / 2.0, 2.0 * ks, -ks / 2.0],
+            vec![-ks / 2.0, -ks / 2.0, 2.0 * ks],
+        ];
+        let model = SmallSignalModel::new(vec![m; 3], vec![0.05; 3], k_sync);
+        // State matrix must be 6×6
+        let a = model.state_matrix();
+        assert_eq!(a.nrows(), 6, "state matrix rows for 3-machine should be 6");
+        assert_eq!(a.ncols(), 6, "state matrix cols for 3-machine should be 6");
+        assert!(
+            model.is_stable(),
+            "three-machine ring system should be stable"
+        );
+        let modes = model.oscillation_modes();
+        assert!(
+            !modes.is_empty(),
+            "three-machine ring should have oscillation modes"
+        );
+    }
+
+    #[test]
+    fn test_oscillation_modes_sorted_by_damping_ratio_ascending() {
+        // Use a three-machine system where modes are expected to differ.
+        // At minimum the output must be sorted ascending by damping ratio.
+        let m = 2.0 * 4.0 / (2.0 * std::f64::consts::PI * 60.0);
+        let k_sync = vec![
+            vec![1.5, -0.5, -0.3],
+            vec![-0.5, 2.0, -0.4],
+            vec![-0.3, -0.4, 1.8],
+        ];
+        let model =
+            SmallSignalModel::new(vec![m, m * 1.2, m * 0.8], vec![0.05, 0.08, 0.03], k_sync);
+        let modes = model.oscillation_modes();
+        for window in modes.windows(2) {
+            assert!(
+                window[0].damping_ratio <= window[1].damping_ratio + 1e-12,
+                "modes not sorted ascending: {:.6} > {:.6}",
+                window[0].damping_ratio,
+                window[1].damping_ratio
+            );
+        }
     }
 }
