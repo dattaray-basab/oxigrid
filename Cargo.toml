@@ -108,5 +108,5 @@ required-features = ["battery"]
 [workspace]
 members = [
     "./",
-    "crates/oxigrid-demo",
+    "bin-crates/oxigrid-demo",
 ]
