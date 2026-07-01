@@ -77,6 +77,11 @@ required-features = ["optimize", "renewable"]
 name = "renewable_forecast"
 required-features = ["renewable"]
 
+[[bin]]
+name = "oxigrid-demo"
+path = "src/bin/main.rs"
+required-features = ["std", "powerflow", "battery", "renewable", "optimize", "harmonics", "protection"]
+
 [[bench]]
 name = "powerflow_bench"
 required-features = ["powerflow"]
