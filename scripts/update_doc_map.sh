@@ -6,43 +6,48 @@ DOC_MAP="doc_map.md"
 MARKER_START="<!-- DOC_MAP_START -->"
 MARKER_END="<!-- DOC_MAP_END -->"
 
-title_for() {
-    case "$1" in
-        analytics) echo "Analytics" ;;
-        battery) echo "Battery" ;;
-        digitaltwin) echo "Digital Twin" ;;
-        harmonics) echo "Harmonics" ;;
-        io) echo "IO" ;;
-        monitoring) echo "Monitoring" ;;
-        network) echo "Network" ;;
-        optimize) echo "Optimize" ;;
-        planning) echo "Planning" ;;
-        powerelectronics) echo "Power Electronics" ;;
-        powerflow) echo "Power Flow" ;;
-        powerquality) echo "Power Quality" ;;
-        protection) echo "Protection" ;;
-        renewable) echo "Renewable" ;;
-        security) echo "Security" ;;
-        simulation) echo "Simulation" ;;
-        stability) echo "Stability" ;;
-        testcases) echo "Testcases" ;;
-        units) echo "Units" ;;
-        *) printf "%s" "${1^}" ;;
-    esac
+get_title() {
+    # Extract the first ATX header from the file (e.g. '# Title')
+    file="$1"
+    fallback="$2"
+    if header=$(grep -m1 -E '^[[:space:]]*#+' "$file" 2>/dev/null || true); then
+        if [ -n "$header" ]; then
+            # strip leading hashes and surrounding whitespace robustly
+            printf '%s' "$(printf '%s' "$header" | sed 's/^[[:space:]]*#\+ *//; s/^[#[:space:]]*//; s/[[:space:]]*$//')"
+            return
+        fi
+    fi
+    # fallback: prettify the fallback name (module or filename)
+    # replace -/_ with space and capitalize each word
+    printf '%s' "$(printf '%s' "$fallback" | sed 's/[-_]/ /g' | awk '{for(i=1;i<=NF;i++){ $i=toupper(substr($i,1,1)) substr($i,2) }}1')"
 }
 
 generate_doc_map() {
     echo "# Module Documentation Map" > "$DOC_MAP"
     echo "" >> "$DOC_MAP"
-    for d in src/*; do
-        [ -d "$d" ] || continue
-        base=$(basename "$d")
-        doc="$d/${base}.md"
-        if [ -f "$doc" ]; then
-            title=$(title_for "$base")
-            echo "- [${title}](${doc})" >> "$DOC_MAP"
+
+
+    # Iterate each module directory under src/ and pick a representative markdown file.
+    for module_dir in src/*; do
+        [ -d "$module_dir" ] || continue
+        module=$(basename "$module_dir")
+        # prefer module/module.md
+        module_doc="$module_dir/$module.md"
+        if [ -f "$module_doc" ]; then
+            title=$(get_title "$module_doc" "$module")
+            echo "- [${title}](${module_doc})" >> "$DOC_MAP"
+            continue
         fi
+        # otherwise pick the first markdown file in the module directory
+        first_md=$(find "$module_dir" -maxdepth 1 -type f -name '*.md' | sort | head -n1 || true)
+        if [ -n "$first_md" ]; then
+            title=$(get_title "$first_md" "$(basename "$first_md" .md)")
+            echo "- [${title}](${first_md})" >> "$DOC_MAP"
+            continue
+        fi
+        # if no markdown found, skip
     done
+
     echo "Generated $DOC_MAP"
 }
 

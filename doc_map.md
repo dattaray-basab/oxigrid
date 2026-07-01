@@ -10,7 +10,7 @@
 - [Optimize](src/optimize/optimize.md)
 - [Planning](src/planning/planning.md)
 - [Power Electronics](src/powerelectronics/powerelectronics.md)
-- [Power Flow](src/powerflow/powerflow.md)
+- [Powerflow](src/powerflow/powerflow.md)
 - [Power Quality](src/powerquality/powerquality.md)
 - [Protection](src/protection/protection.md)
 - [Renewable](src/renewable/renewable.md)
