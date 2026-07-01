@@ -30,7 +30,10 @@ fn main() -> Result<()> {
 
 fn run_powerflow_demo() -> Result<()> {
     println!("--- Power Flow Demo ---");
-    let path = concat!(env!("CARGO_MANIFEST_DIR"), "/tests/data/ieee14.m");
+    // When the demo is run as a workspace member, its manifest dir is
+    // `.../crates/oxigrid-demo`. The IEEE test case lives at the repository
+    // root under `tests/data`, so walk two levels up from the manifest dir.
+    let path = concat!(env!("CARGO_MANIFEST_DIR"), "/../../tests/data/ieee14.m");
     let network = PowerNetwork::from_matpower(path)?;
 
     println!("Loaded IEEE 14 bus case ({})", path);

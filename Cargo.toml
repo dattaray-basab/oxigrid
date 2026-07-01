@@ -77,10 +77,8 @@ required-features = ["optimize", "renewable"]
 name = "renewable_forecast"
 required-features = ["renewable"]
 
-[[bin]]
-name = "oxigrid-demo"
-path = "src/bin/main.rs"
-required-features = ["std", "powerflow", "battery", "renewable", "optimize", "harmonics", "protection"]
+# The demo binary has been moved to a separate crate under `crates/oxigrid-demo`.
+# See workspace members below.
 
 [[bench]]
 name = "powerflow_bench"
@@ -106,3 +104,9 @@ required-features = ["battery"]
 name = "lfp_cell_test"
 path = "tests/battery_validation/lfp_cell_test.rs"
 required-features = ["battery"]
+
+[workspace]
+members = [
+    "./",
+    "bin-crates/oxigrid-demo",
+]
