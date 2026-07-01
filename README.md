@@ -239,8 +239,8 @@ This section is generated from `doc_map.md`. To refresh it from the current `src
 python3 scripts/update_doc_map.py
 ```
 
-<!-- DOC_MAP_START -->
-# Module Documentation Map
+""<!-- DOC_MAP_START -->
+".# Module Documentation Map
 
 - [Analytics](src/analytics/analytics.md)
 - [Battery](src/battery/battery.md)
@@ -261,7 +261,8 @@ python3 scripts/update_doc_map.py
 - [Stability](src/stability/stability.md)
 - [Testcases](src/testcases/testcases.md)
 - [Units](src/units/units.md)
-<!-- DOC_MAP_END -->
+."
+<!-- DOC_MAP_END -->""
 
 ---
 
