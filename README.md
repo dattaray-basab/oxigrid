@@ -231,6 +231,40 @@ reliability, embedded deployability, and first-class Rust ergonomics.
 
 ---
 
+## Module Documentation
+
+This section is generated from `doc_map.md`. To refresh it from the current `src/*/*.md` docs, run:
+
+```bash
+python3 scripts/update_doc_map.py
+```
+
+<!-- DOC_MAP_START -->
+# Module Documentation Map
+
+- [Analytics](src/analytics/analytics.md)
+- [Battery](src/battery/battery.md)
+- [Digital Twin](src/digitaltwin/digitaltwin.md)
+- [Harmonics](src/harmonics/harmonics.md)
+- [IO](src/io/io.md)
+- [Monitoring](src/monitoring/monitoring.md)
+- [Network](src/network/network.md)
+- [Optimize](src/optimize/optimize.md)
+- [Planning](src/planning/planning.md)
+- [Power Electronics](src/powerelectronics/powerelectronics.md)
+- [Power Flow](src/powerflow/powerflow.md)
+- [Power Quality](src/powerquality/powerquality.md)
+- [Protection](src/protection/protection.md)
+- [Renewable](src/renewable/renewable.md)
+- [Security](src/security/security.md)
+- [Simulation](src/simulation/simulation.md)
+- [Stability](src/stability/stability.md)
+- [Testcases](src/testcases/testcases.md)
+- [Units](src/units/units.md)
+<!-- DOC_MAP_END -->
+
+---
+
 ## Quick Start
 
 Add OxiGrid to `Cargo.toml`:
@@ -345,49 +379,49 @@ fn main() -> Result<()> {
 
 ## Module Overview
 
-| Module | Description |
-|--------|-------------|
-| `analytics` | Grid operations KPIs, congestion analysis, renewable metrics, demand analytics |
-| `battery` | ECM, BMS, aging, thermal, pack, SoP/SoC estimation, P2D DFN model |
-| `digitaltwin` | Grid digital twin, SCADA/PMU telemetry, alert engine, replay scenarios |
-| `harmonics` | THD/spectrum analysis (OxiFFT), power quality, IEC/IEEE standards |
-| `io` | CSV/MATPOWER export, time series, PMU synchrophasor, serialization |
-| `monitoring` | Frequency monitoring, ROCOF relay, UFLS, nadir estimation, inertia estimation |
-| `network` | Bus/branch models, admittance, topology (petgraph), FACTS, HVDC/MTDC, resilience, transformers, reconfiguration, voltage regulation |
-| `optimize` | DC/AC/BESS OPF, ORPD, SCOPF, unit commitment (MILP B&B), market clearing (DAM/RTM/ancillary/LMP/DSO), MPC EMS, EV charging/fleet/V2G, hydrogen P2G, storage arbitrage/stochastic DP, demand response, microgrid advanced EMS, expansion planning |
-| `planning` | Distribution expansion planning, asset condition assessment, RCM, DER integration, long-term strategy |
-| `powerflow` | Newton-Raphson (warm-start), fast decoupled, DC, continuation (CPF), probabilistic, HEM, sparse LU, state estimation (AC WLS), unbalanced 3-phase, EKF dynamic SE, SIMD kernels |
-| `powerquality` | PQ event classification, indices (THD/K-factor), sag/swell detection, waveform analysis, standards compliance (EN 50160/IEEE 519/IEC 61000-3-2/NERC TPL) |
-| `protection` | Relay coordination, differential/distance protection, autorecloser, fault analysis (symmetric + asymmetric SLG/LL/DLG), IEC 60909, advanced coordination |
-| `renewable` | Solar PV (irradiance/MPPT/shading/inverter), wind (turbine/wake/farm/spatial/offshore 15MW), forecasting (ARIMA/SARIMA/persistence/ensemble/NN bridge/probabilistic/conformal/quantile regression), grid codes (LVRT/HVRT/frequency response/PQ/ramp), grid integration analysis |
-| `security` | Anomaly detection, cyber-physical attack modeling, NERC CIP checker, threat intelligence (MITRE ATT&CK for ICS), SCADA security assessment, incident response playbook |
-| `simulation` | Simulation module |
-| `stability` | Generator models (classical/detailed/AVR/governor/PSS), multi-machine, transient (RK45+event queue+CCT), small signal, modal, voltage stability (L-index/FVSI), AGC, restoration, load modeling (ZIP/motor/composite) |
-| `testcases` | IEEE 14/30/57/118/300-bus, RTS-96, PEGASE-89, synthetic topologies, benchmark suite |
-| `units` | Electrical, energy, thermal unit conversion |
+| Module         | Description                                                                                                                                                                                                                                                                      |
+| -------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `analytics`    | Grid operations KPIs, congestion analysis, renewable metrics, demand analytics                                                                                                                                                                                                   |
+| `battery`      | ECM, BMS, aging, thermal, pack, SoP/SoC estimation, P2D DFN model                                                                                                                                                                                                                |
+| `digitaltwin`  | Grid digital twin, SCADA/PMU telemetry, alert engine, replay scenarios                                                                                                                                                                                                           |
+| `harmonics`    | THD/spectrum analysis (OxiFFT), power quality, IEC/IEEE standards                                                                                                                                                                                                                |
+| `io`           | CSV/MATPOWER export, time series, PMU synchrophasor, serialization                                                                                                                                                                                                               |
+| `monitoring`   | Frequency monitoring, ROCOF relay, UFLS, nadir estimation, inertia estimation                                                                                                                                                                                                    |
+| `network`      | Bus/branch models, admittance, topology (petgraph), FACTS, HVDC/MTDC, resilience, transformers, reconfiguration, voltage regulation                                                                                                                                              |
+| `optimize`     | DC/AC/BESS OPF, ORPD, SCOPF, unit commitment (MILP B&B), market clearing (DAM/RTM/ancillary/LMP/DSO), MPC EMS, EV charging/fleet/V2G, hydrogen P2G, storage arbitrage/stochastic DP, demand response, microgrid advanced EMS, expansion planning                                 |
+| `planning`     | Distribution expansion planning, asset condition assessment, RCM, DER integration, long-term strategy                                                                                                                                                                            |
+| `powerflow`    | Newton-Raphson (warm-start), fast decoupled, DC, continuation (CPF), probabilistic, HEM, sparse LU, state estimation (AC WLS), unbalanced 3-phase, EKF dynamic SE, SIMD kernels                                                                                                  |
+| `powerquality` | PQ event classification, indices (THD/K-factor), sag/swell detection, waveform analysis, standards compliance (EN 50160/IEEE 519/IEC 61000-3-2/NERC TPL)                                                                                                                         |
+| `protection`   | Relay coordination, differential/distance protection, autorecloser, fault analysis (symmetric + asymmetric SLG/LL/DLG), IEC 60909, advanced coordination                                                                                                                         |
+| `renewable`    | Solar PV (irradiance/MPPT/shading/inverter), wind (turbine/wake/farm/spatial/offshore 15MW), forecasting (ARIMA/SARIMA/persistence/ensemble/NN bridge/probabilistic/conformal/quantile regression), grid codes (LVRT/HVRT/frequency response/PQ/ramp), grid integration analysis |
+| `security`     | Anomaly detection, cyber-physical attack modeling, NERC CIP checker, threat intelligence (MITRE ATT&CK for ICS), SCADA security assessment, incident response playbook                                                                                                           |
+| `simulation`   | Simulation module                                                                                                                                                                                                                                                                |
+| `stability`    | Generator models (classical/detailed/AVR/governor/PSS), multi-machine, transient (RK45+event queue+CCT), small signal, modal, voltage stability (L-index/FVSI), AGC, restoration, load modeling (ZIP/motor/composite)                                                            |
+| `testcases`    | IEEE 14/30/57/118/300-bus, RTS-96, PEGASE-89, synthetic topologies, benchmark suite                                                                                                                                                                                              |
+| `units`        | Electrical, energy, thermal unit conversion                                                                                                                                                                                                                                      |
 
 ---
 
 ## Feature Flags
 
-| Feature | Description | Default |
-|---------|-------------|---------|
-| `std` | Standard library support | yes |
-| `powerflow` | AC/DC power flow solvers, state estimation | yes |
-| `stability` | Transient and small-signal stability analysis | yes |
-| `battery` | Equivalent circuit models, BMS, SoC estimation | yes |
-| `battery-p2d` | P2D DFN electrochemical model (requires `battery`) | yes |
-| `renewable` | Solar PV, wind, forecasting, grid codes | yes |
-| `optimize` | OPF, unit commitment, EV, hydrogen, market clearing | yes |
-| `harmonics` | THD/spectrum analysis, filter design | yes |
-| `protection` | Fault analysis, relay coordination | yes |
-| `powerelectronics` | Power electronics models | yes |
-| `forecast-ml` | ML-based forecasting bridge (requires `renewable`) | no |
-| `io-matpower` | MATPOWER format I/O (requires `powerflow`) | no |
-| `io-csv` | CSV time-series import/export | no |
-| `io-oxirs` | OxiRS knowledge graph integration | no |
-| `simd` | AVX2 SIMD kernels for Newton-Raphson inner loop | no |
-| `parallel` | Rayon parallelism for Jacobian construction | no |
+| Feature            | Description                                         | Default |
+| ------------------ | --------------------------------------------------- | ------- |
+| `std`              | Standard library support                            | yes     |
+| `powerflow`        | AC/DC power flow solvers, state estimation          | yes     |
+| `stability`        | Transient and small-signal stability analysis       | yes     |
+| `battery`          | Equivalent circuit models, BMS, SoC estimation      | yes     |
+| `battery-p2d`      | P2D DFN electrochemical model (requires `battery`)  | yes     |
+| `renewable`        | Solar PV, wind, forecasting, grid codes             | yes     |
+| `optimize`         | OPF, unit commitment, EV, hydrogen, market clearing | yes     |
+| `harmonics`        | THD/spectrum analysis, filter design                | yes     |
+| `protection`       | Fault analysis, relay coordination                  | yes     |
+| `powerelectronics` | Power electronics models                            | yes     |
+| `forecast-ml`      | ML-based forecasting bridge (requires `renewable`)  | no      |
+| `io-matpower`      | MATPOWER format I/O (requires `powerflow`)          | no      |
+| `io-csv`           | CSV time-series import/export                       | no      |
+| `io-oxirs`         | OxiRS knowledge graph integration                   | no      |
+| `simd`             | AVX2 SIMD kernels for Newton-Raphson inner loop     | no      |
+| `parallel`         | Rayon parallelism for Jacobian construction         | no      |
 
 Disable the default feature set and opt-in selectively for minimal binary size:
 
@@ -409,14 +443,14 @@ Benchmarks are provided for standard IEEE test cases using
 [Criterion](https://github.com/bheisler/criterion.rs). The following targets have been measured
 on a modern desktop (Apple M-series); your results will vary by platform.
 
-| Benchmark | Method | Target |
-|-----------|--------|--------|
-| IEEE 14-bus | Newton-Raphson | < 1 ms |
-| IEEE 14-bus | DC Approximation | < 0.1 ms |
-| IEEE 30-bus | Newton-Raphson | < 2 ms |
-| IEEE 118-bus | Newton-Raphson | < 10 ms |
-| IEEE 118-bus | DC Approximation | < 1 ms |
-| IEEE 300-bus | Newton-Raphson | < 50 ms |
+| Benchmark    | Method           | Target   |
+| ------------ | ---------------- | -------- |
+| IEEE 14-bus  | Newton-Raphson   | < 1 ms   |
+| IEEE 14-bus  | DC Approximation | < 0.1 ms |
+| IEEE 30-bus  | Newton-Raphson   | < 2 ms   |
+| IEEE 118-bus | Newton-Raphson   | < 10 ms  |
+| IEEE 118-bus | DC Approximation | < 1 ms   |
+| IEEE 300-bus | Newton-Raphson   | < 50 ms  |
 
 Run benchmarks locally:
 
@@ -487,15 +521,65 @@ modules that can be composed freely:
 
 ### Linear Algebra Strategy
 
-| Network size | Dense/sparse choice | Backend |
-|---|---|---|
-| ≤ 200 buses | Dense LU factorisation | `oxiblas-lapack` |
-| > 200 buses | Sparse CSR LU | `oxiblas-sparse` |
+| Network size | Dense/sparse choice    | Backend          |
+| ------------ | ---------------------- | ---------------- |
+| ≤ 200 buses  | Dense LU factorisation | `oxiblas-lapack` |
+| > 200 buses  | Sparse CSR LU          | `oxiblas-sparse` |
 
 The selection is automatic and transparent — `solve_auto()` in `src/powerflow/sparse_lu.rs`
 inspects the matrix dimensions at runtime.
 
 ---
+
+## Build & Test
+
+- **Prerequisites:** Rust toolchain (MSRV 1.75+) installed via `rustup`.
+
+- **Build the full workspace (all features):**
+
+```bash
+cargo build --workspace --all-features
+```
+
+- **Run the full test suite (standard):**
+
+```bash
+cargo test --workspace --all-features
+```
+
+- **Run tests in parallel with `nextest` (recommended for CI):**
+
+```bash
+cargo nextest run --all-features
+```
+
+- **Run benches:**
+
+```bash
+cargo bench --all-features
+```
+
+- **Run an example (pick the example name):**
+
+```bash
+cargo run --example ieee14_powerflow --features powerflow
+```
+
+- **Build documentation:**
+
+```bash
+cargo doc --all-features --no-deps --open
+```
+
+- **Format & lint:**
+
+```bash
+cargo fmt --all
+cargo clippy --all-features -- -D warnings
+```
+
+Notes: some examples and benches require specific feature flags (see the `Examples` and
+`Performance` sections). Use `--features "feature1,feature2"` to enable them.
 
 ## Testing
 
@@ -520,13 +604,13 @@ cargo doc --all-features --no-deps --open
 
 Test data for IEEE standard networks is located in `tests/data/`:
 
-| File | Buses | Branches | Source |
-|------|-------|----------|--------|
-| `ieee14.m` | 14 | 20 | IEEE 14-bus test case |
-| `ieee30.m` | 30 | 41 | IEEE 30-bus test case |
-| `ieee57.m` | 57 | 80 | IEEE 57-bus test case |
-| `ieee118.m` | 118 | 186 | IEEE 118-bus test case |
-| `ieee300.m` | 300 | 411 | IEEE 300-bus test case |
+| File        | Buses | Branches | Source                 |
+| ----------- | ----- | -------- | ---------------------- |
+| `ieee14.m`  | 14    | 20       | IEEE 14-bus test case  |
+| `ieee30.m`  | 30    | 41       | IEEE 30-bus test case  |
+| `ieee57.m`  | 57    | 80       | IEEE 57-bus test case  |
+| `ieee118.m` | 118   | 186      | IEEE 118-bus test case |
+| `ieee300.m` | 300   | 411      | IEEE 300-bus test case |
 
 ---
 
@@ -534,12 +618,12 @@ Test data for IEEE standard networks is located in `tests/data/`:
 
 Four runnable examples are provided in the `examples/` directory:
 
-| Example | Feature | Description |
-|---------|---------|-------------|
-| `ieee14_powerflow` | `powerflow` | NR, DC, and FDLF on the IEEE 14-bus; branch flows and losses |
-| `battery_cycling` | `battery` | CC/CV charge-discharge cycle with Coulomb counting and 1RC ECM |
-| `microgrid_optimization` | `optimize`, `renewable` | Microgrid EMS dispatch with PV and battery storage |
-| `renewable_forecast` | `renewable` | ARIMA solar generation forecast with persistence baseline |
+| Example                  | Feature                 | Description                                                    |
+| ------------------------ | ----------------------- | -------------------------------------------------------------- |
+| `ieee14_powerflow`       | `powerflow`             | NR, DC, and FDLF on the IEEE 14-bus; branch flows and losses   |
+| `battery_cycling`        | `battery`               | CC/CV charge-discharge cycle with Coulomb counting and 1RC ECM |
+| `microgrid_optimization` | `optimize`, `renewable` | Microgrid EMS dispatch with PV and battery storage             |
+| `renewable_forecast`     | `renewable`             | ARIMA solar generation forecast with persistence baseline      |
 
 ```bash
 cargo run --example ieee14_powerflow --features powerflow
@@ -554,12 +638,12 @@ cargo run --example renewable_forecast --features renewable
 
 Measured with `tokei` on the current codebase (2026-06-16):
 
-| Language | Files | Code | Comments | Blanks |
-|----------|-------|------|----------|--------|
-| Rust | 483 | 302,247 | — | — |
-| TOML | 2 | 94 | — | 10 |
-| Markdown | 3 | — | 734 | 187 |
-| **Total** | **488** | **305,108** | — | — |
+| Language  | Files   | Code        | Comments | Blanks |
+| --------- | ------- | ----------- | -------- | ------ |
+| Rust      | 483     | 302,247     | —        | —      |
+| TOML      | 2       | 94          | —        | 10     |
+| Markdown  | 3       | —           | 734      | 187    |
+| **Total** | **488** | **305,108** | —        | —      |
 
 - **Version**: 0.1.2
 - **Tests**: 6,123 passing
