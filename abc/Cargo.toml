@@ -1,0 +1,11 @@
+[package]
+name = "abc"
+version = "0.1.0"
+edition = "2024"
+rust-version = "1.93"
+description = "Minimal library crate for the oxigrid workspace"
+license = "Apache-2.0"
+authors = ["Basab Dattaray"]
+repository = "https://github.com/cool-japan/oxigrid"
+
+[dependencies]

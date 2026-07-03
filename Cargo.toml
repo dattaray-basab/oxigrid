@@ -7,11 +7,6 @@ license = "Apache-2.0"
 description = "Pure Rust Energy Systems Simulation & Optimization Library"
 authors = ["COOLJAPAN OU (Team Kitasan)"]
 repository = "https://github.com/cool-japan/oxigrid"
-homepage = "https://github.com/cool-japan/oxigrid"
-documentation = "https://docs.rs/oxigrid"
-readme = "README.md"
-keywords = ["power-systems", "energy", "simulation", "grid", "optimization"]
-categories = ["science", "simulation", "algorithms"]
 
 [dependencies]
 petgraph = "0.8.3"
@@ -44,7 +39,6 @@ default = [
     "powerelectronics",
 ]
 std = []
-no_std_compat = []
 powerflow = []
 stability = ["powerflow"]
 battery = []
@@ -54,59 +48,12 @@ optimize = ["powerflow"]
 harmonics = []
 protection = ["powerflow"]
 powerelectronics = []
-forecast-ml = ["renewable"]
-io-matpower = ["powerflow"]
-io-csv = []
-io-oxirs = []
 simd = []
 parallel = ["std", "dep:rayon"]
-
-[[example]]
-name = "ieee14_powerflow"
-required-features = ["powerflow"]
-
-[[example]]
-name = "battery_cycling"
-required-features = ["battery"]
-
-[[example]]
-name = "microgrid_optimization"
-required-features = ["optimize", "renewable"]
-
-[[example]]
-name = "renewable_forecast"
-required-features = ["renewable"]
-
-# The demo binary has been moved to a separate crate under `crates/oxigrid-demo`.
-# See workspace members below.
-
-[[bench]]
-name = "powerflow_bench"
-required-features = ["powerflow"]
-harness = false
-
-[[bench]]
-name = "battery_bench"
-required-features = ["battery"]
-harness = false
-
-[[bench]]
-name = "opf_bench"
-required-features = ["optimize"]
-harness = false
-
-[[test]]
-name = "kokam_75ah_test"
-path = "tests/battery_validation/kokam_75ah_test.rs"
-required-features = ["battery"]
-
-[[test]]
-name = "lfp_cell_test"
-path = "tests/battery_validation/lfp_cell_test.rs"
-required-features = ["battery"]
 
 [workspace]
 members = [
     "./",
     "bin-crates/oxigrid-demo",
+    "bin-crates/demo2",
 ]
